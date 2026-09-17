@@ -1,0 +1,82 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish, without the leading v (for example 1.2.3)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  # Required by NuGet trusted publishing: the job exchanges a GitHub OIDC token
+  # for a short-lived nuget.org API key, so no long-lived secret is stored.
+  id-token: write
+
+jobs:
+  publish:
+    name: publish to nuget.org
+    runs-on: ubuntu-latest
+    environment: nuget.org
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Resolve version
+        id: version
+        run: |
+          set -euo pipefail
+          if [ -n "${{ inputs.version }}" ]; then
+            version="${{ inputs.version }}"
+          else
+            version="${GITHUB_REF_NAME#v}"
+          fi
+
+          # Guard against a mistyped tag reaching nuget.org, where a published
+          # version can never be replaced.
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::'$version' is not a SemVer 2.0 version" >&2
+            exit 1
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Publishing version $version"
+
+      - name: Build
+        run: dotnet build -c Release -p:Version=${{ steps.version.outputs.version }}
+
+      - name: Pack
+        run: dotnet pack -c Release --no-build -o artifacts -p:Version=${{ steps.version.outputs.version }}
+
+      - name: Upload packages as a build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nupkg-${{ steps.version.outputs.version }}
+          path: |
+            artifacts/*.nupkg
+            artifacts/*.snupkg
+          if-no-files-found: error
+
+      - name: NuGet login
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ vars.NUGET_USER }}
+
+      - name: Push
+        # dotnet nuget push also uploads the matching .snupkg found next to each
+        # .nupkg, so the symbol packages need no separate step.
+        run: >
+          dotnet nuget push "artifacts/*.nupkg"
+          --api-key "${{ steps.login.outputs.NUGET_API_KEY }}"
+          --source https://api.nuget.org/v3/index.json
+          --skip-duplicate

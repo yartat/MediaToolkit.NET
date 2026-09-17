@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>Windows backend for MediaToolkit.NET: camera capture and file recording through Media Foundation, audio capture, loopback and playback through WASAPI, and DirectShow device enumeration. COM is called through raw vtable slots, so no built-in COM marshalling is required.</Description>
+    <PackageTags>windows;mediafoundation;wasapi;directshow;capture;recording;com</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../MediaToolkitNet.Core/MediaToolkitNet.Core.csproj" />
+    <ProjectReference Include="../MediaToolkitNet.Interop/MediaToolkitNet.Interop.csproj" />
+  </ItemGroup>
+
+</Project>

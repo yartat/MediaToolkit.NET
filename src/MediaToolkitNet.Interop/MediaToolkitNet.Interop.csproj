@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>Shared native interop primitives for MediaToolkit.NET: native library probing and loading, UTF-8 marshalling helpers, and raw COM vtable access through function pointers instead of [ComImport].</Description>
+    <PackageTags>interop;pinvoke;native;com;vtable;libraryimport</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../MediaToolkitNet.Core/MediaToolkitNet.Core.csproj" />
+  </ItemGroup>
+
+</Project>

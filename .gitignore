@@ -55,3 +55,13 @@ CodeCoverage/
 *.VisualState.xml
 TestResult.xml
 nunit-*.xml
+
+.vs/
+.idea/
+*.user
+
+# Native FFmpeg binaries are not tracked; see src/FFMpeg/README.md
+src/FFMpeg/**/*.dll
+src/FFMpeg/**/*.so
+src/FFMpeg/**/*.so.*
+src/FFMpeg/**/*.dylib

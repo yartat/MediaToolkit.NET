@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>macOS backend for MediaToolkit.NET: AVFoundation capture and playback driven through the Objective-C runtime, and CoreAudio AudioQueue for PCM capture and render.</Description>
+    <PackageTags>macos;avfoundation;coreaudio;audioqueue;objectivec;capture;playback</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../MediaToolkitNet.Core/MediaToolkitNet.Core.csproj" />
+    <ProjectReference Include="../MediaToolkitNet.Interop/MediaToolkitNet.Interop.csproj" />
+  </ItemGroup>
+
+</Project>

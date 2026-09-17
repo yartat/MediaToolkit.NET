@@ -1,0 +1,58 @@
+<Project>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>preview</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <IsAotCompatible>true</IsAotCompatible>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591;CA1401;SYSLIB1054</NoWarn>
+  </PropertyGroup>
+
+  <PropertyGroup Label="Version">
+    <!-- CI overrides this from the release tag: dotnet pack -p:Version=1.2.3 -->
+    <VersionPrefix>0.1.0</VersionPrefix>
+  </PropertyGroup>
+
+  <!--
+    Package ids need no mapping: every project is already named MediaToolkitNet.*,
+    so PackageId falls back to the assembly name. The code carries that name rather
+    than plain MediaToolkit because both "MediaToolkit" and "MediaToolkit.NET" are
+    taken on nuget.org by an unrelated project, and an id there stays reserved even
+    when every version of it is unlisted.
+  -->
+
+  <PropertyGroup Label="Package metadata">
+    <Authors>Yaroslav V Tatarenko</Authors>
+    <Product>MediaToolkit.NET</Product>
+    <Copyright>Copyright (c) 2026 Yaroslav V Tatarenko</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageProjectUrl>https://github.com/yartat/MediaToolkit.NET</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/yartat/MediaToolkit.NET</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>media;interop;native;pinvoke;audio;video;capture;playback</PackageTags>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+  </PropertyGroup>
+
+  <PropertyGroup Label="Symbols and source link">
+    <!-- SourceLink ships in the SDK; these switches turn it on for the package. -->
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <!-- Set by the CI workflows so the build is reproducible from the tag. -->
+    <ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Only consumed when a project is actually packed. -->
+    <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="\" Visible="false" />
+  </ItemGroup>
+
+</Project>

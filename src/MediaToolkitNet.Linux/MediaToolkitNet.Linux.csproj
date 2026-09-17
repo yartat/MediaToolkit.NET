@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>Linux backend for MediaToolkit.NET: V4L2 video capture over memory mapped buffers, plus audio capture and playback through ALSA and the PulseAudio simple API. Works with PipeWire through its ALSA and PulseAudio compatibility layers.</Description>
+    <PackageTags>linux;v4l2;alsa;pulseaudio;pipewire;capture;audio;video</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../MediaToolkitNet.Core/MediaToolkitNet.Core.csproj" />
+    <ProjectReference Include="../MediaToolkitNet.Interop/MediaToolkitNet.Interop.csproj" />
+  </ItemGroup>
+
+</Project>

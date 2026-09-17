@@ -1,0 +1,15 @@
+<Solution>
+  <Folder Name="/samples/">
+    <Project Path="samples/MediaToolkitNet.Sample.Cli/MediaToolkitNet.Sample.Cli.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/MediaToolkitNet.Core/MediaToolkitNet.Core.csproj" />
+    <Project Path="src/MediaToolkitNet.FFmpeg/MediaToolkitNet.FFmpeg.csproj" />
+    <Project Path="src/MediaToolkitNet.Interop/MediaToolkitNet.Interop.csproj" />
+    <Project Path="src/MediaToolkitNet.Linux/MediaToolkitNet.Linux.csproj" />
+    <Project Path="src/MediaToolkitNet.MacOS/MediaToolkitNet.MacOS.csproj" />
+    <Project Path="src/MediaToolkitNet.Mpv/MediaToolkitNet.Mpv.csproj" />
+    <Project Path="src/MediaToolkitNet.Windows/MediaToolkitNet.Windows.csproj" />
+    <Project Path="src/MediaToolkitNet/MediaToolkitNet.csproj" />
+  </Folder>
+</Solution>
