@@ -369,9 +369,11 @@ static unsafe int ListEncoders()
 
         for (var i = 0u; i < count; i++)
         {
+            // Most registered MFTs carry a friendly name, but the attribute is
+            // optional, so fall back rather than printing a blank line.
             var name = MediaToolkitNet.Windows.Native.Mf.GetString(
-                activates[i], new Guid("32d0adf5-c0e9-4de4-a0c7-e5ba2eb84c20"));
-            Console.WriteLine($"  {name}");
+                activates[i], MediaToolkitNet.Windows.Native.WinGuids.MftFriendlyName);
+            Console.WriteLine($"  {name ?? "(unnamed MFT)"}");
             MediaToolkitNet.Interop.Com.Com.Release(activates[i]);
         }
 

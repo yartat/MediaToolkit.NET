@@ -1,0 +1,52 @@
+MediaToolkit.NET 0.1.0 - first release.
+
+The README on this page already covers what the library does, how to install it,
+what each backend provides and what it needs at runtime. These notes cover only
+what is specific to this release: how far it has actually been tested, and where
+it does not work yet.
+
+VERIFIED ON REAL HARDWARE (Windows 11)
+
+- Device enumeration through Media Foundation, WASAPI and DirectShow, including
+  default-endpoint flags.
+- Video capture from a USB camera: 640x480 NV12 at 30 fps, sustaining about
+  23 fps delivered to the frame handler.
+- Audio capture through WASAPI at 48 kHz stereo float.
+- Recording live audio to AAC/MP4 through IMFSinkWriter, producing a
+  structurally complete MP4 (ftyp / mdat / moov, brand mp42), which confirms the
+  writer was finalised rather than merely fed.
+
+The Windows COM vtable slot tables were corrected twice during development by
+running them, not by reading them: a wrong slot number compiles, raises no
+exception, and silently calls the neighbouring method.
+
+NOT EXERCISED YET - PLEASE READ BEFORE DEPENDING ON THIS
+
+- The Linux and macOS backends have never been run. They compile and are guarded
+  at runtime, but the V4L2 struct sizes and the Objective-C runtime layout have
+  not been confirmed against real hardware.
+- The FFmpeg and mpv backends have never been run, because those native
+  libraries were not installed on the development machine. The FFmpeg ABI
+  self-check refuses to proceed on a layout it cannot confirm, so a mismatch
+  should produce a clear error rather than memory corruption, but that path is
+  untested too.
+- Media Foundation video recording is untested: the development machine has no
+  video encoder MFT registered at all. MediaFoundationRecorder detects that case
+  and reports it plainly. Audio recording on that path does work.
+
+That is why this is 0.1.0. The public API may still change.
+
+KNOWN LIMITATIONS
+
+- Media Foundation video recording needs a video encoder MFT registered on the
+  machine; editions such as Windows N without the Media Feature Pack have none.
+- MacOSBackend cannot write files, because AVAssetWriter is not wrapped. Use the
+  FFmpeg backend instead.
+- FFmpegPlayer only decodes: no renderer and no audio output.
+- Only the mpv client API is wrapped; the render API is not.
+- DirectShow is wrapped for device enumeration only, with no filter graph.
+
+Reports from Linux and macOS are especially welcome.
+
+Full notes: https://github.com/yartat/MediaToolkit.NET/releases/tag/v0.1.0
+Issues: https://github.com/yartat/MediaToolkit.NET/issues

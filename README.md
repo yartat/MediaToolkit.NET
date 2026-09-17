@@ -146,10 +146,14 @@ Ubuntu, Windows and macOS, runs the backend registry on each as a smoke test, an
 uploads the packages as a build artifact.
 
 `.github/workflows/release.yml` publishes to nuget.org when a `v*` tag is pushed.
+Add both notes files for the version first — `docs/release-notes/v0.1.0.nuget.txt`
+goes into the packages, `docs/release-notes/v0.1.0.md` is the GitHub release body
+— then tag:
 
 ```bash
 git tag v0.1.0
 git push origin v0.1.0
+gh release create v0.1.0 --notes-file docs/release-notes/v0.1.0.md
 ```
 
 The version comes from the tag, so nothing has to be bumped in the repository;
@@ -163,8 +167,8 @@ One-time setup:
 
 1. On nuget.org, add a trusted publishing policy for this repository
    (`yartat/MediaToolkit.NET`) and the `Release` workflow.
-2. In the repository settings, add a **variable** (not a secret) named
-   `NUGET_USER` holding the nuget.org account name.
+2. In the repository settings, add a **secret** named `NUGET_USER` holding the
+   nuget.org account name, which is what `release.yml` reads.
 3. Optionally add required reviewers to the `nuget.org` environment to gate every
    publish behind an approval.
 

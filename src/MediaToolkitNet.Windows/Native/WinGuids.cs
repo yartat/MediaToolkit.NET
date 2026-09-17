@@ -86,6 +86,12 @@ public static class WinGuids
     /// <summary>MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING.</summary>
     public static readonly Guid EnableVideoProcessing = new("fb394f3d-ccf1-42ee-bbb3-f9b845d5681d");
 
+    /// <summary>
+    /// MFT_FRIENDLY_NAME_Attribute, the display name on the IMFActivate objects
+    /// returned by MFTEnumEx. It is optional, so treat a missing value as normal.
+    /// </summary>
+    public static readonly Guid MftFriendlyName = new("314ffbae-5b41-4c95-9c19-4e7d586face3");
+
     /// <summary>MF_SINK_WRITER_DISABLE_THROTTLING.</summary>
     public static readonly Guid DisableThrottling = new("08b845d8-2b74-4afe-9d53-be16d2d5ae4f");
 

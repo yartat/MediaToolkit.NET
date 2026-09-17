@@ -33,6 +33,7 @@
     <Copyright>Copyright (c) 2026 Yaroslav V Tatarenko</Copyright>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageIcon>icon.png</PackageIcon>
     <PackageProjectUrl>https://github.com/yartat/MediaToolkit.NET</PackageProjectUrl>
     <RepositoryUrl>https://github.com/yartat/MediaToolkit.NET</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
@@ -51,8 +52,13 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Only consumed when a project is actually packed. -->
-    <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="\" Visible="false" />
+    <!--
+      Only consumed when a project is actually packed. The package page gets its
+      own README, written for someone who just installed the package; the README
+      at the repository root is written for someone working on it.
+    -->
+    <None Include="$(MSBuildThisFileDirectory)docs\package\README.md" Pack="true" PackagePath="\" Visible="false" />
+    <None Include="$(MSBuildThisFileDirectory)assets\icon.png" Pack="true" PackagePath="\" Visible="false" />
   </ItemGroup>
 
 </Project>
