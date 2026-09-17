@@ -70,7 +70,7 @@ jobs:
         id: login
         uses: NuGet/login@v1
         with:
-          user: ${{ vars.NUGET_USER }}
+          user: ${{ secrets.NUGET_USER }}
 
       - name: Push
         # dotnet nuget push also uploads the matching .snupkg found next to each
