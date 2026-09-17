@@ -17,7 +17,9 @@ namespace MediaToolkitNet.FFmpeg.Native;
 /// <c>av_opt_get_int</c>.
 /// </para>
 /// <para>
-/// The offsets are for FFmpeg 7.x on a 64-bit target.
+/// The offsets are for a 64-bit target. Those below have held from FFmpeg 6
+/// through 9; the two that move between series live in
+/// <see cref="FFmpegGeneration"/> and arrive through <see cref="Use"/>.
 /// <see cref="Validate"/> checks them against the values FFmpeg documents for a
 /// freshly allocated object, so a mismatched build fails with a clear message
 /// instead of corrupting memory.
@@ -38,19 +40,19 @@ public static unsafe class AbiLayout
     public const int StreamIndex = 8;
 
     /// <summary>Offset of <c>AVStream::time_base</c>.</summary>
-    public const int StreamTimeBase = 24;
+    public const int StreamTimeBase = 32;
 
     /// <summary>Offset of <c>AVStream::start_time</c>.</summary>
-    public const int StreamStartTime = 32;
+    public const int StreamStartTime = 40;
 
     /// <summary>Offset of <c>AVStream::duration</c>.</summary>
-    public const int StreamDuration = 40;
+    public const int StreamDuration = 48;
 
     /// <summary>Offset of <c>AVStream::avg_frame_rate</c>.</summary>
-    public const int StreamAvgFrameRate = 80;
+    public const int StreamAvgFrameRate = 88;
 
     /// <summary>Offset of <c>AVStream::codecpar</c>.</summary>
-    public const int StreamCodecPar = 208;
+    public const int StreamCodecPar = 16;
 
     /// <summary>Offset of <c>AVCodecParameters::codec_type</c>.</summary>
     public const int CodecParametersCodecType = 0;
@@ -98,11 +100,28 @@ public static unsafe class AbiLayout
     /// <summary>Offset of <c>AVCodecContext::codec_type</c>. Read only by <see cref="Validate"/>.</summary>
     public const int CodecContextCodecType = 12;
 
-    /// <summary>Offset of <c>AVCodecContext::time_base</c>.</summary>
-    public const int CodecContextTimeBase = 100;
+    /// <summary>
+    /// Offset of <c>AVCodecContext::time_base</c>, which belongs to the series
+    /// that was loaded. <see cref="Use"/> sets it.
+    /// </summary>
+    public static int CodecContextTimeBase { get; private set; } = -1;
 
-    /// <summary>Offset of <c>AVCodecContext::pix_fmt</c>. Read only by <see cref="Validate"/>.</summary>
-    public const int CodecContextPixFmt = 136;
+    /// <summary>
+    /// Offset of <c>AVCodecContext::pix_fmt</c>, which belongs to the series that
+    /// was loaded. Read only by <see cref="Validate"/>.
+    /// </summary>
+    public static int CodecContextPixFmt { get; private set; } = -1;
+
+    /// <summary>
+    /// Points the layout at the series of FFmpeg that was loaded. Called before
+    /// <see cref="Validate"/> and before any field is read.
+    /// </summary>
+    /// <param name="generation">The series.</param>
+    internal static void Use(FFmpegGeneration generation)
+    {
+        CodecContextTimeBase = generation.CodecContextTimeBase;
+        CodecContextPixFmt = generation.CodecContextPixFmt;
+    }
 
     /// <summary>
     /// True when the encoder-side offsets passed <see cref="Validate"/>. Encoding
@@ -230,7 +249,13 @@ public static unsafe class AbiLayout
     /// live past the stable head of the struct. Their offsets are discovered by
     /// <see cref="ProbeAudioFrameFields"/> rather than hard-coded.
     /// </remarks>
-    public static void PrepareAudioFrame(AVFrameHead* frame, int sampleRate, int channels, int sampleFormat, int samples)
+    public static void PrepareAudioFrame(
+        AVFrameHead* frame,
+        int sampleRate,
+        int channels,
+        ulong channelMask,
+        int sampleFormat,
+        int samples)
     {
         if (!AudioFrameLayoutVerified)
         {
@@ -240,7 +265,7 @@ public static unsafe class AbiLayout
         frame->Format = sampleFormat;
         frame->NbSamples = samples;
         *(int*)((byte*)frame + FrameSampleRate) = sampleRate;
-        *(AVChannelLayoutNative*)((byte*)frame + FrameChannelLayout) = AVChannelLayoutNative.Default(channels);
+        *(AVChannelLayoutNative*)((byte*)frame + FrameChannelLayout) = AVChannelLayoutNative.Of(channels, channelMask);
     }
 
     /// <summary>
@@ -355,7 +380,12 @@ public static unsafe class AbiLayout
             }
 
             AV.SetOption(context, "ar", markerRate);
-            AV.SetOption(context, "ac", markerChannels);
+
+            // The layout, not the channel count: "ac" is a command line option and
+            // not an AVOption, so a decoder told only that opens with no layout at
+            // all and refuses. Asking for "3c" gives the conventional layout of
+            // three channels, in native order, which is what the scan looks for.
+            AV.SetOption(context, "ch_layout", FormattableString.Invariant($"{markerChannels}c"));
             if (AV.avcodec_open2(context, codec, null) < 0)
             {
                 return false;
@@ -618,6 +648,43 @@ public static unsafe class AbiLayout
             {
                 throw Fail($"the AVStream layout does not match: time_base = {timeBase.Num}/{timeBase.Den}.");
             }
+        }
+    }
+
+    /// <summary>
+    /// Verifies the AVStream offsets against a stream just added to an output,
+    /// before anything is written through them.
+    /// </summary>
+    /// <param name="stream">The stream <c>avformat_new_stream</c> returned.</param>
+    /// <param name="expectedIndex">The position it was added at.</param>
+    /// <exception cref="MediaBackendUnavailableException">The offsets do not match this build.</exception>
+    /// <remarks>
+    /// The muxing path writes codec parameters through <c>codecpar</c>, so a
+    /// wrong offset there would not read rubbish but write through it. A fresh
+    /// stream knows its own index and owns allocated parameters whose type is
+    /// still unknown, and that is enough to catch the case.
+    /// </remarks>
+    internal static void ValidateNewStream(void* stream, int expectedIndex)
+    {
+        var index = StreamIndexOf(stream);
+        if (index != expectedIndex)
+        {
+            throw Fail(
+                $"the AVStream layout does not match: a stream added at {expectedIndex} reports index {index}.");
+        }
+
+        var parameters = CodecParametersOf(stream);
+        if (parameters is null)
+        {
+            throw Fail("the AVStream layout does not match: codecpar of a new stream is NULL.");
+        }
+
+        var type = CodecTypeOf(parameters);
+        if (type != AVMediaType.Unknown)
+        {
+            throw Fail(
+                $"the AVStream layout does not match: codecpar->codec_type of a new stream is {(int)type} " +
+                $"rather than {(int)AVMediaType.Unknown}.");
         }
     }
 

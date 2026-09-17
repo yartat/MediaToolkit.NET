@@ -74,6 +74,9 @@ public static unsafe class AV
     /// <summary><c>int av_samples_alloc(uint8_t **audio_data, int *linesize, int nb_channels, int nb_samples, enum AVSampleFormat, int align)</c></summary>
     public static delegate* unmanaged[Cdecl]<byte**, int*, int, int, int, int, int> av_samples_alloc;
 
+    /// <summary><c>void av_channel_layout_default(AVChannelLayout *ch_layout, int nb_channels)</c></summary>
+    public static delegate* unmanaged[Cdecl]<AVChannelLayoutNative*, int, void> av_channel_layout_default;
+
     /// <summary><c>AVAudioFifo *av_audio_fifo_alloc(enum AVSampleFormat, int channels, int nb_samples)</c></summary>
     public static delegate* unmanaged[Cdecl]<int, int, int, void*> av_audio_fifo_alloc;
 
@@ -285,6 +288,7 @@ public static unsafe class AV
         av_image_get_buffer_size = (delegate* unmanaged[Cdecl]<int, int, int, int, int>)util.GetExport(nameof(av_image_get_buffer_size));
         av_freep = (delegate* unmanaged[Cdecl]<void*, void>)util.GetExport(nameof(av_freep));
         av_samples_alloc = (delegate* unmanaged[Cdecl]<byte**, int*, int, int, int, int, int>)util.GetExport(nameof(av_samples_alloc));
+        av_channel_layout_default = (delegate* unmanaged[Cdecl]<AVChannelLayoutNative*, int, void>)util.GetExport(nameof(av_channel_layout_default));
         av_audio_fifo_alloc = (delegate* unmanaged[Cdecl]<int, int, int, void*>)util.GetExport(nameof(av_audio_fifo_alloc));
         av_audio_fifo_write = (delegate* unmanaged[Cdecl]<void*, void**, int, int>)util.GetExport(nameof(av_audio_fifo_write));
         av_audio_fifo_read = (delegate* unmanaged[Cdecl]<void*, void**, int, int>)util.GetExport(nameof(av_audio_fifo_read));

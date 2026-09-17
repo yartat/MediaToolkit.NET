@@ -86,7 +86,12 @@ public static class FFmpegFormatMap
         Abstractions.Recording.MediaCodec.Aac => ["aac", "libfdk_aac"],
         Abstractions.Recording.MediaCodec.Opus => ["libopus", "opus"],
         Abstractions.Recording.MediaCodec.Flac => ["flac"],
-        Abstractions.Recording.MediaCodec.Pcm => ["pcm_s16le"],
+        Abstractions.Recording.MediaCodec.Ac3 => ["ac3", "ac3_fixed"],
+        Abstractions.Recording.MediaCodec.Dts => ["dca"],
+        Abstractions.Recording.MediaCodec.Pcm or Abstractions.Recording.MediaCodec.PcmS16 => ["pcm_s16le"],
+        Abstractions.Recording.MediaCodec.PcmU8 => ["pcm_u8"],
+        Abstractions.Recording.MediaCodec.PcmS24 => ["pcm_s24le"],
+        Abstractions.Recording.MediaCodec.PcmS32 => ["pcm_s32le"],
         _ => [],
     };
 
@@ -97,7 +102,25 @@ public static class FFmpegFormatMap
     public static bool NeedsGlobalHeader(string outputPath) =>
         Path.GetExtension(outputPath).ToLowerInvariant() switch
         {
-            ".mp4" or ".m4v" or ".m4a" or ".mov" or ".mkv" or ".webm" => true,
+            ".mp4" or ".m4v" or ".m4a" or ".mov" => true,
+
+            // Matroska writes audio and subtitles under their own extensions,
+            // and all three are the same muxer with the same header.
+            ".mkv" or ".mka" or ".mks" or ".webm" => true,
             _ => false,
         };
+
+    /// <summary>
+    /// Describes a channel layout the way the <c>ch_layout</c> option parses it.
+    /// </summary>
+    /// <param name="channels">Number of channels.</param>
+    /// <param name="mask">The speaker mask, or zero when none was asked for.</param>
+    /// <returns>Returns the description.</returns>
+    /// <remarks>
+    /// A mask goes as hexadecimal rather than as a name: <c>5.1</c> and
+    /// <c>5.1(side)</c> are both six channels and the name table decides which
+    /// of the two a string means, while a mask says it outright.
+    /// </remarks>
+    public static string ChannelLayoutDescription(int channels, ulong mask) =>
+        mask != 0 ? $"0x{mask:x}" : $"{channels}c";
 }

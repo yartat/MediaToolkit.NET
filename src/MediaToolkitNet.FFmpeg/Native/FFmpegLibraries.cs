@@ -9,10 +9,12 @@ namespace MediaToolkitNet.FFmpeg.Native;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Only FFmpeg 7.x is supported. FFmpeg does not keep a stable ABI for its
-/// public structs across major releases, and this binding reads a small number
-/// of struct fields directly; see <see cref="AbiLayout"/> for the full list and
-/// for the self-check that runs before any of them is used.
+/// FFmpeg 7.x, 8.x and 9.x are supported. FFmpeg does not keep a stable ABI for
+/// its public structs across major releases, and this binding reads a small
+/// number of struct fields directly, so the series that was loaded is
+/// established first and the offsets that differ between series come from
+/// <see cref="FFmpegGeneration"/>; see <see cref="AbiLayout"/> for the full list
+/// and for the self-check that runs before any of them is used.
 /// </para>
 /// <para>
 /// Place the native libraries in <c>src/FFMpeg/{Windows,Linux,MacOS}</c>, next
@@ -24,15 +26,6 @@ public static class FFmpegLibraries
 {
     /// <summary>Backend name used in error messages.</summary>
     public const string BackendName = "ffmpeg";
-
-    /// <summary>libavutil major version this binding targets.</summary>
-    public const int AvUtilMajor = 59;
-
-    /// <summary>libavcodec major version this binding targets.</summary>
-    public const int AvCodecMajor = 61;
-
-    /// <summary>libavformat major version this binding targets.</summary>
-    public const int AvFormatMajor = 61;
 
     private static readonly Lock Gate = new();
     private static bool _initialised;
@@ -58,6 +51,9 @@ public static class FFmpegLibraries
 
     /// <summary>Version string of the loaded stack, e.g. <c>avutil 59.39.100 / avcodec 61.19.101</c>.</summary>
     public static string? VersionString { get; private set; }
+
+    /// <summary>The release series that was loaded, once the versions have been read.</summary>
+    public static FFmpegGeneration? Generation { get; private set; }
 
     /// <summary>True once every required library has been loaded and the ABI self-check has passed.</summary>
     public static bool IsAvailable
@@ -118,12 +114,12 @@ public static class FFmpegLibraries
                 BackendName, "only 64-bit processes are supported: the FFmpeg struct layout assumes 64 bits.");
         }
 
-        AvUtil = NativeModule.Load(BackendName, Candidates("avutil", AvUtilMajor));
-        AvCodec = NativeModule.Load(BackendName, Candidates("avcodec", AvCodecMajor));
-        AvFormat = NativeModule.Load(BackendName, Candidates("avformat", AvFormatMajor));
-        SwScale = NativeModule.Load(BackendName, Candidates("swscale", 8));
-        SwResample = NativeModule.Load(BackendName, Candidates("swresample", 5));
-        _ = NativeModule.TryLoad(Candidates("avdevice", AvDeviceMajor), out var avdevice);
+        AvUtil = NativeModule.Load(BackendName, Candidates("avutil", g => g.AvUtil));
+        AvCodec = NativeModule.Load(BackendName, Candidates("avcodec", g => g.AvCodec));
+        AvFormat = NativeModule.Load(BackendName, Candidates("avformat", g => g.AvFormat));
+        SwScale = NativeModule.Load(BackendName, Candidates("swscale", g => g.SwScale));
+        SwResample = NativeModule.Load(BackendName, Candidates("swresample", g => g.SwResample));
+        _ = NativeModule.TryLoad(Candidates("avdevice", g => g.AvDevice), out var avdevice);
         AvDevice = avdevice;
 
         AV.Bind();
@@ -134,10 +130,17 @@ public static class FFmpegLibraries
         VersionString =
             $"avutil {Describe(utilVersion)} / avcodec {Describe(codecVersion)} / avformat {Describe(formatVersion)}";
 
-        RequireMajor("libavutil", utilVersion, AvUtilMajor);
-        RequireMajor("libavcodec", codecVersion, AvCodecMajor);
-        RequireMajor("libavformat", formatVersion, AvFormatMajor);
+        // Which series was loaded decides the offsets, and libraries from two of
+        // them in one process would be read with the offsets of neither.
+        var generation = FFmpegGeneration.Find(MajorOf(utilVersion), MajorOf(codecVersion), MajorOf(formatVersion))
+            ?? throw new MediaBackendUnavailableException(
+                BackendName,
+                $"the FFmpeg libraries found are {VersionString}, which is not a release series these bindings " +
+                $"know. Supported: {string.Join(", ", FFmpegGeneration.Known)}. Install one of those, or add the " +
+                "series to FFmpegGeneration together with its offsets.");
 
+        Generation = generation;
+        AbiLayout.Use(generation);
         AbiLayout.Validate();
 
         if (AvDevice is not null)
@@ -146,48 +149,39 @@ public static class FFmpegLibraries
         }
     }
 
-    // libavdevice tracks libavformat's major version offset by one.
-    private const int AvDeviceMajor = 61;
-
-    private static void RequireMajor(string library, uint version, int expected)
-    {
-        var major = (int)(version >> 16);
-        if (major != expected)
-        {
-            throw new MediaBackendUnavailableException(
-                BackendName,
-                $"{library} has major version {major}, but these bindings target {expected}. " +
-                "Install FFmpeg 7.x, or update the offsets in AbiLayout.");
-        }
-    }
+    private static int MajorOf(uint version) => (int)(version >> 16);
 
     private static string Describe(uint version) =>
         $"{version >> 16}.{(version >> 8) & 0xFF}.{version & 0xFF}";
 
     /// <summary>
-    /// Builds the file name candidates for one FFmpeg library, newest major
-    /// first. Windows uses <c>avcodec-61.dll</c>, Linux <c>libavcodec.so.61</c>
-    /// and macOS <c>libavcodec.61.dylib</c>.
+    /// Builds the file name candidates for one FFmpeg library, one per supported
+    /// series with the newest first, then the unversioned name. Windows uses
+    /// <c>avcodec-63.dll</c>, Linux <c>libavcodec.so.63</c> and macOS
+    /// <c>libavcodec.63.dylib</c>.
     /// </summary>
-    private static List<string> Candidates(string name, int major)
+    /// <param name="name">The library, without prefix or extension.</param>
+    /// <param name="major">Picks that library's major version out of a series.</param>
+    /// <returns>Returns the candidates, in the order they should be tried.</returns>
+    private static List<string> Candidates(string name, Func<FFmpegGeneration, int> major)
     {
-        var result = new List<string>(4);
-        if (OperatingSystem.IsWindows())
+        var result = new List<string>(FFmpegGeneration.Known.Count + 1);
+        foreach (var generation in FFmpegGeneration.Known)
         {
-            result.Add($"{name}-{major}.dll");
-            result.Add($"{name}.dll");
-        }
-        else if (OperatingSystem.IsMacOS())
-        {
-            result.Add($"lib{name}.{major}.dylib");
-            result.Add($"lib{name}.dylib");
-        }
-        else
-        {
-            result.Add($"lib{name}.so.{major}");
-            result.Add($"lib{name}.so");
+            result.Add(Named(name, major(generation)));
         }
 
+        result.Add(Unversioned(name));
         return result;
     }
+
+    private static string Named(string name, int major) =>
+        OperatingSystem.IsWindows() ? $"{name}-{major}.dll"
+        : OperatingSystem.IsMacOS() ? $"lib{name}.{major}.dylib"
+        : $"lib{name}.so.{major}";
+
+    private static string Unversioned(string name) =>
+        OperatingSystem.IsWindows() ? $"{name}.dll"
+        : OperatingSystem.IsMacOS() ? $"lib{name}.dylib"
+        : $"lib{name}.so";
 }

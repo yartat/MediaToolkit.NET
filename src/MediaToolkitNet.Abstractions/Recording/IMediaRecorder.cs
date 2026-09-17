@@ -33,8 +33,26 @@ public enum MediaCodec
     /// <summary>FLAC audio.</summary>
     Flac,
 
-    /// <summary>Uncompressed PCM audio.</summary>
+    /// <summary>Uncompressed 16-bit PCM audio; the same as <see cref="PcmS16"/>.</summary>
     Pcm,
+
+    /// <summary>Dolby Digital (AC-3) audio.</summary>
+    Ac3,
+
+    /// <summary>DTS Coherent Acoustics audio. The encoder is experimental, and the backend opens it as such.</summary>
+    Dts,
+
+    /// <summary>Uncompressed 8-bit unsigned PCM audio.</summary>
+    PcmU8,
+
+    /// <summary>Uncompressed 16-bit signed little-endian PCM audio.</summary>
+    PcmS16,
+
+    /// <summary>Uncompressed 24-bit signed little-endian PCM audio.</summary>
+    PcmS24,
+
+    /// <summary>Uncompressed 32-bit signed little-endian PCM audio.</summary>
+    PcmS32,
 }
 
 /// <summary>
@@ -48,7 +66,22 @@ public readonly record struct VideoEncodingSettings(
     VideoFormat Format,
     MediaCodec Codec = MediaCodec.H264,
     int BitrateBitsPerSecond = 0,
-    int KeyFrameInterval = 0);
+    int KeyFrameInterval = 0)
+{
+    /// <summary>
+    /// Encoder to use by name, which overrides <see cref="Codec"/> entirely,
+    /// e.g. <c>libx264rgb</c>. Nothing means the backend picks the encoder it
+    /// knows for the codec.
+    /// </summary>
+    public string? EncoderName { get; init; }
+
+    /// <summary>
+    /// Encoder settings passed straight through, e.g. <c>preset=veryfast</c> or
+    /// <c>crf=23</c>. They are applied last, so they win over everything this
+    /// record states.
+    /// </summary>
+    public IReadOnlyDictionary<string, string>? Options { get; init; }
+}
 
 /// <summary>
 /// Description of the audio stream to write.
@@ -59,7 +92,32 @@ public readonly record struct VideoEncodingSettings(
 public readonly record struct AudioEncodingSettings(
     AudioFormat Format,
     MediaCodec Codec = MediaCodec.Aac,
-    int BitrateBitsPerSecond = 0);
+    int BitrateBitsPerSecond = 0)
+{
+    /// <summary>
+    /// Encoder to use by name, which overrides <see cref="Codec"/> entirely,
+    /// e.g. <c>libfdk_aac</c> or <c>ac3_fixed</c>. Nothing means the backend
+    /// picks the encoder it knows for the codec.
+    /// </summary>
+    public string? EncoderName { get; init; }
+
+    /// <summary>
+    /// Asks for variable bitrate at this quality instead of a fixed rate, the
+    /// way <c>-q:a</c> does on the FFmpeg command line: lower is better, and
+    /// the scale belongs to the encoder. Nothing means constant bitrate.
+    /// </summary>
+    /// <remarks>
+    /// Set this or <see cref="BitrateBitsPerSecond"/>, not both: an encoder
+    /// asked for a quality ignores the rate it was also given.
+    /// </remarks>
+    public double? Quality { get; init; }
+
+    /// <summary>
+    /// Encoder settings passed straight through, e.g. <c>strict=-2</c>. They
+    /// are applied last, so they win over everything this record states.
+    /// </summary>
+    public IReadOnlyDictionary<string, string>? Options { get; init; }
+}
 
 /// <summary>
 /// Writes encoded media to a container. Frames are pushed in by the caller,

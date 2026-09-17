@@ -22,7 +22,7 @@ single backend instead when you do not want the rest:
 | `MediaToolkitNet.All` | Facade: backend registry and per-platform selection |
 | `MediaToolkitNet.Abstractions` | Abstractions only; no native code, no dependencies |
 | `MediaToolkitNet.Interop` | Native loading, UTF-8 marshalling, COM vtable access |
-| `MediaToolkitNet.FFmpeg` | FFmpeg 7.x: demux, decode, encode, mux |
+| `MediaToolkitNet.FFmpeg` | FFmpeg 7.x, 8.x or 9.x: demux, decode, encode, mux |
 | `MediaToolkitNet.Mpv` | libmpv client API |
 | `MediaToolkitNet.Windows` | Media Foundation, WASAPI, DirectShow |
 | `MediaToolkitNet.Linux` | V4L2, ALSA, PulseAudio |
@@ -83,7 +83,7 @@ backend's job.
   pointer.
 - **No native binary ships in any package.** The platform backends only call
   libraries that are already part of the operating system, but:
-  - `MediaToolkitNet.FFmpeg` needs FFmpeg **7.x** at runtime
+  - `MediaToolkitNet.FFmpeg` needs FFmpeg **7.x, 8.x or 9.x** at runtime
     (avutil 59 / avcodec 61 / avformat 61);
   - `MediaToolkitNet.Mpv` needs libmpv at runtime.
 

@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using MediaToolkitNet.Abstractions.Formats;
 
 namespace MediaToolkitNet.FFmpeg.Native;
 
@@ -151,17 +152,35 @@ public unsafe struct AVChannelLayoutNative
     /// <summary>Opaque pointer used by custom orders.</summary>
     public void* Opaque;
 
-    /// <summary>Builds a native-order layout for the given channel count.</summary>
-    public static AVChannelLayoutNative Default(int channels) => new()
+    /// <summary>
+    /// Builds the layout for a channel count and an optional speaker mask.
+    /// </summary>
+    /// <param name="channels">Number of channels.</param>
+    /// <param name="mask">
+    /// The speakers to place them at, or <see cref="ChannelLayout.Unspecified"/>
+    /// to let FFmpeg assume the conventional layout of that size.
+    /// </param>
+    /// <returns>Returns the layout.</returns>
+    public static AVChannelLayoutNative Of(int channels, ulong mask = ChannelLayout.Unspecified)
     {
-        Order = 1,
-        NbChannels = channels,
-        Mask = channels switch
+        if (mask != ChannelLayout.Unspecified)
         {
-            1 => AVConstants.ChannelLayoutMono,
-            2 => AVConstants.ChannelLayoutStereo,
-            _ => (1UL << channels) - 1,
-        },
-        Opaque = null,
-    };
+            return new AVChannelLayoutNative
+            {
+                Order = 1,
+                NbChannels = channels,
+                Mask = mask,
+                Opaque = null,
+            };
+        }
+
+        // Guessing here in managed code is how four channels used to come out as
+        // 3.1 rather than quad; libavutil has the table, so it answers.
+        AVChannelLayoutNative layout;
+        AV.av_channel_layout_default(&layout, channels);
+        return layout;
+    }
+
+    /// <summary>Builds the layout FFmpeg assumes for a bare channel count.</summary>
+    public static AVChannelLayoutNative Default(int channels) => Of(channels);
 }

@@ -16,4 +16,8 @@
     <Project Path="src/MediaToolkitNet.Windows/MediaToolkitNet.Windows.csproj" />
     <Project Path="src/MediaToolkitNet.All/MediaToolkitNet.All.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/MediaToolkitNet.Tests/MediaToolkitNet.Tests.csproj" />
+    <Project Path="tests/MediaToolkitNet.IntegrationTests/MediaToolkitNet.IntegrationTests.csproj" />
+  </Folder>
 </Solution>

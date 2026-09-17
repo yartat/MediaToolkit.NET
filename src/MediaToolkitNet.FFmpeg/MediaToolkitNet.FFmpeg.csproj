@@ -1,13 +1,18 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <Description>FFmpeg backend for MediaToolkit.NET: demuxing, decoding, encoding and muxing through libavformat, libavcodec, libavutil, libswscale and libswresample. Targets the FFmpeg 7.x ABI and validates the struct layout at startup. The FFmpeg shared libraries are not included and must be present at runtime.</Description>
+    <Description>FFmpeg backend for MediaToolkit.NET: demuxing, decoding, encoding and muxing through libavformat, libavcodec, libavutil, libswscale and libswresample. Supports the FFmpeg 7.x, 8.x and 9.x ABI and validates the struct layout at startup. The FFmpeg shared libraries are not included and must be present at runtime.</Description>
     <PackageTags>ffmpeg;libav;avcodec;avformat;decoding;encoding;muxing;interop</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="../MediaToolkitNet.Abstractions/MediaToolkitNet.Abstractions.csproj" />
     <ProjectReference Include="../MediaToolkitNet.Interop/MediaToolkitNet.Interop.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The ABI tests reach the layout validators, which are not part of the API. -->
+    <InternalsVisibleTo Include="MediaToolkitNet.IntegrationTests" />
   </ItemGroup>
 
 </Project>

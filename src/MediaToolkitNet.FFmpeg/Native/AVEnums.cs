@@ -147,6 +147,15 @@ public static class AVConstants
     /// <summary>AV_CODEC_FLAG_GLOBAL_HEADER.</summary>
     public const int CodecFlagGlobalHeader = 1 << 22;
 
+    /// <summary>AV_CODEC_FLAG_QSCALE, which makes the encoder follow <c>global_quality</c> instead of a bitrate.</summary>
+    public const int CodecFlagQScale = 1 << 1;
+
+    /// <summary>FF_QP2LAMBDA, the factor between a quality value and <c>global_quality</c>.</summary>
+    public const int QualityToLambda = 118;
+
+    /// <summary>FF_COMPLIANCE_EXPERIMENTAL, the compliance level an experimental encoder demands.</summary>
+    public const int ComplianceExperimental = -2;
+
     /// <summary>AVFMT_GLOBALHEADER.</summary>
     public const int FormatGlobalHeader = 0x0040;
 

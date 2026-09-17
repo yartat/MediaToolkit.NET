@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Numerics;
 using MediaToolkitNet.Abstractions;
 using MediaToolkitNet.Abstractions.Formats;
 using MediaToolkitNet.Abstractions.Frames;
@@ -69,6 +70,10 @@ public sealed unsafe class FFmpegRecorder : IMediaRecorder
     /// Private encoder options passed straight to <c>avcodec_open2</c>, e.g.
     /// <c>preset=veryfast</c> or <c>crf=23</c> for libx264.
     /// </summary>
+    /// <remarks>
+    /// These reach every stream of this recording. Options meant for one stream
+    /// belong on its settings, which are applied afterwards and win.
+    /// </remarks>
     public Dictionary<string, string> EncoderOptions { get; } = [];
 
     /// <inheritdoc />
@@ -85,7 +90,7 @@ public sealed unsafe class FFmpegRecorder : IMediaRecorder
             ? new Rational(30, 1)
             : settings.Format.FrameRate;
 
-        var codec = FindEncoder(settings.Codec, MediaCodec.H264);
+        var codec = FindEncoder(settings.Codec, MediaCodec.H264, settings.EncoderName, out var encoderName);
         var candidates = settings.Codec == MediaCodec.Mjpeg
             ? (AVPixelFormat[])[AVPixelFormat.Yuvj420P, AVPixelFormat.Yuv420P, AVPixelFormat.Yuv422P]
             : [AVPixelFormat.Yuv420P, AVPixelFormat.Nv12, AVPixelFormat.Yuv422P, AVPixelFormat.Yuv444P];
@@ -108,7 +113,8 @@ public sealed unsafe class FFmpegRecorder : IMediaRecorder
                     {
                         AV.SetOption((void*)ctx, "g", settings.KeyFrameInterval);
                     }
-                });
+                },
+                streamOptions: settings.Options);
 
             if (context is not null)
             {
@@ -120,7 +126,7 @@ public sealed unsafe class FFmpegRecorder : IMediaRecorder
         if (context is null)
         {
             throw new MediaToolkitNetException(
-                Backend, $"could not open a video encoder for {settings.Codec}", AVConstants.ErrorInvalid);
+                Backend, $"could not open the video encoder {encoderName} for {settings.Codec}", AVConstants.ErrorInvalid);
         }
 
         var stream = CreateStream(context, new AVRationalNative(frameRate.Denominator, frameRate.Numerator));
@@ -152,13 +158,34 @@ public sealed unsafe class FFmpegRecorder : IMediaRecorder
                 Backend, "audio encoding is unavailable: the AVFrame audio fields were not recognised in this FFmpeg build.");
         }
 
-        var codec = FindEncoder(settings.Codec, MediaCodec.Aac);
+        // Caught here rather than several layers down in swresample, where the same
+        // mistake surfaces as an error code against a function the caller never named.
+        var speakers = BitOperations.PopCount(settings.Format.ChannelMask);
+        if (settings.Format.ChannelMask != ChannelLayout.Unspecified && speakers != settings.Format.Channels)
+        {
+            throw new ArgumentException(
+                $"The channel layout 0x{settings.Format.ChannelMask:x} places {speakers} speakers, " +
+                $"but the format states {settings.Format.Channels} channels.",
+                nameof(settings));
+        }
+
+        var codec = FindEncoder(settings.Codec, MediaCodec.Aac, settings.EncoderName, out var encoderName);
         var timeBase = new AVRationalNative(1, settings.Format.SampleRate);
+        var layout = FFmpegFormatMap.ChannelLayoutDescription(
+            settings.Format.Channels, settings.Format.EffectiveChannelMask);
+        var quality = settings.Quality;
 
         void* context = null;
         var chosen = AVSampleFormat.None;
+
+        // Whichever of these the encoder accepts first is what the resampler will
+        // convert to. The last three are each the only format some encoder takes:
+        // s32 for dca and pcm_s24le, s32p for ac3_fixed, u8 for pcm_u8.
         foreach (var sampleFormat in (AVSampleFormat[])
-                 [AVSampleFormat.FltP, AVSampleFormat.S16, AVSampleFormat.Flt, AVSampleFormat.S16P, AVSampleFormat.S32])
+                 [
+                     AVSampleFormat.FltP, AVSampleFormat.S16, AVSampleFormat.Flt, AVSampleFormat.S16P,
+                     AVSampleFormat.S32, AVSampleFormat.S32P, AVSampleFormat.U8
+                 ])
         {
             context = TryOpenEncoder(
                 codec,
@@ -171,8 +198,29 @@ public sealed unsafe class FFmpegRecorder : IMediaRecorder
                 configure: ctx =>
                 {
                     AV.SetOption((void*)ctx, "ar", settings.Format.SampleRate);
-                    AV.SetOption((void*)ctx, "ac", settings.Format.Channels);
-                });
+
+                    // The layout, not the channel count: "ac" belongs to the command
+                    // line, and as an AVOption it has not existed since FFmpeg 7
+                    // dropped the old channel API. Setting it answered "option not
+                    // found", and the encoder then refused to open for want of a layout.
+                    AV.SetOption((void*)ctx, "ch_layout", layout);
+
+                    if (settings.Codec == MediaCodec.Dts)
+                    {
+                        // The DTS encoder is marked experimental and will not open otherwise.
+                        AV.SetOption((void*)ctx, "strict", AVConstants.ComplianceExperimental);
+                    }
+
+                    if (quality is { } requested)
+                    {
+                        AV.SetOption(
+                            (void*)ctx,
+                            "global_quality",
+                            (long)Math.Round(requested * AVConstants.QualityToLambda));
+                    }
+                },
+                extraFlags: quality is null ? 0 : AVConstants.CodecFlagQScale,
+                streamOptions: settings.Options);
 
             if (context is not null)
             {
@@ -184,7 +232,10 @@ public sealed unsafe class FFmpegRecorder : IMediaRecorder
         if (context is null)
         {
             throw new MediaToolkitNetException(
-                Backend, $"could not open an audio encoder for {settings.Codec}", AVConstants.ErrorInvalid);
+                Backend,
+                $"could not open the audio encoder {encoderName} for {settings.Codec} " +
+                $"at {settings.Format.SampleRate} Hz with layout {layout}",
+                AVConstants.ErrorInvalid);
         }
 
         var stream = CreateStream(context, timeBase);
@@ -420,9 +471,26 @@ public sealed unsafe class FFmpegRecorder : IMediaRecorder
         }
     }
 
-    private static void* FindEncoder(MediaCodec requested, MediaCodec fallback)
+    /// <summary>
+    /// Finds the encoder to use: the one the caller named, or the first of those
+    /// known for the codec that this FFmpeg build actually carries.
+    /// </summary>
+    /// <param name="requested">Codec asked for.</param>
+    /// <param name="fallback">Codec to use when none was asked for.</param>
+    /// <param name="encoderName">Encoder named outright, which overrides the codec.</param>
+    /// <param name="chosen">Receives the name of the encoder that was found.</param>
+    /// <returns>Returns the encoder.</returns>
+    /// <exception cref="MediaToolkitNetException">This build carries none of them.</exception>
+    private static void* FindEncoder(
+        MediaCodec requested,
+        MediaCodec fallback,
+        string? encoderName,
+        out string chosen)
     {
-        var names = FFmpegFormatMap.EncoderNames(requested == MediaCodec.Default ? fallback : requested);
+        var names = string.IsNullOrWhiteSpace(encoderName)
+            ? FFmpegFormatMap.EncoderNames(requested == MediaCodec.Default ? fallback : requested)
+            : [encoderName];
+
         Span<byte> scratch = stackalloc byte[64];
         foreach (var name in names)
         {
@@ -430,13 +498,16 @@ public sealed unsafe class FFmpegRecorder : IMediaRecorder
             var codec = AV.avcodec_find_encoder_by_name(utf8.Pointer);
             if (codec is not null)
             {
+                chosen = name;
                 return codec;
             }
         }
 
         throw new MediaToolkitNetException(
             FFmpegLibraries.BackendName,
-            $"none of the encoders [{string.Join(", ", names)}] is available in this FFmpeg build",
+            names.Length == 0
+                ? $"no encoder is known for {requested}"
+                : $"none of the encoders [{string.Join(", ", names)}] is available in this FFmpeg build",
             AVConstants.ErrorInvalid);
     }
 
@@ -448,7 +519,9 @@ public sealed unsafe class FFmpegRecorder : IMediaRecorder
         int width,
         int height,
         AVRationalNative timeBase,
-        Action<nint> configure)
+        Action<nint> configure,
+        int extraFlags = 0,
+        IReadOnlyDictionary<string, string>? streamOptions = null)
     {
         var context = AV.avcodec_alloc_context3(codec);
         if (context is null)
@@ -480,16 +553,34 @@ public sealed unsafe class FFmpegRecorder : IMediaRecorder
                 AV.SetOption(context, "b", bitrate);
             }
 
+            // One assignment, because "flags" is the whole field: setting it twice
+            // would drop whichever bit was set first.
+            var flags = extraFlags;
             if (FFmpegFormatMap.NeedsGlobalHeader(_outputPath))
             {
-                AV.SetOption(context, "flags", AVConstants.CodecFlagGlobalHeader);
+                flags |= AVConstants.CodecFlagGlobalHeader;
+            }
+
+            if (flags != 0)
+            {
+                AV.SetOption(context, "flags", flags);
             }
 
             configure((nint)context);
 
+            // The recorder-wide options first, then the ones this stream asked for,
+            // so a stream can disagree with the recorder about its own encoder.
             foreach (var (key, value) in EncoderOptions)
             {
                 AV.DictionarySet(&options, key, value);
+            }
+
+            if (streamOptions is not null)
+            {
+                foreach (var (key, value) in streamOptions)
+                {
+                    AV.DictionarySet(&options, key, value);
+                }
             }
 
             return AV.avcodec_open2(context, codec, &options) < 0 ? Fail(context) : context;
@@ -516,6 +607,7 @@ public sealed unsafe class FFmpegRecorder : IMediaRecorder
     {
         var stream = AV.avformat_new_stream(_output, null);
         FFmpegError.CheckAlloc(stream, "avformat_new_stream");
+        AbiLayout.ValidateNewStream(stream, _streams.Count);
 
         FFmpegError.Check(
             AV.avcodec_parameters_from_context(AbiLayout.CodecParametersOf(stream), encoderContext),
@@ -628,7 +720,12 @@ public sealed unsafe class FFmpegRecorder : IMediaRecorder
             _frame = AV.av_frame_alloc();
             FFmpegError.CheckAlloc(_frame, "av_frame_alloc");
             AbiLayout.PrepareAudioFrame(
-                _frame, AudioFormat.SampleRate, AudioFormat.Channels, (int)EncoderSampleFormat, FrameSize);
+                _frame,
+                AudioFormat.SampleRate,
+                AudioFormat.Channels,
+                AudioFormat.EffectiveChannelMask,
+                (int)EncoderSampleFormat,
+                FrameSize);
             FFmpegError.Check(AV.av_frame_get_buffer(_frame, 0), "av_frame_get_buffer");
 
             _fifo = AV.av_audio_fifo_alloc((int)EncoderSampleFormat, AudioFormat.Channels, FrameSize * 4);
@@ -674,8 +771,8 @@ public sealed unsafe class FFmpegRecorder : IMediaRecorder
                 }
             }
 
-            var inputLayout = AVChannelLayoutNative.Default(input.Channels);
-            var outputLayout = AVChannelLayoutNative.Default(AudioFormat.Channels);
+            var inputLayout = AVChannelLayoutNative.Of(input.Channels, input.EffectiveChannelMask);
+            var outputLayout = AVChannelLayoutNative.Of(AudioFormat.Channels, AudioFormat.EffectiveChannelMask);
 
             void* resampler = null;
             FFmpegError.Check(

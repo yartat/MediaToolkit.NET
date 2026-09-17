@@ -32,6 +32,13 @@ jobs:
       - name: Build
         run: dotnet build -c Release --no-restore
 
+      # The unit tests run anywhere. The integration tests check the struct offsets
+      # against a real library and skip themselves unless FFmpeg 7.x, 8.x or 9.x is
+      # loadable, so install it on the runner, or set MEDIATOOLKITNET_FFMPEG_DIR to
+      # a directory holding the shared libraries, to have them run here.
+      - name: Test
+        run: dotnet test -c Release --no-build
+
       # Every backend is compiled into every build and guarded at runtime, so the
       # registry has to survive being probed on an OS where none of the native
       # media libraries exist. This catches a backend whose IsAvailable throws

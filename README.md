@@ -59,8 +59,59 @@ capture.FrameCaptured += (in VideoFrame frame) =>
 capture.Start();
 ```
 
+```csharp
+// Write five point one Dolby Digital into a Matroska audio file. The layout is
+// stated because six channels alone do not say where the speakers are, and the
+// encoder is told which of the two five point one arrangements this is.
+using var recorder = MediaToolkitNetBackends.CreateRecorder("surround.mka");
+var format = new AudioFormat(48000, 6, SampleFormat.S16, ChannelLayout.FivePoint1Back);
+var stream = recorder.AddAudioStream(new AudioEncodingSettings(format, MediaCodec.Ac3, 448_000));
+recorder.Start();
+// … recorder.WriteAudio(stream, frame) …
+recorder.Stop();
+```
+
+An encoder can also be named outright and given its own settings, which is how a
+stream asks for something the common abstraction does not name:
+
+```csharp
+recorder.AddAudioStream(new AudioEncodingSettings(format, MediaCodec.Aac)
+{
+    Quality = 2.0,                       // variable bitrate, as -q:a does it
+    Options = new Dictionary<string, string> { ["aac_coder"] = "twoloop" },
+});
+```
+
 Sample commands: `backends`, `devices [audio|video|all|dshow]`, `probe`, `play`,
 `decode`, `rec-audio`, `rec-video`, `rec-file`, `rec-audio-file`, `encoders`.
+
+## Tests
+
+```bash
+dotnet test
+```
+
+`tests/MediaToolkitNet.Tests` needs nothing but the SDK: layouts, format maps,
+encoder names and the series table.
+
+`tests/MediaToolkitNet.IntegrationTests` encodes and reads real files, and
+checks **every struct field this binding reads by offset** against the library
+that is installed. Each check establishes the expected value by a route that
+does not use the offset it is checking — an AVOption that FFmpeg writes through
+its own offset, a struct FFmpeg filled itself, or a file the test wrote — so a
+mismatch fails by name rather than by corrupting memory:
+
+```
+AbiLayoutTests.CodecContextPixFmtIsWhereParametersToContextWritesIt [FAIL]
+  Expected value to be 4 because pix_fmt was read at 140, but found -1.
+```
+
+They skip themselves where FFmpeg is not loadable. Point them at a particular
+build to test a series the machine does not have on its path:
+
+```bash
+MEDIATOOLKITNET_FFMPEG_DIR=/opt/ffmpeg-9/lib dotnet test
+```
 
 ## Packages
 
@@ -69,7 +120,7 @@ Sample commands: `backends`, `devices [audio|video|all|dshow]`, `probe`, `play`,
 | `MediaToolkitNet.All` | Facade: pulls in every backend and picks one at runtime |
 | `MediaToolkitNet.Abstractions` | Abstractions only; no native code, no dependencies |
 | `MediaToolkitNet.Interop` | Native loading, UTF-8 marshalling, COM vtable access |
-| `MediaToolkitNet.FFmpeg` | FFmpeg 7.x backend |
+| `MediaToolkitNet.FFmpeg` | FFmpeg 7.x, 8.x or 9.x backend |
 | `MediaToolkitNet.Mpv` | libmpv backend |
 | `MediaToolkitNet.Windows` | Media Foundation, WASAPI, DirectShow |
 | `MediaToolkitNet.Linux` | V4L2, ALSA, PulseAudio |
@@ -106,21 +157,28 @@ the operating system.
 received them. The compiler refuses to let you store one. Zero copies, zero
 allocations per frame.
 
-**FFmpeg is pinned to 7.x.** FFmpeg keeps no stable ABI for its public structs
-across major releases. Every direct field access lives in
-`MediaToolkitNet.FFmpeg/Native/AbiLayout.cs`; the loader checks the major versions
-and then self-checks the layout against documented post-allocation defaults
-(`av_frame_alloc` leaves `format == -1` and `pts == AV_NOPTS_VALUE`,
-`av_packet_alloc` leaves `pos == -1`). The `AVCodecParameters` offsets and the
-audio fields of `AVFrame` are **discovered at runtime by probing** rather than
-hard-coded. A layout that does not check out produces a clear error instead of
-memory corruption. Codecs are resolved by name, never by the unstable
+**FFmpeg 7.x, 8.x and 9.x are supported, one series at a time.** FFmpeg keeps no
+stable ABI for its public structs across major releases, so the loader reads the
+versions it actually got, matches them against the series listed in
+`FFmpegGeneration`, and refuses a mixture that belongs to none of them. Every
+direct field access lives in `MediaToolkitNet.FFmpeg/Native/AbiLayout.cs`, and
+the two offsets that differ between series come from the matched series; the
+rest have held since FFmpeg 6. The layout is then self-checked against
+documented post-allocation defaults (`av_frame_alloc` leaves `format == -1` and
+`pts == AV_NOPTS_VALUE`, `av_packet_alloc` leaves `pos == -1`), a new output
+stream is checked before anything is written through its `codecpar`, and an
+opened input is checked before anything is read. The `AVCodecParameters` offsets
+and the audio fields of `AVFrame` are **discovered at runtime by probing**
+rather than hard-coded. A layout that does not check out produces a clear error
+instead of memory corruption. Codecs are resolved by name, never by the unstable
 `AVCodecID` values.
 
 **Whatever can go through an API does not go through a field.** Bitrate, GOP
-size, sample rate and channel count are set on the encoder with `av_opt_set_*`,
+size, sample rate and channel layout are set on the encoder with `av_opt_set_*`,
 and codec parameters travel through `avcodec_parameters_to_context` — none of
-which depends on struct layout.
+which depends on struct layout. The layout of a bare channel count comes from
+`av_channel_layout_default` rather than from a table of our own, because four
+channels are quad and not 3.1.
 
 **Vtable slots are verified.** The Windows backend calls COM by slot number, and
 the numbering counts every method of every base interface (`IMFAttributes`
