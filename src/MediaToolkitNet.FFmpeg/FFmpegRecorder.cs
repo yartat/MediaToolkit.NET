@@ -1,8 +1,8 @@
 using System.Diagnostics;
-using MediaToolkitNet.Core;
-using MediaToolkitNet.Core.Formats;
-using MediaToolkitNet.Core.Frames;
-using MediaToolkitNet.Core.Recording;
+using MediaToolkitNet.Abstractions;
+using MediaToolkitNet.Abstractions.Formats;
+using MediaToolkitNet.Abstractions.Frames;
+using MediaToolkitNet.Abstractions.Recording;
 using MediaToolkitNet.FFmpeg.Native;
 using MediaToolkitNet.Interop;
 

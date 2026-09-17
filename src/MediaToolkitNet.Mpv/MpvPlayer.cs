@@ -1,6 +1,6 @@
-using MediaToolkitNet.Core;
-using MediaToolkitNet.Core.Frames;
-using MediaToolkitNet.Core.Playback;
+using MediaToolkitNet.Abstractions;
+using MediaToolkitNet.Abstractions.Frames;
+using MediaToolkitNet.Abstractions.Playback;
 using MediaToolkitNet.Interop;
 using MediaToolkitNet.Mpv.Native;
 

@@ -1,9 +1,9 @@
 using System.Runtime.Versioning;
-using MediaToolkitNet.Core;
-using MediaToolkitNet.Core.Capture;
-using MediaToolkitNet.Core.Devices;
-using MediaToolkitNet.Core.Formats;
-using MediaToolkitNet.Core.Frames;
+using MediaToolkitNet.Abstractions;
+using MediaToolkitNet.Abstractions.Capture;
+using MediaToolkitNet.Abstractions.Devices;
+using MediaToolkitNet.Abstractions.Formats;
+using MediaToolkitNet.Abstractions.Frames;
 using MediaToolkitNet.Interop.Com;
 using MediaToolkitNet.Windows.Native;
 

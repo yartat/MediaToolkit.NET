@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
-using MediaToolkitNet.Core;
+using MediaToolkitNet.Abstractions;
 
 namespace MediaToolkitNet.Interop.Com;
 

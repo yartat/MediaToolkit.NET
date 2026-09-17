@@ -1,4 +1,4 @@
-namespace MediaToolkitNet.Core.Formats;
+namespace MediaToolkitNet.Abstractions.Formats;
 
 /// <summary>
 /// PCM sample layout of an audio buffer. Values map 1:1 onto the native sample

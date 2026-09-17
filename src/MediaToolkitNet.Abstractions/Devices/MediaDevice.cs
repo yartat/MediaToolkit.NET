@@ -1,4 +1,4 @@
-namespace MediaToolkitNet.Core.Devices;
+namespace MediaToolkitNet.Abstractions.Devices;
 
 /// <summary>Direction and media type of a hardware endpoint.</summary>
 [Flags]

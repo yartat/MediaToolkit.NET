@@ -1,4 +1,4 @@
-using MediaToolkitNet.Core.Formats;
+using MediaToolkitNet.Abstractions.Formats;
 using MediaToolkitNet.FFmpeg.Native;
 
 namespace MediaToolkitNet.FFmpeg;
@@ -50,7 +50,7 @@ public sealed unsafe class FFmpegDecoder : IDisposable
         var codec = AV.avcodec_find_decoder(info.CodecId);
         if (codec is null)
         {
-            throw new Core.MediaToolkitNetException(
+            throw new Abstractions.MediaToolkitNetException(
                 FFmpegLibraries.BackendName,
                 $"no decoder found for \"{info.CodecName}\"",
                 AVConstants.ErrorDecoderNotFound);
@@ -146,7 +146,7 @@ public sealed unsafe class FFmpegDecoder : IDisposable
             0 => ReceiveResult.Frame,
             AVConstants.ErrorAgain => ReceiveResult.NeedMoreInput,
             AVConstants.ErrorEof => ReceiveResult.EndOfStream,
-            _ => throw new Core.MediaToolkitNetException(
+            _ => throw new Abstractions.MediaToolkitNetException(
                 FFmpegLibraries.BackendName,
                 $"avcodec_receive_frame: {FFmpegError.Describe(result)}",
                 result),

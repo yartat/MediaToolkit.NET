@@ -20,10 +20,10 @@ public struct AVRationalNative
     }
 
     /// <summary>Converts to the backend-agnostic rational type.</summary>
-    public readonly Core.Formats.Rational ToRational() => new(Num, Den);
+    public readonly Abstractions.Formats.Rational ToRational() => new(Num, Den);
 
     /// <summary>Converts from the backend-agnostic rational type.</summary>
-    public static AVRationalNative From(Core.Formats.Rational value) => new(value.Numerator, value.Denominator);
+    public static AVRationalNative From(Abstractions.Formats.Rational value) => new(value.Numerator, value.Denominator);
 }
 
 /// <summary>

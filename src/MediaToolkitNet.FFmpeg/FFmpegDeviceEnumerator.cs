@@ -1,4 +1,4 @@
-using MediaToolkitNet.Core.Devices;
+using MediaToolkitNet.Abstractions.Devices;
 using MediaToolkitNet.FFmpeg.Native;
 using MediaToolkitNet.Interop;
 

@@ -16,7 +16,7 @@
 
   <PropertyGroup Label="Version">
     <!-- CI overrides this from the release tag: dotnet pack -p:Version=1.2.3 -->
-    <VersionPrefix>0.1.0</VersionPrefix>
+    <VersionPrefix>0.1.1</VersionPrefix>
   </PropertyGroup>
 
   <!--

@@ -1,6 +1,6 @@
-using MediaToolkitNet.Core.Formats;
+using MediaToolkitNet.Abstractions.Formats;
 
-namespace MediaToolkitNet.Core.Frames;
+namespace MediaToolkitNet.Abstractions.Frames;
 
 /// <summary>
 /// A borrowed view over one decoded or captured video frame.

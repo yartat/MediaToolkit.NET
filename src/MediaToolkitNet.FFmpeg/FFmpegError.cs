@@ -1,4 +1,4 @@
-using MediaToolkitNet.Core;
+using MediaToolkitNet.Abstractions;
 using MediaToolkitNet.FFmpeg.Native;
 
 namespace MediaToolkitNet.FFmpeg;

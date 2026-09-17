@@ -1,5 +1,5 @@
 using System.Runtime.Versioning;
-using MediaToolkitNet.Core.Devices;
+using MediaToolkitNet.Abstractions.Devices;
 using MediaToolkitNet.MacOS.Native;
 
 namespace MediaToolkitNet.MacOS;

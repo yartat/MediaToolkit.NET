@@ -1,7 +1,7 @@
-using MediaToolkitNet.Core;
-using MediaToolkitNet.Core.Devices;
-using MediaToolkitNet.Core.Playback;
-using MediaToolkitNet.Core.Recording;
+using MediaToolkitNet.Abstractions;
+using MediaToolkitNet.Abstractions.Devices;
+using MediaToolkitNet.Abstractions.Playback;
+using MediaToolkitNet.Abstractions.Recording;
 using MediaToolkitNet.FFmpeg.Native;
 
 namespace MediaToolkitNet.FFmpeg;

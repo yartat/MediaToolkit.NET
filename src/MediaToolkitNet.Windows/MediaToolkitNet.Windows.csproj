@@ -6,7 +6,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../MediaToolkitNet.Core/MediaToolkitNet.Core.csproj" />
+    <ProjectReference Include="../MediaToolkitNet.Abstractions/MediaToolkitNet.Abstractions.csproj" />
     <ProjectReference Include="../MediaToolkitNet.Interop/MediaToolkitNet.Interop.csproj" />
   </ItemGroup>
 

@@ -1,8 +1,8 @@
-using MediaToolkitNet.Core.Devices;
-using MediaToolkitNet.Core.Formats;
-using MediaToolkitNet.Core.Frames;
+using MediaToolkitNet.Abstractions.Devices;
+using MediaToolkitNet.Abstractions.Formats;
+using MediaToolkitNet.Abstractions.Frames;
 
-namespace MediaToolkitNet.Core.Capture;
+namespace MediaToolkitNet.Abstractions.Capture;
 
 /// <summary>
 /// Settings for opening an audio capture or render endpoint.

@@ -1,7 +1,7 @@
-using MediaToolkitNet.Core.Formats;
-using MediaToolkitNet.Core.Frames;
+using MediaToolkitNet.Abstractions.Formats;
+using MediaToolkitNet.Abstractions.Frames;
 
-namespace MediaToolkitNet.Core.Recording;
+namespace MediaToolkitNet.Abstractions.Recording;
 
 /// <summary>Codec requested for an encoded stream.</summary>
 public enum MediaCodec

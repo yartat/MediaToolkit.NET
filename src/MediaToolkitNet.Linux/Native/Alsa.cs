@@ -1,5 +1,5 @@
-using MediaToolkitNet.Core;
-using MediaToolkitNet.Core.Formats;
+using MediaToolkitNet.Abstractions;
+using MediaToolkitNet.Abstractions.Formats;
 using MediaToolkitNet.Interop;
 
 namespace MediaToolkitNet.Linux.Native;

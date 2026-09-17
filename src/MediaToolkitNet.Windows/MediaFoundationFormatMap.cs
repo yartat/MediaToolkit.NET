@@ -1,6 +1,6 @@
 using System.Runtime.Versioning;
-using MediaToolkitNet.Core.Formats;
-using MediaToolkitNet.Core.Recording;
+using MediaToolkitNet.Abstractions.Formats;
+using MediaToolkitNet.Abstractions.Recording;
 using MediaToolkitNet.Windows.Native;
 
 namespace MediaToolkitNet.Windows;

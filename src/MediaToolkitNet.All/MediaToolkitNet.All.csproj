@@ -3,10 +3,17 @@
   <PropertyGroup>
     <Description>MediaToolkit.NET: one API over the native media stacks. This package pulls in every backend and selects the right one for the current operating system. Install a single backend package instead if you only need one.</Description>
     <PackageTags>media;facade;cross-platform;ffmpeg;mpv;mediafoundation;wasapi;v4l2;alsa;avfoundation</PackageTags>
+    <!--
+      The package and assembly are MediaToolkitNet.All because the id
+      MediaToolkitNet normalises to the same string as the unrelated
+      MediaToolkit.NET already on nuget.org. The namespace deliberately stays
+      MediaToolkitNet, so consumers still write `using MediaToolkitNet;`.
+    -->
+    <RootNamespace>MediaToolkitNet</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../MediaToolkitNet.Core/MediaToolkitNet.Core.csproj" />
+    <ProjectReference Include="../MediaToolkitNet.Abstractions/MediaToolkitNet.Abstractions.csproj" />
     <ProjectReference Include="../MediaToolkitNet.FFmpeg/MediaToolkitNet.FFmpeg.csproj" />
     <ProjectReference Include="../MediaToolkitNet.Mpv/MediaToolkitNet.Mpv.csproj" />
     <ProjectReference Include="../MediaToolkitNet.Windows/MediaToolkitNet.Windows.csproj" />

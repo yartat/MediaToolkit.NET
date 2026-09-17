@@ -1,5 +1,5 @@
-using MediaToolkitNet.Core;
-using MediaToolkitNet.Core.Playback;
+using MediaToolkitNet.Abstractions;
+using MediaToolkitNet.Abstractions.Playback;
 
 namespace MediaToolkitNet.Mpv;
 

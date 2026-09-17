@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
-using MediaToolkitNet.Core.Formats;
+using MediaToolkitNet.Abstractions.Formats;
 
 namespace MediaToolkitNet.MacOS.Native;
 
@@ -249,7 +249,7 @@ public static unsafe partial class CoreAudio
     {
         if (status != 0)
         {
-            throw new Core.MediaToolkitNetException(BackendName, $"{operation} returned OSStatus {status}", status);
+            throw new Abstractions.MediaToolkitNetException(BackendName, $"{operation} returned OSStatus {status}", status);
         }
     }
 

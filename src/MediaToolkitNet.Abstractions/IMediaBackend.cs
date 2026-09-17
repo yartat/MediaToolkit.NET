@@ -1,9 +1,9 @@
-using MediaToolkitNet.Core.Capture;
-using MediaToolkitNet.Core.Devices;
-using MediaToolkitNet.Core.Playback;
-using MediaToolkitNet.Core.Recording;
+using MediaToolkitNet.Abstractions.Capture;
+using MediaToolkitNet.Abstractions.Devices;
+using MediaToolkitNet.Abstractions.Playback;
+using MediaToolkitNet.Abstractions.Recording;
 
-namespace MediaToolkitNet.Core;
+namespace MediaToolkitNet.Abstractions;
 
 /// <summary>What a backend is able to provide.</summary>
 [Flags]

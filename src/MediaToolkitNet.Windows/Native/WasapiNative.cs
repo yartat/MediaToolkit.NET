@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
-using MediaToolkitNet.Core.Formats;
+using MediaToolkitNet.Abstractions.Formats;
 using MediaToolkitNet.Interop.Com;
 
 namespace MediaToolkitNet.Windows.Native;

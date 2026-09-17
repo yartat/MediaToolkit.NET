@@ -1,4 +1,4 @@
-namespace MediaToolkitNet.Core.Formats;
+namespace MediaToolkitNet.Abstractions.Formats;
 
 /// <summary>
 /// Description of an uncompressed video stream.

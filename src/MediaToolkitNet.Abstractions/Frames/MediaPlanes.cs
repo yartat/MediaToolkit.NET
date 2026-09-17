@@ -1,6 +1,6 @@
 using System.Runtime.CompilerServices;
 
-namespace MediaToolkitNet.Core.Frames;
+namespace MediaToolkitNet.Abstractions.Frames;
 
 /// <summary>
 /// Fixed-size storage for the plane pointers of a single frame. Eight entries

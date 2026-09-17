@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
-using MediaToolkitNet.Core;
-using MediaToolkitNet.Core.Formats;
+using MediaToolkitNet.Abstractions;
+using MediaToolkitNet.Abstractions.Formats;
 using MediaToolkitNet.Interop;
 
 namespace MediaToolkitNet.Linux.Native;
@@ -53,7 +53,7 @@ public struct PulseSampleSpec
 /// </summary>
 /// <remarks>
 /// The simple API is synchronous and blocking, which matches the shape of
-/// <see cref="Core.Capture.IAudioRenderer"/> exactly. It also works unchanged on
+/// <see cref="Abstractions.Capture.IAudioRenderer"/> exactly. It also works unchanged on
 /// PipeWire, whose PulseAudio server is a drop-in replacement.
 /// </remarks>
 public static unsafe class Pulse

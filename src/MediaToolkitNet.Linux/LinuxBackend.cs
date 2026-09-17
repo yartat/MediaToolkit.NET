@@ -1,7 +1,7 @@
 using System.Runtime.Versioning;
-using MediaToolkitNet.Core;
-using MediaToolkitNet.Core.Capture;
-using MediaToolkitNet.Core.Devices;
+using MediaToolkitNet.Abstractions;
+using MediaToolkitNet.Abstractions.Capture;
+using MediaToolkitNet.Abstractions.Devices;
 using MediaToolkitNet.Linux.Native;
 
 namespace MediaToolkitNet.Linux;

@@ -11,16 +11,16 @@ built-in COM marshaller, so the assemblies stay AOT- and trim-safe.
 ## Install
 
 ```bash
-dotnet add package MediaToolkitNet
+dotnet add package MediaToolkitNet.All
 ```
 
-`MediaToolkitNet` pulls in every backend and selects one at runtime. Take a
+`MediaToolkitNet.All` pulls in every backend and selects one at runtime. Take a
 single backend instead when you do not want the rest:
 
 | Package | Contents |
 |---|---|
-| `MediaToolkitNet` | Facade: backend registry and per-platform selection |
-| `MediaToolkitNet.Core` | Abstractions only; no native code, no dependencies |
+| `MediaToolkitNet.All` | Facade: backend registry and per-platform selection |
+| `MediaToolkitNet.Abstractions` | Abstractions only; no native code, no dependencies |
 | `MediaToolkitNet.Interop` | Native loading, UTF-8 marshalling, COM vtable access |
 | `MediaToolkitNet.FFmpeg` | FFmpeg 7.x: demux, decode, encode, mux |
 | `MediaToolkitNet.Mpv` | libmpv client API |
@@ -32,8 +32,8 @@ single backend instead when you do not want the rest:
 
 ```csharp
 using MediaToolkitNet;
-using MediaToolkitNet.Core.Capture;
-using MediaToolkitNet.Core.Frames;
+using MediaToolkitNet.Abstractions.Capture;
+using MediaToolkitNet.Abstractions.Frames;
 
 // Whichever backend this machine actually has.
 using var capture = MediaToolkitNetBackends.CreateVideoCapture(VideoCaptureSettings.Default);

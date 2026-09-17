@@ -1,4 +1,4 @@
-namespace MediaToolkitNet.Core;
+namespace MediaToolkitNet.Abstractions;
 
 /// <summary>
 /// Raised when a native backend reports a failure. Carries the raw native

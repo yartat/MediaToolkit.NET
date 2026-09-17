@@ -1,8 +1,8 @@
-using MediaToolkitNet.Core;
-using MediaToolkitNet.Core.Capture;
-using MediaToolkitNet.Core.Devices;
-using MediaToolkitNet.Core.Playback;
-using MediaToolkitNet.Core.Recording;
+using MediaToolkitNet.Abstractions;
+using MediaToolkitNet.Abstractions.Capture;
+using MediaToolkitNet.Abstractions.Devices;
+using MediaToolkitNet.Abstractions.Playback;
+using MediaToolkitNet.Abstractions.Recording;
 
 namespace MediaToolkitNet;
 

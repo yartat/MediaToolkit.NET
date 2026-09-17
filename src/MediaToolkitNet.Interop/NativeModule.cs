@@ -1,5 +1,5 @@
 using System.Runtime.InteropServices;
-using MediaToolkitNet.Core;
+using MediaToolkitNet.Abstractions;
 
 namespace MediaToolkitNet.Interop;
 

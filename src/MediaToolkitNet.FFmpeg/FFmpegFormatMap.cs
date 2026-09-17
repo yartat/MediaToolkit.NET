@@ -1,4 +1,4 @@
-using MediaToolkitNet.Core.Formats;
+using MediaToolkitNet.Abstractions.Formats;
 using MediaToolkitNet.FFmpeg.Native;
 
 namespace MediaToolkitNet.FFmpeg;
@@ -76,17 +76,17 @@ public static class FFmpegFormatMap
     /// Default encoder name for a codec. Native FFmpeg encoders are preferred
     /// over external libraries so that a minimal build still works.
     /// </summary>
-    public static string[] EncoderNames(Core.Recording.MediaCodec codec) => codec switch
+    public static string[] EncoderNames(Abstractions.Recording.MediaCodec codec) => codec switch
     {
-        Core.Recording.MediaCodec.H264 => ["libx264", "h264_nvenc", "h264_qsv", "h264_videotoolbox", "h264_amf"],
-        Core.Recording.MediaCodec.Hevc => ["libx265", "hevc_nvenc", "hevc_qsv", "hevc_videotoolbox"],
-        Core.Recording.MediaCodec.Vp9 => ["libvpx-vp9"],
-        Core.Recording.MediaCodec.Av1 => ["libsvtav1", "librav1e", "libaom-av1"],
-        Core.Recording.MediaCodec.Mjpeg => ["mjpeg"],
-        Core.Recording.MediaCodec.Aac => ["aac", "libfdk_aac"],
-        Core.Recording.MediaCodec.Opus => ["libopus", "opus"],
-        Core.Recording.MediaCodec.Flac => ["flac"],
-        Core.Recording.MediaCodec.Pcm => ["pcm_s16le"],
+        Abstractions.Recording.MediaCodec.H264 => ["libx264", "h264_nvenc", "h264_qsv", "h264_videotoolbox", "h264_amf"],
+        Abstractions.Recording.MediaCodec.Hevc => ["libx265", "hevc_nvenc", "hevc_qsv", "hevc_videotoolbox"],
+        Abstractions.Recording.MediaCodec.Vp9 => ["libvpx-vp9"],
+        Abstractions.Recording.MediaCodec.Av1 => ["libsvtav1", "librav1e", "libaom-av1"],
+        Abstractions.Recording.MediaCodec.Mjpeg => ["mjpeg"],
+        Abstractions.Recording.MediaCodec.Aac => ["aac", "libfdk_aac"],
+        Abstractions.Recording.MediaCodec.Opus => ["libopus", "opus"],
+        Abstractions.Recording.MediaCodec.Flac => ["flac"],
+        Abstractions.Recording.MediaCodec.Pcm => ["pcm_s16le"],
         _ => [],
     };
 

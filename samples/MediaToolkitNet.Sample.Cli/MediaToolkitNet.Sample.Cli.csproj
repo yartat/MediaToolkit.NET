@@ -8,7 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../src/MediaToolkitNet/MediaToolkitNet.csproj" />
+    <ProjectReference Include="../../src/MediaToolkitNet.All/MediaToolkitNet.All.csproj" />
   </ItemGroup>
 
 </Project>

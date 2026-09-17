@@ -1,6 +1,6 @@
-using MediaToolkitNet.Core.Frames;
+using MediaToolkitNet.Abstractions.Frames;
 
-namespace MediaToolkitNet.Core.Playback;
+namespace MediaToolkitNet.Abstractions.Playback;
 
 /// <summary>Lifecycle state of an <see cref="IMediaPlayer"/>.</summary>
 public enum PlaybackState

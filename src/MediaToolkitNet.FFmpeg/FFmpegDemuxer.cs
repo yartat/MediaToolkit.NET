@@ -1,4 +1,4 @@
-using MediaToolkitNet.Core.Formats;
+using MediaToolkitNet.Abstractions.Formats;
 using MediaToolkitNet.FFmpeg.Native;
 using MediaToolkitNet.Interop;
 
@@ -67,7 +67,7 @@ public sealed unsafe class FFmpegDemuxer : IDisposable
             format = AV.av_find_input_format(name.Pointer);
             if (format is null)
             {
-                throw new Core.MediaToolkitNetException(
+                throw new Abstractions.MediaToolkitNetException(
                     FFmpegLibraries.BackendName, $"demuxer \"{inputFormat}\" not found", AVConstants.ErrorInvalid);
             }
         }

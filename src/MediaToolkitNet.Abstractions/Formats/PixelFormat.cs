@@ -1,4 +1,4 @@
-namespace MediaToolkitNet.Core.Formats;
+namespace MediaToolkitNet.Abstractions.Formats;
 
 /// <summary>
 /// Raw video buffer layout. Only the formats that every backend in this

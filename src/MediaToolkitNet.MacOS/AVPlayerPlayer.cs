@@ -1,8 +1,8 @@
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
-using MediaToolkitNet.Core;
-using MediaToolkitNet.Core.Frames;
-using MediaToolkitNet.Core.Playback;
+using MediaToolkitNet.Abstractions;
+using MediaToolkitNet.Abstractions.Frames;
+using MediaToolkitNet.Abstractions.Playback;
 using MediaToolkitNet.MacOS.Native;
 
 namespace MediaToolkitNet.MacOS;

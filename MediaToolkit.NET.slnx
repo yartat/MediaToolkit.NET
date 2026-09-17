@@ -7,13 +7,13 @@
     <File Path=".github/workflows/release.yml" />
   </Folder>
   <Folder Name="/src/">
-    <Project Path="src/MediaToolkitNet.Core/MediaToolkitNet.Core.csproj" />
+    <Project Path="src/MediaToolkitNet.Abstractions/MediaToolkitNet.Abstractions.csproj" />
     <Project Path="src/MediaToolkitNet.FFmpeg/MediaToolkitNet.FFmpeg.csproj" />
     <Project Path="src/MediaToolkitNet.Interop/MediaToolkitNet.Interop.csproj" />
     <Project Path="src/MediaToolkitNet.Linux/MediaToolkitNet.Linux.csproj" />
     <Project Path="src/MediaToolkitNet.MacOS/MediaToolkitNet.MacOS.csproj" />
     <Project Path="src/MediaToolkitNet.Mpv/MediaToolkitNet.Mpv.csproj" />
     <Project Path="src/MediaToolkitNet.Windows/MediaToolkitNet.Windows.csproj" />
-    <Project Path="src/MediaToolkitNet/MediaToolkitNet.csproj" />
+    <Project Path="src/MediaToolkitNet.All/MediaToolkitNet.All.csproj" />
   </Folder>
 </Solution>
