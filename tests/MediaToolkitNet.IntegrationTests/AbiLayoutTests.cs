@@ -59,6 +59,25 @@ public unsafe class AbiLayoutTests(ITestOutputHelper output)
     }
 
     [FFmpegFact]
+    public void TheNativeLogLevelCanBeReadAndSet()
+    {
+        var original = FFmpegBackend.GetLogLevel();
+
+        try
+        {
+            FFmpegBackend.SetLogLevel(AVConstants.LogFatal);
+            FFmpegBackend.GetLogLevel().Should().Be(AVConstants.LogFatal);
+
+            FFmpegBackend.SetLogLevel(AVConstants.LogQuiet);
+            FFmpegBackend.GetLogLevel().Should().Be(AVConstants.LogQuiet);
+        }
+        finally
+        {
+            FFmpegBackend.SetLogLevel(original);
+        }
+    }
+
+    [FFmpegFact]
     public void EveryLayoutSelfCheckPassed()
     {
         using var _ = new AssertionScope();

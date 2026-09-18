@@ -175,17 +175,25 @@ public sealed unsafe class FFmpegRecorder : IMediaRecorder
             settings.Format.Channels, settings.Format.EffectiveChannelMask);
         var quality = settings.Quality;
 
+        var experimental = FFmpegFormatMap.IsExperimental(encoderName);
+
         void* context = null;
         var chosen = AVSampleFormat.None;
 
         // Whichever of these the encoder accepts first is what the resampler will
         // convert to. The last three are each the only format some encoder takes:
-        // s32 for dca and pcm_s24le, s32p for ac3_fixed, u8 for pcm_u8.
-        foreach (var sampleFormat in (AVSampleFormat[])
-                 [
-                     AVSampleFormat.FltP, AVSampleFormat.S16, AVSampleFormat.Flt, AVSampleFormat.S16P,
-                     AVSampleFormat.S32, AVSampleFormat.S32P, AVSampleFormat.U8
-                 ])
+        // s32 for dca and pcm_s24le, s32p for ac3_fixed, u8 for pcm_u8. A caller
+        // that pinned a format gets that one or nothing, because the point of
+        // pinning is usually the width: FLAC writes 24 bits from s32 and 16 from
+        // s16, and falling back to the other would be the wrong file.
+        var candidates = settings.SampleFormat is { } pinned
+            ? (AVSampleFormat[])[FFmpegFormatMap.ToAV(pinned)]
+            : [
+                AVSampleFormat.FltP, AVSampleFormat.S16, AVSampleFormat.Flt, AVSampleFormat.S16P,
+                AVSampleFormat.S32, AVSampleFormat.S32P, AVSampleFormat.U8
+              ];
+
+        foreach (var sampleFormat in candidates)
         {
             context = TryOpenEncoder(
                 codec,
@@ -205,9 +213,10 @@ public sealed unsafe class FFmpegRecorder : IMediaRecorder
                     // found", and the encoder then refused to open for want of a layout.
                     AV.SetOption((void*)ctx, "ch_layout", layout);
 
-                    if (settings.Codec == MediaCodec.Dts)
+                    if (experimental)
                     {
-                        // The DTS encoder is marked experimental and will not open otherwise.
+                        // DCA, TrueHD and their like are marked experimental in
+                        // FFmpeg and will not open at the default compliance.
                         AV.SetOption((void*)ctx, "strict", AVConstants.ComplianceExperimental);
                     }
 
@@ -231,10 +240,11 @@ public sealed unsafe class FFmpegRecorder : IMediaRecorder
 
         if (context is null)
         {
+            var pinnedFormat = settings.SampleFormat is { } asked ? $" as {asked}" : string.Empty;
             throw new MediaToolkitNetException(
                 Backend,
                 $"could not open the audio encoder {encoderName} for {settings.Codec} " +
-                $"at {settings.Format.SampleRate} Hz with layout {layout}",
+                $"at {settings.Format.SampleRate} Hz with layout {layout}{pinnedFormat}",
                 AVConstants.ErrorInvalid);
         }
 

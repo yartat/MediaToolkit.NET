@@ -35,11 +35,32 @@ public sealed class FFmpegBackend : MediaBackendBase
     /// <inheritdoc />
     public override string? NativeVersion => FFmpegLibraries.IsAvailable ? FFmpegLibraries.VersionString : null;
 
-    /// <summary>Sets the libavutil log level, e.g. 16 for AV_LOG_ERROR or 32 for AV_LOG_INFO.</summary>
+    /// <summary>
+    /// Sets the libavutil log level, e.g. <see cref="AVConstants.LogError"/> or
+    /// <see cref="AVConstants.LogInfo"/>.
+    /// </summary>
+    /// <param name="level">The level, as <see cref="AVConstants"/> names them.</param>
+    /// <remarks>
+    /// The default is <see cref="AVConstants.LogError"/>, and FFmpeg writes at
+    /// that level for things a caller may well be doing on purpose: the recorder
+    /// asks an encoder about one sample format after another until one is
+    /// accepted, and every refusal along the way goes to standard error. An
+    /// application that reports its own failures usually wants
+    /// <see cref="AVConstants.LogFatal"/> or <see cref="AVConstants.LogQuiet"/>.
+    /// This is process-wide.
+    /// </remarks>
     public static unsafe void SetLogLevel(int level)
     {
         FFmpegLibraries.EnsureLoaded();
         AV.av_log_set_level(level);
+    }
+
+    /// <summary>Reads the libavutil log level.</summary>
+    /// <returns>Returns the level, as <see cref="AVConstants"/> names them.</returns>
+    public static unsafe int GetLogLevel()
+    {
+        FFmpegLibraries.EnsureLoaded();
+        return AV.av_log_get_level();
     }
 
     /// <inheritdoc />
