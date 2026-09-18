@@ -1,4 +1,4 @@
-using MediaToolkitNet.Interop;
+﻿using MediaToolkitNet.Interop;
 
 namespace MediaToolkitNet.FFmpeg.Native;
 
@@ -67,6 +67,9 @@ public static unsafe class AV
 
     /// <summary><c>int av_image_get_buffer_size(enum AVPixelFormat, int width, int height, int align)</c></summary>
     public static delegate* unmanaged[Cdecl]<int, int, int, int, int> av_image_get_buffer_size;
+
+    /// <summary><c>char *av_strdup(const char *s)</c>, allocated so that av_free releases it.</summary>
+    public static delegate* unmanaged[Cdecl]<byte*, byte*> av_strdup;
 
     /// <summary><c>void av_freep(void *ptr)</c></summary>
     public static delegate* unmanaged[Cdecl]<void*, void> av_freep;
@@ -290,6 +293,7 @@ public static unsafe class AV
         av_samples_get_buffer_size = (delegate* unmanaged[Cdecl]<int*, int, int, int, int, int>)util.GetExport(nameof(av_samples_get_buffer_size));
         av_image_get_buffer_size = (delegate* unmanaged[Cdecl]<int, int, int, int, int>)util.GetExport(nameof(av_image_get_buffer_size));
         av_freep = (delegate* unmanaged[Cdecl]<void*, void>)util.GetExport(nameof(av_freep));
+        av_strdup = (delegate* unmanaged[Cdecl]<byte*, byte*>)util.GetExport(nameof(av_strdup));
         av_samples_alloc = (delegate* unmanaged[Cdecl]<byte**, int*, int, int, int, int, int>)util.GetExport(nameof(av_samples_alloc));
         av_channel_layout_default = (delegate* unmanaged[Cdecl]<AVChannelLayoutNative*, int, void>)util.GetExport(nameof(av_channel_layout_default));
         av_log_get_level = (delegate* unmanaged[Cdecl]<int>)util.GetExport(nameof(av_log_get_level));
@@ -360,6 +364,123 @@ public static unsafe class AV
         }
 
         _bound = true;
+    }
+
+    // ------------------------------------------------------------- avfilter
+
+    /// <summary><c>unsigned avfilter_version(void)</c></summary>
+    public static delegate* unmanaged[Cdecl]<uint> avfilter_version;
+
+    /// <summary><c>AVFilterGraph *avfilter_graph_alloc(void)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*> avfilter_graph_alloc;
+
+    /// <summary><c>void avfilter_graph_free(AVFilterGraph **)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void**, void> avfilter_graph_free;
+
+    /// <summary><c>const AVFilter *avfilter_get_by_name(const char *name)</c></summary>
+    public static delegate* unmanaged[Cdecl]<byte*, void*> avfilter_get_by_name;
+
+    /// <summary><c>const AVFilter *av_filter_iterate(void **opaque)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void**, void*> av_filter_iterate;
+
+    /// <summary><c>AVFilterContext *avfilter_graph_alloc_filter(AVFilterGraph *, const AVFilter *, const char *name)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, void*, byte*, void*> avfilter_graph_alloc_filter;
+
+    /// <summary><c>int avfilter_init_str(AVFilterContext *, const char *args)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, byte*, int> avfilter_init_str;
+
+    /// <summary><c>int avfilter_graph_parse_ptr(AVFilterGraph *, const char *, AVFilterInOut **inputs, AVFilterInOut **outputs, void *log_ctx)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, byte*, void**, void**, void*, int> avfilter_graph_parse_ptr;
+
+    /// <summary><c>int avfilter_graph_parse2(AVFilterGraph *, const char *, AVFilterInOut **inputs, AVFilterInOut **outputs)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, byte*, void**, void**, int> avfilter_graph_parse2;
+
+    /// <summary><c>int avfilter_graph_config(AVFilterGraph *, void *log_ctx)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, void*, int> avfilter_graph_config;
+
+    /// <summary><c>char *avfilter_graph_dump(AVFilterGraph *, const char *options)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, byte*, byte*> avfilter_graph_dump;
+
+    /// <summary><c>AVFilterInOut *avfilter_inout_alloc(void)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*> avfilter_inout_alloc;
+
+    /// <summary><c>void avfilter_inout_free(AVFilterInOut **)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void**, void> avfilter_inout_free;
+
+    /// <summary><c>int av_buffersrc_add_frame_flags(AVFilterContext *, AVFrame *, int flags)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, AVFrameHead*, int, int> av_buffersrc_add_frame_flags;
+
+    /// <summary><c>int av_buffersink_get_frame(AVFilterContext *, AVFrame *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, AVFrameHead*, int> av_buffersink_get_frame;
+
+    /// <summary><c>enum AVMediaType av_buffersink_get_type(const AVFilterContext *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, int> av_buffersink_get_type;
+
+    /// <summary><c>int av_buffersink_get_format(const AVFilterContext *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, int> av_buffersink_get_format;
+
+    /// <summary><c>int av_buffersink_get_w(const AVFilterContext *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, int> av_buffersink_get_w;
+
+    /// <summary><c>int av_buffersink_get_h(const AVFilterContext *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, int> av_buffersink_get_h;
+
+    /// <summary><c>AVRational av_buffersink_get_frame_rate(const AVFilterContext *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, AVRationalNative> av_buffersink_get_frame_rate;
+
+    /// <summary><c>AVRational av_buffersink_get_time_base(const AVFilterContext *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, AVRationalNative> av_buffersink_get_time_base;
+
+    /// <summary><c>int av_buffersink_get_sample_rate(const AVFilterContext *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, int> av_buffersink_get_sample_rate;
+
+    /// <summary><c>int av_buffersink_get_ch_layout(const AVFilterContext *, AVChannelLayout *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, AVChannelLayoutNative*, int> av_buffersink_get_ch_layout;
+
+    /// <summary>
+    /// Resolves the libavfilter entry points. Called once the release series is
+    /// known, because that is what decides which libavfilter may be loaded.
+    /// </summary>
+    internal static void BindFilters()
+    {
+        var filter = FFmpegLibraries.AvFilter;
+        if (filter is null)
+        {
+            return;
+        }
+
+        avfilter_version = (delegate* unmanaged[Cdecl]<uint>)filter.GetExport(nameof(avfilter_version));
+        avfilter_graph_alloc = (delegate* unmanaged[Cdecl]<void*>)filter.GetExport(nameof(avfilter_graph_alloc));
+        avfilter_graph_free = (delegate* unmanaged[Cdecl]<void**, void>)filter.GetExport(nameof(avfilter_graph_free));
+        avfilter_get_by_name = (delegate* unmanaged[Cdecl]<byte*, void*>)filter.GetExport(nameof(avfilter_get_by_name));
+        av_filter_iterate = (delegate* unmanaged[Cdecl]<void**, void*>)filter.GetExport(nameof(av_filter_iterate));
+        avfilter_graph_alloc_filter =
+            (delegate* unmanaged[Cdecl]<void*, void*, byte*, void*>)filter.GetExport(nameof(avfilter_graph_alloc_filter));
+        avfilter_init_str = (delegate* unmanaged[Cdecl]<void*, byte*, int>)filter.GetExport(nameof(avfilter_init_str));
+        avfilter_graph_parse_ptr =
+            (delegate* unmanaged[Cdecl]<void*, byte*, void**, void**, void*, int>)filter.GetExport(nameof(avfilter_graph_parse_ptr));
+        avfilter_graph_parse2 =
+            (delegate* unmanaged[Cdecl]<void*, byte*, void**, void**, int>)filter.GetExport(nameof(avfilter_graph_parse2));
+        avfilter_graph_config = (delegate* unmanaged[Cdecl]<void*, void*, int>)filter.GetExport(nameof(avfilter_graph_config));
+        avfilter_graph_dump = (delegate* unmanaged[Cdecl]<void*, byte*, byte*>)filter.GetExport(nameof(avfilter_graph_dump));
+        avfilter_inout_alloc = (delegate* unmanaged[Cdecl]<void*>)filter.GetExport(nameof(avfilter_inout_alloc));
+        avfilter_inout_free = (delegate* unmanaged[Cdecl]<void**, void>)filter.GetExport(nameof(avfilter_inout_free));
+        av_buffersrc_add_frame_flags =
+            (delegate* unmanaged[Cdecl]<void*, AVFrameHead*, int, int>)filter.GetExport(nameof(av_buffersrc_add_frame_flags));
+        av_buffersink_get_frame =
+            (delegate* unmanaged[Cdecl]<void*, AVFrameHead*, int>)filter.GetExport(nameof(av_buffersink_get_frame));
+        av_buffersink_get_type = (delegate* unmanaged[Cdecl]<void*, int>)filter.GetExport(nameof(av_buffersink_get_type));
+        av_buffersink_get_format = (delegate* unmanaged[Cdecl]<void*, int>)filter.GetExport(nameof(av_buffersink_get_format));
+        av_buffersink_get_w = (delegate* unmanaged[Cdecl]<void*, int>)filter.GetExport(nameof(av_buffersink_get_w));
+        av_buffersink_get_h = (delegate* unmanaged[Cdecl]<void*, int>)filter.GetExport(nameof(av_buffersink_get_h));
+        av_buffersink_get_frame_rate =
+            (delegate* unmanaged[Cdecl]<void*, AVRationalNative>)filter.GetExport(nameof(av_buffersink_get_frame_rate));
+        av_buffersink_get_time_base =
+            (delegate* unmanaged[Cdecl]<void*, AVRationalNative>)filter.GetExport(nameof(av_buffersink_get_time_base));
+        av_buffersink_get_sample_rate =
+            (delegate* unmanaged[Cdecl]<void*, int>)filter.GetExport(nameof(av_buffersink_get_sample_rate));
+        av_buffersink_get_ch_layout =
+            (delegate* unmanaged[Cdecl]<void*, AVChannelLayoutNative*, int>)filter.GetExport(nameof(av_buffersink_get_ch_layout));
     }
 
     /// <summary>Sets an AVOption by name on any object that starts with an AVClass pointer.</summary>

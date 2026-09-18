@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using FluentAssertions.Execution;
 using MediaToolkitNet.FFmpeg.Native;
 using Xunit;
@@ -17,9 +17,9 @@ namespace MediaToolkitNet.Tests;
 public class FFmpegGenerationTests
 {
     [Theory]
-    [InlineData(7, 59, 61, 61, 8, 5, 84, 140)]
-    [InlineData(8, 60, 62, 62, 9, 6, 84, 136)]
-    [InlineData(9, 61, 63, 63, 10, 7, 84, 136)]
+    [InlineData(7, 59, 61, 61, 8, 5, 10, 84, 140)]
+    [InlineData(8, 60, 62, 62, 9, 6, 11, 84, 136)]
+    [InlineData(9, 61, 63, 63, 10, 7, 12, 84, 136)]
     public void EachKnownSeriesCarriesTheVersionsAndOffsetsItsHeadersGive(
         int release,
         int avUtil,
@@ -27,6 +27,7 @@ public class FFmpegGenerationTests
         int avFormat,
         int swScale,
         int swResample,
+        int avFilter,
         int timeBase,
         int pixFmt)
     {
@@ -40,6 +41,7 @@ public class FFmpegGenerationTests
         generation.AvDevice.Should().Be(avFormat, "libavdevice carries libavformat's major version");
         generation.SwScale.Should().Be(swScale);
         generation.SwResample.Should().Be(swResample);
+        generation.AvFilter.Should().Be(avFilter);
         generation.CodecContextTimeBase.Should().Be(timeBase);
         generation.CodecContextPixFmt.Should().Be(pixFmt);
     }
@@ -58,6 +60,7 @@ public class FFmpegGenerationTests
         FFmpegGeneration.Known.Select(x => x.AvFormat).Should().OnlyHaveUniqueItems();
         FFmpegGeneration.Known.Select(x => x.SwScale).Should().OnlyHaveUniqueItems();
         FFmpegGeneration.Known.Select(x => x.SwResample).Should().OnlyHaveUniqueItems();
+        FFmpegGeneration.Known.Select(x => x.AvFilter).Should().OnlyHaveUniqueItems();
     }
 
     [Fact]

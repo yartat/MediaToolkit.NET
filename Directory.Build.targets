@@ -1,22 +1,9 @@
 <Project>
 
-  <!--
-    NuGet has no "release notes file" element in a nuspec, only a releaseNotes
-    string, so the notes for the version being built are read into the property
-    just before the nuspec is generated. This cannot live in
-    Directory.Build.props: $(Version) is only assembled from VersionPrefix and
-    VersionSuffix later, by the SDK targets.
-  -->
   <Target Name="ReadPackageReleaseNotes"
           BeforeTargets="GenerateNuspec"
           Condition="'$(IsPackable)' != 'false'">
 
-    <!--
-      The fallback strips the prerelease suffix off $(Version) itself. It must not
-      use $(VersionPrefix): the release workflow overrides Version on the command
-      line and leaves VersionPrefix at its checked-in value, so keying off the
-      prefix would quietly ship the wrong release's notes.
-    -->
     <PropertyGroup>
       <_BaseVersion>$(Version)</_BaseVersion>
     </PropertyGroup>
@@ -24,16 +11,8 @@
       <_BaseVersion>$(Version.Substring(0, $(Version.IndexOf('-'))))</_BaseVersion>
     </PropertyGroup>
 
-    <!--
-      The .nuget.txt file, not the .md one. nuget.org renders releaseNotes as
-      plain text, and the package page already shows the README right above it,
-      so the packaged notes are a trimmed plain-text file that says only what is
-      specific to the release. The .md file next to it is the GitHub release
-      body, which stands alone and therefore repeats the overview.
-    -->
     <PropertyGroup>
       <_ReleaseNotesFile>$(MSBuildThisFileDirectory)docs\release-notes\v$(Version).nuget.txt</_ReleaseNotesFile>
-      <!-- A prerelease such as 1.2.3-rc.1 falls back to the notes for 1.2.3. -->
       <_ReleaseNotesFile Condition="!Exists('$(_ReleaseNotesFile)')">$(MSBuildThisFileDirectory)docs\release-notes\v$(_BaseVersion).nuget.txt</_ReleaseNotesFile>
     </PropertyGroup>
 
@@ -45,10 +24,6 @@
       <PackageReleaseNotes>Release notes: https://github.com/yartat/MediaToolkit.NET/releases/tag/v$(Version)</PackageReleaseNotes>
     </PropertyGroup>
 
-    <!--
-      Shipping a package with no notes is a mistake worth seeing, so say so
-      rather than quietly substituting the link.
-    -->
     <Warning Condition="!Exists('$(_ReleaseNotesFile)')"
              Code="MTN0001"
              Text="No release notes found for version $(Version). Expected docs/release-notes/v$(Version).nuget.txt; the package will only carry a link." />

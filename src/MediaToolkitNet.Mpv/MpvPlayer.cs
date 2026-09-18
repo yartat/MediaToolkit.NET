@@ -1,4 +1,4 @@
-using MediaToolkitNet.Abstractions;
+﻿using MediaToolkitNet.Abstractions;
 using MediaToolkitNet.Abstractions.Frames;
 using MediaToolkitNet.Abstractions.Playback;
 using MediaToolkitNet.Interop;
@@ -35,6 +35,8 @@ public sealed unsafe class MpvPlayer : IMediaPlayer
     private double _volume = 1.0;
     private bool _seekable;
     private bool _disposed;
+    private MpvFilterChain? _videoFilters;
+    private MpvFilterChain? _audioFilters;
 
     /// <summary>
     /// Options applied to the mpv instance before it is initialised. The
@@ -49,6 +51,15 @@ public sealed unsafe class MpvPlayer : IMediaPlayer
         ["osc"] = "no",
         ["idle"] = "yes",
     };
+
+    /// <summary>
+    /// mpv's video filter chain. Filters survive a reload, so setting one before
+    /// <see cref="Open"/> applies it to everything played afterwards.
+    /// </summary>
+    public MpvFilterChain VideoFilters => _videoFilters ??= new MpvFilterChain(this, "vf");
+
+    /// <summary>mpv's audio filter chain.</summary>
+    public MpvFilterChain AudioFilters => _audioFilters ??= new MpvFilterChain(this, "af");
 
     /// <inheritdoc />
     public string Backend => Native.Mpv.BackendName;

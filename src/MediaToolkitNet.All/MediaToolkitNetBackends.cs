@@ -1,4 +1,4 @@
-using MediaToolkitNet.Abstractions;
+﻿using MediaToolkitNet.Abstractions;
 using MediaToolkitNet.Abstractions.Capture;
 using MediaToolkitNet.Abstractions.Devices;
 using MediaToolkitNet.Abstractions.Playback;
@@ -111,6 +111,13 @@ public static class MediaToolkitNetBackends
         else if (OperatingSystem.IsMacOS())
         {
             yield return MacOS.MacOSBackend.Instance;
+        }
+
+        // GStreamer offers no capture or playback interface of its own here, so
+        // it sits behind the platform backend and only reports that it is there.
+        if (OperatingSystem.IsLinux())
+        {
+            yield return GStreamer.GStreamerBackend.Instance;
         }
 
         // mpv renders playback itself, so it comes before FFmpeg for that role;

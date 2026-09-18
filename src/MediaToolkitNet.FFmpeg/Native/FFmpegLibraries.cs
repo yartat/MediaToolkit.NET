@@ -1,4 +1,4 @@
-using MediaToolkitNet.Abstractions;
+﻿using MediaToolkitNet.Abstractions;
 using MediaToolkitNet.Interop;
 
 namespace MediaToolkitNet.FFmpeg.Native;
@@ -48,6 +48,9 @@ public static class FFmpegLibraries
 
     /// <summary>libavdevice, or <see langword="null"/> when the build does not ship it.</summary>
     public static NativeModule? AvDevice { get; private set; }
+
+    /// <summary>libavfilter, or <see langword="null"/> when the build does not ship it.</summary>
+    public static NativeModule? AvFilter { get; private set; }
 
     /// <summary>Version string of the loaded stack, e.g. <c>avutil 59.39.100 / avcodec 61.19.101</c>.</summary>
     public static string? VersionString { get; private set; }
@@ -141,6 +144,14 @@ public static class FFmpegLibraries
 
         Generation = generation;
         AbiLayout.Use(generation);
+
+        // libavfilter is optional and is looked for only in the series that was
+        // loaded: a graph built by one major against the structs of another is
+        // exactly the mismatch the version gate above exists to prevent.
+        _ = NativeModule.TryLoad([Named("avfilter", generation.AvFilter)], out var avfilter);
+        AvFilter = avfilter;
+        AV.BindFilters();
+
         AbiLayout.Validate();
 
         if (AvDevice is not null)

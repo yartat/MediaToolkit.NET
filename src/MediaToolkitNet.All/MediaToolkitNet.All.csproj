@@ -1,8 +1,8 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <Description>MediaToolkit.NET: one API over the native media stacks. This package pulls in every backend and selects the right one for the current operating system. Install a single backend package instead if you only need one.</Description>
-    <PackageTags>media;facade;cross-platform;ffmpeg;mpv;mediafoundation;wasapi;v4l2;alsa;avfoundation</PackageTags>
+    <PackageTags>media;facade;cross-platform;ffmpeg;mpv;mediafoundation;wasapi;v4l2;alsa;gstreamer;avfoundation</PackageTags>
     <!--
       The package and assembly are MediaToolkitNet.All because the id
       MediaToolkitNet normalises to the same string as the unrelated
@@ -18,6 +18,7 @@
     <ProjectReference Include="../MediaToolkitNet.Mpv/MediaToolkitNet.Mpv.csproj" />
     <ProjectReference Include="../MediaToolkitNet.Windows/MediaToolkitNet.Windows.csproj" />
     <ProjectReference Include="../MediaToolkitNet.Linux/MediaToolkitNet.Linux.csproj" />
+    <ProjectReference Include="../MediaToolkitNet.GStreamer/MediaToolkitNet.GStreamer.csproj" />
     <ProjectReference Include="../MediaToolkitNet.MacOS/MediaToolkitNet.MacOS.csproj" />
   </ItemGroup>
 

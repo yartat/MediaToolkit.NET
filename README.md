@@ -1,4 +1,4 @@
-# MediaToolkit.NET
+﻿# MediaToolkit.NET
 
 Low-level wrappers over the native media stacks for .NET 10, plus one
 cross-platform API on top of them.
@@ -17,8 +17,9 @@ remains AOT- and trim-safe.
 | `MediaToolkitNet.Interop` | Native library loading, UTF-8, `ComPtr` and vtable access. |
 | `MediaToolkitNet.FFmpeg` | libavformat / libavcodec / libavutil / libswscale / libswresample / libavdevice |
 | `MediaToolkitNet.Mpv` | libmpv (client API) |
-| `MediaToolkitNet.Windows` | Media Foundation, WASAPI, DirectShow device enumeration |
+| `MediaToolkitNet.Windows` | Media Foundation, WASAPI, DirectShow (devices, filter graph, Sample Grabber) |
 | `MediaToolkitNet.Linux` | ALSA, PulseAudio (simple API), V4L2 |
+| `MediaToolkitNet.GStreamer` | GStreamer 1.x: pipeline, element registry, appsink |
 | `MediaToolkitNet.MacOS` | AVFoundation through the Objective-C runtime, CoreAudio / AudioQueue |
 | `MediaToolkitNet.All` | Facade: backend registry and per-platform selection |
 | `samples/MediaToolkitNet.Sample.Cli` | Demonstrates every scenario |
@@ -33,6 +34,7 @@ remains AOT- and trim-safe.
 | Audio render | WASAPI | ALSA / PulseAudio | AudioQueue | — | — |
 | Playback | — | — | `AVPlayer` | decode to frames | full |
 | Recording to file | `IMFSinkWriter` | — | — | encode + mux | — |
+| Filter graph | DirectShow + Sample Grabber | GStreamer pipeline | — | libavfilter | `vf` / `af` chains |
 
 A dash means the backend does not take that role: FFmpeg owns no audio output,
 mpv never hands frames back, and on Linux and macOS writing files is the FFmpeg
@@ -82,8 +84,92 @@ recorder.AddAudioStream(new AudioEncodingSettings(format, MediaCodec.Aac)
 });
 ```
 
+## Filter graphs
+
+Four stacks can assemble a processing graph, and each one is wrapped in its own
+terms rather than behind a common abstraction: the shapes are genuinely
+different, and hiding that would cost more than it saves.
+
+**DirectShow** builds the graph out of filters and pins, and hands frames back
+through the Sample Grabber. The callback runs on the streaming thread:
+
+```csharp
+using var graph = DirectShowGraph.Create();
+
+var source = graph.AddSourceFilter(@"C:\clip.mp4");
+var grabber = DirectShowSampleGrabber.AddTo(graph);
+grabber.AcceptVideo(PixelFormat.Bgr24);          // forces a decoder and a converter in
+var sink = graph.AddFilter(DsFilter.NullRenderer);
+
+// Intelligent connect: the builder inserts whatever parser and decoder are needed.
+graph.Connect(source.FirstFreeOutput!, grabber.Filter.InputPins[0]);
+graph.Connect(grabber.Filter.FirstFreeOutput!, sink.InputPins[0]);
+
+grabber.VideoGrabbed += (in VideoFrame frame) =>
+{
+    // Borrowed, and bottom-up: Stride(0) is negative for a DIB.
+    ReadOnlySpan<byte> pixels = frame.GetPlane(0);
+};
+
+graph.Run();
+graph.WaitForCompletion(TimeSpan.FromSeconds(30));
+Console.Write(graph.Describe());                 // every filter, pin and connection
+```
+
+**libavfilter** takes the same chain the `ffmpeg` command line takes after `-vf`
+or `-af`. The buffer source and sink are added for you, so the string holds only
+the filters in between:
+
+```csharp
+var input = new VideoFormat(1920, 1080, PixelFormat.Bgr24, 30);
+using var chain = FFmpegFilterGraph.ForVideo(input, "scale=640:-1,hflip");
+
+chain.Push(decodedFrame);                        // an AVFrame, or a borrowed VideoFrame
+while (chain.TryReceive((in VideoFrame frame) => Save(frame)))
+{
+}
+
+chain.Flush();                                   // let buffering filters empty out
+Console.WriteLine(chain.OutputVideoFormat);      // 640x360 Bgr24, as negotiated
+```
+
+**mpv** builds the graph itself, so what is wrapped is the `vf` and `af`
+properties it is set through:
+
+```csharp
+using var player = new MpvPlayer();
+player.Open("clip.mkv");
+
+player.VideoFilters.Add(MpvFilterChain.Lavfi("hqdn3d,eq=contrast=1.1"));
+player.AudioFilters.Set("lavfi=[volume=0.5]");
+player.Play();
+```
+
+**GStreamer** parses a whole pipeline from one `gst-launch` string, and frames
+leave it through an `appsink`:
+
+```csharp
+using var pipeline = GStreamerPipeline.Parse(
+    "filesrc location=clip.mp4 ! decodebin ! videoconvert ! " +
+    "video/x-raw,format=BGR ! appsink name=sink");
+
+var sink = pipeline.GetSink("sink");
+sink.DropWhenFull(true);                         // a live preview would rather skip than block
+
+pipeline.Pause();                                // preroll, so the duration is known
+Console.WriteLine($"{pipeline.Duration}, {sink.NegotiatedFormat}");
+
+pipeline.Play();
+while (!sink.IsEndOfStream)
+{
+    sink.TryPullVideo(TimeSpan.FromMilliseconds(500), (in VideoFrame frame) => Save(frame));
+}
+```
+
 Sample commands: `backends`, `devices [audio|video|all|dshow]`, `probe`, `play`,
-`decode`, `rec-audio`, `rec-video`, `rec-file`, `rec-audio-file`, `encoders`.
+`decode`, `rec-audio`, `rec-video`, `rec-file`, `rec-audio-file`, `encoders`,
+`ds-filters`, `ds-graph`, `ds-grab`, `av-filters`, `av-filter`, `gst-elements`,
+`gst-run`.
 
 ## Tests
 
@@ -124,6 +210,7 @@ MEDIATOOLKITNET_FFMPEG_DIR=/opt/ffmpeg-9/lib dotnet test
 | `MediaToolkitNet.Mpv` | libmpv backend |
 | `MediaToolkitNet.Windows` | Media Foundation, WASAPI, DirectShow |
 | `MediaToolkitNet.Linux` | V4L2, ALSA, PulseAudio |
+| `MediaToolkitNet.GStreamer` | GStreamer 1.x pipelines on Linux |
 | `MediaToolkitNet.MacOS` | AVFoundation, CoreAudio |
 
 ```bash
@@ -197,7 +284,11 @@ validated by running them against real hardware.
 - `FFmpegPlayer` only decodes: it has no renderer and no audio output.
 - Only the mpv client API is wrapped; the render API (embedding into a host
   OpenGL context) is not covered.
-- DirectShow is wrapped for device enumeration only; building a filter graph is
-  out of scope.
+- The GStreamer backend implements no capture or playback interface: what it
+  offers is the pipeline, which covers those roles in GStreamer's own terms.
+- `libavfilter` is optional. When it is missing beside the other FFmpeg
+  libraries, `FFmpegFilterGraph.IsAvailable` is false and nothing else changes.
+- The GStreamer backend binds the Linux library names, so it reports itself
+  unavailable on Windows and macOS even where GStreamer is installed.
 - 64-bit processes only.
 

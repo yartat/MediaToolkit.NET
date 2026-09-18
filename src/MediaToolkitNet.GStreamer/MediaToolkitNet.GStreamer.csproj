@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>GStreamer backend for MediaToolkit.NET: build a pipeline from a gst-launch description, drive its state, read its bus, and take decoded video and audio frames out of an appsink. The portable counterpart of the DirectShow filter graph on Linux.</Description>
+    <PackageTags>gstreamer;linux;pipeline;appsink;capture;audio;video</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../MediaToolkitNet.Abstractions/MediaToolkitNet.Abstractions.csproj" />
+    <ProjectReference Include="../MediaToolkitNet.Interop/MediaToolkitNet.Interop.csproj" />
+  </ItemGroup>
+
+</Project>
