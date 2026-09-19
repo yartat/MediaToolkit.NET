@@ -156,6 +156,30 @@ public static class AVConstants
     /// <summary>FF_COMPLIANCE_EXPERIMENTAL, the compliance level an experimental encoder demands.</summary>
     public const int ComplianceExperimental = -2;
 
+    /// <summary>AV_LOG_QUIET: libav* writes nothing at all.</summary>
+    public const int LogQuiet = -8;
+
+    /// <summary>AV_LOG_PANIC.</summary>
+    public const int LogPanic = 0;
+
+    /// <summary>AV_LOG_FATAL.</summary>
+    public const int LogFatal = 8;
+
+    /// <summary>AV_LOG_ERROR, which is what libav* writes by default.</summary>
+    public const int LogError = 16;
+
+    /// <summary>AV_LOG_WARNING.</summary>
+    public const int LogWarning = 24;
+
+    /// <summary>AV_LOG_INFO.</summary>
+    public const int LogInfo = 32;
+
+    /// <summary>AV_LOG_VERBOSE.</summary>
+    public const int LogVerbose = 40;
+
+    /// <summary>AV_LOG_DEBUG.</summary>
+    public const int LogDebug = 48;
+
     /// <summary>AVFMT_GLOBALHEADER.</summary>
     public const int FormatGlobalHeader = 0x0040;
 

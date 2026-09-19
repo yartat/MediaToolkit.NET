@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using MediaToolkitNet;
 using MediaToolkitNet.Abstractions;
 using MediaToolkitNet.Abstractions.Capture;
@@ -29,6 +29,13 @@ static int Usage()
           rec-file <seconds> <file>    record the camera to a file
           rec-audio-file <sec> <file>  record audio to a file
           encoders                     list Media Foundation encoders (Windows only)
+          ds-filters                   probe every built-in DirectShow filter (Windows only)
+          ds-graph <file>              build a DirectShow graph and print it (Windows only)
+          ds-grab <file> [seconds]     grab frames out of a DirectShow graph (Windows only)
+          av-filters [text]            list the libavfilter filters, optionally matching text
+          av-filter <chain>            build a libavfilter graph and print it
+          gst-elements [text]          list the GStreamer element factories (Linux only)
+          gst-run <pipeline> [seconds] run a gst-launch pipeline (Linux only)
         """);
     return 1;
 }
@@ -47,6 +54,13 @@ static int Run(string[] args)
             "rec-audio" => RecordAudio(Seconds(args, 1, 3)),
             "rec-video" => RecordVideo(Seconds(args, 1, 3)),
             "encoders" => ListEncoders(),
+            "ds-filters" => ProbeDirectShowFilters(),
+            "ds-graph" => ShowDirectShowGraph(Argument(args, 1, "file path")),
+            "ds-grab" => GrabDirectShowFrames(Argument(args, 1, "file path"), Seconds(args, 2, 10)),
+            "av-filters" => ListFFmpegFilters(args.Length > 1 ? args[1] : null),
+            "av-filter" => ShowFFmpegFilterGraph(Argument(args, 1, "filter chain")),
+            "gst-elements" => ListGStreamerElements(args.Length > 1 ? args[1] : null),
+            "gst-run" => RunGStreamerPipeline(Argument(args, 1, "pipeline"), Seconds(args, 2, 10)),
             "rec-audio-file" => RecordAudioToFile(Seconds(args, 1, 3), Argument(args, 2, "output file path")),
             "rec-file" => RecordToFile(Seconds(args, 1, 3), Argument(args, 2, "output file path"),
                 args.Length > 3 ? Enum.Parse<MediaCodec>(args[3], ignoreCase: true) : MediaCodec.H264),
@@ -463,4 +477,306 @@ static int ConvertToS16(in AudioFrame frame, byte[] destination)
         default:
             return 0;
     }
+}
+
+static int ProbeDirectShowFilters()
+{
+    if (!OperatingSystem.IsWindows())
+    {
+        Console.Error.WriteLine("DirectShow is only available on Windows.");
+        return 2;
+    }
+
+    // Instantiating each filter is the only way to know the catalogue's CLSIDs
+    // are right: a wrong GUID simply fails to create rather than misbehaving.
+    using var graph = MediaToolkitNet.Windows.DirectShow.DirectShowGraph.Create();
+
+    var available = 0;
+    foreach (var known in MediaToolkitNet.Windows.Native.DsFilters.All)
+    {
+        try
+        {
+            var filter = graph.AddFilter(known);
+            available++;
+            Console.WriteLine($"  ok      {known,-22} {filter.Name}");
+            graph.RemoveFilter(filter);
+        }
+        catch (MediaToolkitNetException ex)
+        {
+            Console.WriteLine($"  absent  {known,-22} {ex.Message}");
+        }
+    }
+
+    Console.WriteLine($"Available: {available} of {MediaToolkitNet.Windows.Native.DsFilters.All.Count}");
+    return 0;
+}
+
+static int ShowDirectShowGraph(string path)
+{
+    if (!OperatingSystem.IsWindows())
+    {
+        Console.Error.WriteLine("DirectShow is only available on Windows.");
+        return 2;
+    }
+
+    using var graph = MediaToolkitNet.Windows.DirectShow.DirectShowGraph.Create();
+
+    var complete = graph.RenderFile(path);
+    Console.WriteLine($"Rendered {path}{(complete ? string.Empty : " (partially)")}");
+    Console.WriteLine($"Duration: {graph.Duration}, seekable: {graph.CanSeek}");
+    Console.WriteLine();
+    Console.Write(graph.Describe());
+    return 0;
+}
+
+static int GrabDirectShowFrames(string path, int seconds)
+{
+    if (!OperatingSystem.IsWindows())
+    {
+        Console.Error.WriteLine("DirectShow is only available on Windows.");
+        return 2;
+    }
+
+    using var graph = MediaToolkitNet.Windows.DirectShow.DirectShowGraph.Create();
+
+    var source = graph.AddSourceFilter(path);
+    var grabber = MediaToolkitNet.Windows.DirectShow.DirectShowSampleGrabber.AddTo(graph);
+
+    // Ask for video first; a file without a video stream falls back to audio.
+    grabber.AcceptVideo();
+    var kind = "video";
+    if (!TryConnectGrabber(graph, source, grabber))
+    {
+        grabber.AcceptAudio();
+        kind = "audio";
+        if (!TryConnectGrabber(graph, source, grabber))
+        {
+            Console.Error.WriteLine("No pin of the source could be connected to the Sample Grabber.");
+            return 3;
+        }
+    }
+
+    var sink = graph.AddFilter(MediaToolkitNet.Windows.Native.DsFilter.NullRenderer);
+    graph.Connect(grabber.Filter.FirstFreeOutput!, sink.InputPins[0]);
+
+    Console.WriteLine($"Connected as {kind}: {grabber.ConnectedMediaType}");
+    Console.Write(graph.Describe());
+    Console.WriteLine();
+
+    var videoFrames = 0;
+    var audioFrames = 0;
+    var samples = 0L;
+    var firstFrame = string.Empty;
+    var lastTimestamp = TimeSpan.Zero;
+    var checksum = 0L;
+
+    grabber.VideoGrabbed += (in MediaToolkitNet.Abstractions.Frames.VideoFrame frame) =>
+    {
+        if (videoFrames == 0)
+        {
+            firstFrame = $"{frame.Format}, {frame.PlaneCount} plane(s), stride {frame.Stride(0)}";
+        }
+
+        // Read pixels from end to end of the plane, so a wrong pointer or a
+        // wrong stride shows up here rather than as a plausible frame count.
+        checksum += Sum(frame.GetPlane(0));
+        lastTimestamp = frame.Timestamp;
+        videoFrames++;
+    };
+
+    grabber.AudioGrabbed += (in MediaToolkitNet.Abstractions.Frames.AudioFrame frame) =>
+    {
+        if (audioFrames == 0)
+        {
+            firstFrame = $"{frame.Format}, {frame.SampleCount} samples";
+        }
+
+        checksum += Sum(frame.GetPlane(0));
+        samples += frame.SampleCount;
+        lastTimestamp = frame.Timestamp;
+        audioFrames++;
+    };
+
+    graph.Run();
+    var finished = graph.WaitForCompletion(TimeSpan.FromSeconds(seconds));
+    graph.Stop();
+
+    Console.WriteLine(finished ? "Playback finished." : $"Stopped after {seconds} s.");
+    Console.WriteLine($"First sample: {firstFrame}");
+    Console.WriteLine($"Video frames: {videoFrames}, audio frames: {audioFrames}, samples: {samples}");
+    Console.WriteLine($"Last timestamp: {lastTimestamp}, checksum: {checksum}");
+    return 0;
+}
+
+// Sums a spread of bytes rather than all of them, which is enough to tell a
+// real buffer from a zeroed or unreachable one without costing a frame time.
+static long Sum(ReadOnlySpan<byte> data)
+{
+    var total = 0L;
+    for (var i = 0; i < data.Length; i += 997)
+    {
+        total += data[i];
+    }
+
+    return total;
+}
+
+static bool TryConnectGrabber(
+    MediaToolkitNet.Windows.DirectShow.DirectShowGraph graph,
+    MediaToolkitNet.Windows.DirectShow.DirectShowFilter source,
+    MediaToolkitNet.Windows.DirectShow.DirectShowSampleGrabber grabber)
+{
+    var input = grabber.Filter.InputPins[0];
+    foreach (var output in source.OutputPins)
+    {
+        if (output.IsConnected)
+        {
+            continue;
+        }
+
+        try
+        {
+            // Intelligent connect, so the builder inserts whatever parser and
+            // decoder the stream needs on the way to the grabber.
+            graph.Connect(output, input);
+            return true;
+        }
+        catch (MediaToolkitNet.Interop.Com.ComException)
+        {
+            // This pin cannot reach the format the grabber asked for.
+        }
+    }
+
+    return false;
+}
+
+static int ListFFmpegFilters(string? contains)
+{
+    if (!MediaToolkitNet.FFmpeg.Filtering.FFmpegFilterGraph.IsAvailable)
+    {
+        Console.Error.WriteLine(DescribeMissingFilters());
+        return 2;
+    }
+
+    var filters = MediaToolkitNet.FFmpeg.Filtering.FFmpegFilters.All();
+    var shown = 0;
+    foreach (var filter in filters)
+    {
+        if (contains is not null && !filter.Name.Contains(contains, StringComparison.OrdinalIgnoreCase))
+        {
+            continue;
+        }
+
+        Console.WriteLine($"  {filter.Name,-24} {filter.Description}");
+        shown++;
+    }
+
+    Console.WriteLine($"{shown} of {filters.Count} filters.");
+    return 0;
+}
+
+static int ShowFFmpegFilterGraph(string chain)
+{
+    if (!MediaToolkitNet.FFmpeg.Filtering.FFmpegFilterGraph.IsAvailable)
+    {
+        Console.Error.WriteLine(DescribeMissingFilters());
+        return 2;
+    }
+
+    // A format to configure the source with; the chain decides what comes out.
+    var input = new MediaToolkitNet.Abstractions.Formats.VideoFormat(
+        1280, 720, MediaToolkitNet.Abstractions.Formats.PixelFormat.Bgr24, 30);
+
+    using var graph = MediaToolkitNet.FFmpeg.Filtering.FFmpegFilterGraph.ForVideo(input, chain);
+    Console.WriteLine($"In:  {input}");
+    Console.WriteLine($"Out: {graph.OutputVideoFormat}");
+    Console.WriteLine();
+    Console.Write(graph.Describe());
+    return 0;
+}
+
+static string DescribeMissingFilters() =>
+    MediaToolkitNet.FFmpeg.Native.FFmpegLibraries.IsAvailable
+        ? "libavfilter was not found next to the other FFmpeg libraries."
+        : "FFmpeg is not available; see src/FFMpeg/README.md for where the libraries go.";
+
+static int ListGStreamerElements(string? contains)
+{
+    if (!OperatingSystem.IsLinux() || !MediaToolkitNet.GStreamer.GStreamerBackend.Instance.IsAvailable)
+    {
+        Console.Error.WriteLine("GStreamer is not available on this machine.");
+        return 2;
+    }
+
+    var elements = MediaToolkitNet.GStreamer.GStreamerElements.All();
+    var shown = 0;
+    foreach (var element in elements)
+    {
+        if (contains is not null && !element.Name.Contains(contains, StringComparison.OrdinalIgnoreCase))
+        {
+            continue;
+        }
+
+        Console.WriteLine($"  {element.Name,-28} {element.Classification,-32} {element.LongName}");
+        shown++;
+    }
+
+    Console.WriteLine($"{shown} of {elements.Count} elements, GStreamer {MediaToolkitNet.GStreamer.GStreamerBackend.Version}.");
+    return 0;
+}
+
+static int RunGStreamerPipeline(string pipeline, int seconds)
+{
+    if (!OperatingSystem.IsLinux() || !MediaToolkitNet.GStreamer.GStreamerBackend.Instance.IsAvailable)
+    {
+        Console.Error.WriteLine("GStreamer is not available on this machine.");
+        return 2;
+    }
+
+    using var graph = MediaToolkitNet.GStreamer.GStreamerPipeline.Parse(pipeline);
+    graph.Pause();
+    Console.WriteLine($"Prerolled, duration {graph.Duration}.");
+
+    // A pipeline ending in "appsink name=sink" is the one that hands frames back.
+    var sink = graph.FindElement("sink") is null ? null : graph.GetSink("sink");
+    if (sink is not null)
+    {
+        Console.WriteLine($"Sink caps: {sink.NegotiatedFormat}");
+    }
+
+    graph.Play();
+
+    var frames = 0;
+    var checksum = 0L;
+    var deadline = DateTime.UtcNow.AddSeconds(seconds);
+    if (sink is not null)
+    {
+        while (DateTime.UtcNow < deadline && !sink.IsEndOfStream)
+        {
+            var pulled = sink.TryPullVideo(TimeSpan.FromMilliseconds(500),
+                (in MediaToolkitNet.Abstractions.Frames.VideoFrame frame) =>
+                {
+                    checksum += Sum(frame.GetPlane(0));
+                    frames++;
+                });
+
+            if (!pulled && !sink.TryPullAudio(TimeSpan.FromMilliseconds(0),
+                (in MediaToolkitNet.Abstractions.Frames.AudioFrame frame) =>
+                {
+                    checksum += Sum(frame.GetPlane(0));
+                    frames++;
+                }))
+            {
+                break;
+            }
+        }
+    }
+    else
+    {
+        graph.WaitForCompletion(TimeSpan.FromSeconds(seconds));
+    }
+
+    Console.WriteLine($"Position {graph.Position}, frames {frames}, checksum {checksum}.");
+    graph.Stop();
+    return 0;
 }

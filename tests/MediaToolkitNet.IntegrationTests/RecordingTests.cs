@@ -18,7 +18,7 @@ namespace MediaToolkitNet.IntegrationTests;
 /// keeps the test to one dependency, and puts the AVStream offsets under load
 /// from both directions at once.
 /// </remarks>
-public class RecordingTests(ITestOutputHelper output)
+public unsafe class RecordingTests(ITestOutputHelper output)
 {
     [FFmpegTheory]
     [InlineData(MediaCodec.Ac3, 6, 48000, ChannelLayout.FivePoint1Back, 448_000, "ac3")]
@@ -30,6 +30,13 @@ public class RecordingTests(ITestOutputHelper output)
     [InlineData(MediaCodec.PcmS16, 2, 44100, ChannelLayout.Stereo, 0, "pcm_s16le")]
     [InlineData(MediaCodec.PcmS24, 8, 96000, ChannelLayout.SevenPoint1, 0, "pcm_s24le")]
     [InlineData(MediaCodec.PcmS32, 2, 48000, ChannelLayout.Stereo, 0, "pcm_s32le")]
+    [InlineData(MediaCodec.Mp2, 2, 48000, ChannelLayout.Stereo, 192_000, "mp2")]
+    [InlineData(MediaCodec.Mp3, 2, 44100, ChannelLayout.Stereo, 192_000, "mp3")]
+    [InlineData(MediaCodec.Mp3, 1, 22050, ChannelLayout.Mono, 64_000, "mp3")]
+    [InlineData(MediaCodec.Opus, 6, 48000, ChannelLayout.FivePoint1Back, 256_000, "opus")]
+    [InlineData(MediaCodec.Flac, 8, 96000, ChannelLayout.SevenPoint1, 0, "flac")]
+    [InlineData(MediaCodec.TrueHd, 6, 48000, ChannelLayout.FivePoint1Side, 0, "truehd")]
+    [InlineData(MediaCodec.RealAudio, 1, 8000, ChannelLayout.Mono, 0, "ra_144")]
     public void EveryAudioCodecWritesAMatroskaFileThatReadsBackAsItself(
         MediaCodec codec,
         int channels,
@@ -171,6 +178,69 @@ public class RecordingTests(ITestOutputHelper output)
         stream.CodecName.Should().Be("mjpeg");
         stream.AverageFrameRate.Numerator.Should().Be(25);
         stream.AverageFrameRate.Denominator.Should().Be(1);
+    }
+
+    [FFmpegTheory]
+    [InlineData(SampleFormat.S16, AVSampleFormat.S16)]
+    [InlineData(SampleFormat.S32, AVSampleFormat.S32)]
+    public unsafe void AFlacStreamIsAsWideAsThePinnedFormat(SampleFormat pinned, AVSampleFormat expected)
+    {
+        // A lossless encoder takes its width from the format it was opened with —
+        // FLAC writes 24 bits out of s32 and 16 out of s16 — so pinning the format
+        // is how a caller asks for one rather than the other.
+        using var media = new TestMedia();
+        var format = new AudioFormat(48000, 2, SampleFormat.S16, ChannelLayout.Stereo);
+
+        var path = media.WriteAudio(
+            $"flac-{pinned}.mka".ToLowerInvariant(),
+            format,
+            new AudioEncodingSettings(default, MediaCodec.Flac) { SampleFormat = pinned });
+
+        using var demuxer = FFmpegDemuxer.Open(path);
+        var parameters = demuxer.CodecParameters(0);
+        var written = (AVSampleFormat)(*(int*)((byte*)parameters + AbiLayout.CodecParametersFormat));
+
+        output.WriteLine($"FLAC pinned to {pinned} came back as {written}");
+        written.Should().Be(expected);
+    }
+
+    [FFmpegTheory]
+    [InlineData(SampleFormat.S16Planar)]
+    [InlineData(SampleFormat.S32Planar)]
+    public void TrueHdTakesEitherWidthItSupports(SampleFormat pinned)
+    {
+        // Unlike FLAC, the width TrueHD was encoded at is not visible in the
+        // container: its decoder always reports s32. What is checked here is that
+        // the encoder opens at both of the formats it accepts and writes a file.
+        using var media = new TestMedia();
+        var format = new AudioFormat(48000, 2, SampleFormat.S16, ChannelLayout.Stereo);
+
+        var path = media.WriteAudio(
+            $"truehd-{pinned}.mka".ToLowerInvariant(),
+            format,
+            new AudioEncodingSettings(default, MediaCodec.TrueHd) { SampleFormat = pinned });
+
+        using var demuxer = FFmpegDemuxer.Open(path);
+
+        using var _ = new AssertionScope();
+
+        demuxer.Streams.Should().ContainSingle().Which.CodecName.Should().Be("truehd");
+        new FileInfo(path).Length.Should().BeGreaterThan(1024);
+    }
+
+    [FFmpegFact]
+    public void AnEncoderThatDoesNotTakeThePinnedFormatSaysSo()
+    {
+        using var media = new TestMedia();
+        var format = new AudioFormat(48000, 2, SampleFormat.S16, ChannelLayout.Stereo);
+
+        // pcm_u8 takes u8 and nothing else.
+        var write = () => media.WriteAudio(
+            "pinned.mka",
+            format,
+            new AudioEncodingSettings(default, MediaCodec.PcmU8) { SampleFormat = SampleFormat.S32 });
+
+        write.Should().Throw<MediaToolkitNetException>().WithMessage("*S32*");
     }
 
     [FFmpegFact]

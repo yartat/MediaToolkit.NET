@@ -42,6 +42,21 @@ public enum MediaCodec
     /// <summary>DTS Coherent Acoustics audio. The encoder is experimental, and the backend opens it as such.</summary>
     Dts,
 
+    /// <summary>Dolby TrueHD audio, lossless. The encoder is experimental, and the backend opens it as such.</summary>
+    TrueHd,
+
+    /// <summary>MPEG audio layer II.</summary>
+    Mp2,
+
+    /// <summary>MPEG audio layer III.</summary>
+    Mp3,
+
+    /// <summary>Vorbis audio.</summary>
+    Vorbis,
+
+    /// <summary>RealAudio 1.0, which is 14.4 kbps of mono at 8 kHz and nothing else.</summary>
+    RealAudio,
+
     /// <summary>Uncompressed 8-bit unsigned PCM audio.</summary>
     PcmU8,
 
@@ -100,6 +115,20 @@ public readonly record struct AudioEncodingSettings(
     /// picks the encoder it knows for the codec.
     /// </summary>
     public string? EncoderName { get; init; }
+
+    /// <summary>
+    /// Pins the format the encoder is opened with instead of letting the backend
+    /// try the ones it knows until one is accepted. Choosing a wider one is how a
+    /// lossless encoder is asked for more bits: FLAC and TrueHD write 24-bit from
+    /// <see cref="Formats.SampleFormat.S32"/> and 16-bit from
+    /// <see cref="Formats.SampleFormat.S16"/>.
+    /// </summary>
+    /// <remarks>
+    /// The samples pushed in are converted to this, whatever they arrive as. An
+    /// encoder that does not accept it fails to open rather than quietly using
+    /// something else.
+    /// </remarks>
+    public SampleFormat? SampleFormat { get; init; }
 
     /// <summary>
     /// Asks for variable bitrate at this quality instead of a fixed rate, the

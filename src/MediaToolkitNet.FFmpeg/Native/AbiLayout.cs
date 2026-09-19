@@ -1,4 +1,4 @@
-using MediaToolkitNet.Abstractions;
+﻿using MediaToolkitNet.Abstractions;
 using MediaToolkitNet.Interop;
 
 namespace MediaToolkitNet.FFmpeg.Native;
@@ -224,6 +224,147 @@ public static unsafe class AbiLayout
         *(AVRationalNative*)((byte*)codecContext + CodecContextTimeBase) = value;
     }
 
+    // -------------------------------------------------------------- avfilter
+
+    /// <summary>Offset of <c>AVFilterInOut::name</c>.</summary>
+    public const int FilterInOutName = 0;
+
+    /// <summary>Offset of <c>AVFilterInOut::filter_ctx</c>.</summary>
+    public const int FilterInOutContext = 8;
+
+    /// <summary>Offset of <c>AVFilterInOut::pad_idx</c>.</summary>
+    public const int FilterInOutPadIndex = 16;
+
+    /// <summary>Offset of <c>AVFilterInOut::next</c>.</summary>
+    public const int FilterInOutNext = 24;
+
+    /// <summary>Offset of <c>AVFilter::name</c>.</summary>
+    public const int FilterName = 0;
+
+    /// <summary>Offset of <c>AVFilter::description</c>.</summary>
+    public const int FilterDescription = 8;
+
+    /// <summary>
+    /// True when <see cref="ProbeFilterLayout"/> confirmed the two libavfilter
+    /// layouts above against a graph it built itself. Filtering is refused when
+    /// this is false, including when libavfilter was not found at all.
+    /// </summary>
+    public static bool FilterLayoutVerified { get; private set; }
+
+    /// <summary>
+    /// Fills the <c>AVFilterInOut</c> that names one open end of a parsed filter
+    /// chain. This is the one public libavfilter struct the API expects the
+    /// caller to write, which is why its offsets are here.
+    /// </summary>
+    /// <param name="inOut">An entry from <c>avfilter_inout_alloc</c>.</param>
+    /// <param name="name">
+    /// The label used in the chain description, allocated with <c>av_strdup</c>
+    /// or an equivalent: <c>avfilter_inout_free</c> frees it.
+    /// </param>
+    /// <param name="filterContext">The filter that end belongs to.</param>
+    /// <param name="padIndex">Which pad of that filter.</param>
+    public static void FillFilterInOut(void* inOut, byte* name, void* filterContext, int padIndex)
+    {
+        RequireFilterLayout();
+
+        var raw = (byte*)inOut;
+        *(byte**)(raw + FilterInOutName) = name;
+        *(void**)(raw + FilterInOutContext) = filterContext;
+        *(int*)(raw + FilterInOutPadIndex) = padIndex;
+        *(void**)(raw + FilterInOutNext) = null;
+    }
+
+    /// <summary>Reads <c>AVFilter::name</c>.</summary>
+    public static byte* NameOfFilter(void* filter) => *(byte**)((byte*)filter + FilterName);
+
+    /// <summary>Reads <c>AVFilter::description</c>, which may be null.</summary>
+    public static byte* DescriptionOfFilter(void* filter) => *(byte**)((byte*)filter + FilterDescription);
+
+    /// <summary>Throws unless the libavfilter layouts were confirmed.</summary>
+    public static void RequireFilterLayout()
+    {
+        if (!FilterLayoutVerified)
+        {
+            throw Fail(
+                FFmpegLibraries.AvFilter is null
+                    ? "libavfilter was not found next to the other FFmpeg libraries, so filter graphs are unavailable."
+                    : "the libavfilter struct layout could not be confirmed, so filter graphs are unavailable.");
+        }
+    }
+
+    /// <summary>
+    /// Confirms the <c>AVFilterInOut</c> and <c>AVFilter</c> offsets against a
+    /// graph parsed here, rather than trusting them.
+    /// </summary>
+    /// <remarks>
+    /// <c>[in]null[out]</c> builds a graph of one pass-through filter with both
+    /// of its pads free, so <c>avfilter_graph_parse2</c> hands back exactly one
+    /// input named <c>in</c> and one output named <c>out</c>, both belonging to
+    /// that same filter. Reading those four values back through the offsets pins
+    /// all of them: a wrong <c>name</c> or <c>next</c> shows up as a mismatch
+    /// rather than as a pointer into the middle of the struct.
+    /// </remarks>
+    private static bool ProbeFilterLayout()
+    {
+        if (FFmpegLibraries.AvFilter is null)
+        {
+            return false;
+        }
+
+        var graph = AV.avfilter_graph_alloc();
+        if (graph is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            void* inputs = null;
+            void* outputs = null;
+            Span<byte> scratch = stackalloc byte[Utf8Scoped.StackThreshold];
+            using var description = new Utf8Scoped("[in]null[out]", scratch);
+            if (AV.avfilter_graph_parse2(graph, description.Pointer, &inputs, &outputs) < 0)
+            {
+                return false;
+            }
+
+            try
+            {
+                if (inputs is null || outputs is null)
+                {
+                    return false;
+                }
+
+                var inputContext = *(void**)((byte*)inputs + FilterInOutContext);
+                return Utf8.ToManagedOrEmpty(*(byte**)((byte*)inputs + FilterInOutName)) == "in"
+                       && Utf8.ToManagedOrEmpty(*(byte**)((byte*)outputs + FilterInOutName)) == "out"
+                       && *(void**)((byte*)inputs + FilterInOutNext) is null
+                       && *(void**)((byte*)outputs + FilterInOutNext) is null
+                       && *(int*)((byte*)inputs + FilterInOutPadIndex) == 0
+                       && inputContext is not null
+                       && inputContext == *(void**)((byte*)outputs + FilterInOutContext)
+                       && NameOfKnownFilter("null") == "null";
+            }
+            finally
+            {
+                AV.avfilter_inout_free(&inputs);
+                AV.avfilter_inout_free(&outputs);
+            }
+        }
+        finally
+        {
+            AV.avfilter_graph_free(&graph);
+        }
+    }
+
+    private static string NameOfKnownFilter(string name)
+    {
+        Span<byte> scratch = stackalloc byte[Utf8Scoped.StackThreshold];
+        using var utf8 = new Utf8Scoped(name, scratch);
+        var filter = AV.avfilter_get_by_name(utf8.Pointer);
+        return filter is null ? string.Empty : Utf8.ToManagedOrEmpty(NameOfFilter(filter));
+    }
+
     // ------------------------------------------------------------ validation
 
     /// <summary>
@@ -238,6 +379,7 @@ public static unsafe class AbiLayout
         CodecParametersLayoutVerified = ProbeCodecParameters();
         EncoderLayoutVerified = CodecParametersLayoutVerified && ValidateCodecContext();
         AudioFrameLayoutVerified = ProbeAudioFrameFields() && ConfirmAudioFrameFields();
+        FilterLayoutVerified = ProbeFilterLayout();
     }
 
     /// <summary>

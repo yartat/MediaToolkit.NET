@@ -16,16 +16,8 @@
 
   <PropertyGroup Label="Version">
     <!-- CI overrides this from the release tag: dotnet pack -p:Version=1.2.3 -->
-    <VersionPrefix>0.1.2</VersionPrefix>
+    <VersionPrefix>0.2.0</VersionPrefix>
   </PropertyGroup>
-
-  <!--
-    Package ids need no mapping: every project is already named MediaToolkitNet.*,
-    so PackageId falls back to the assembly name. The code carries that name rather
-    than plain MediaToolkit because both "MediaToolkit" and "MediaToolkit.NET" are
-    taken on nuget.org by an unrelated project, and an id there stays reserved even
-    when every version of it is unlisted.
-  -->
 
   <PropertyGroup Label="Package metadata">
     <Authors>Yaroslav V Tatarenko</Authors>
@@ -52,11 +44,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!--
-      Only consumed when a project is actually packed. The package page gets its
-      own README, written for someone who just installed the package; the README
-      at the repository root is written for someone working on it.
-    -->
     <None Include="$(MSBuildThisFileDirectory)docs\package\README.md" Pack="true" PackagePath="\" Visible="false" />
     <None Include="$(MSBuildThisFileDirectory)assets\icon.png" Pack="true" PackagePath="\" Visible="false" />
   </ItemGroup>

@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using FluentAssertions.Execution;
 using MediaToolkitNet.FFmpeg.Native;
 using Xunit;
@@ -81,5 +81,30 @@ public class AbiLayoutConstantsTests
             generation.CodecContextTimeBase.Should().BePositive($"{generation} states a time_base offset");
             generation.CodecContextPixFmt.Should().BePositive($"{generation} states a pix_fmt offset");
         }
+    }
+
+    [Fact]
+    public void TheLibavfilterOffsetsAreTheOnesTheHeadersGive()
+    {
+        using var _ = new AssertionScope();
+
+        // AVFilterInOut is the one public libavfilter struct the API expects the
+        // caller to fill, and it has carried these four fields unchanged since
+        // libavfilter 1. AbiLayout.ProbeFilterLayout confirms them at startup.
+        AbiLayout.FilterInOutName.Should().Be(0);
+        AbiLayout.FilterInOutContext.Should().Be(8);
+        AbiLayout.FilterInOutPadIndex.Should().Be(16);
+        AbiLayout.FilterInOutNext.Should().Be(24, "pad_idx is followed by four bytes of padding");
+
+        AbiLayout.FilterName.Should().Be(0);
+        AbiLayout.FilterDescription.Should().Be(8);
+    }
+
+    [Fact]
+    public void FilteringIsRefusedUntilTheLayoutHasBeenConfirmed()
+    {
+        // Nothing has loaded FFmpeg in this process, so the probe has not run and
+        // the graph must refuse rather than read a field at a guessed offset.
+        AbiLayout.FilterLayoutVerified.Should().BeFalse();
     }
 }

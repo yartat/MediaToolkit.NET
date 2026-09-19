@@ -1,4 +1,5 @@
 using FluentAssertions;
+using FluentAssertions.Execution;
 using MediaToolkitNet.Abstractions.Formats;
 using MediaToolkitNet.Abstractions.Recording;
 using MediaToolkitNet.FFmpeg;
@@ -23,8 +24,53 @@ public class FFmpegFormatMapTests
     [InlineData(MediaCodec.PcmS24, "pcm_s24le")]
     [InlineData(MediaCodec.PcmS32, "pcm_s32le")]
     [InlineData(MediaCodec.Mjpeg, "mjpeg")]
+    [InlineData(MediaCodec.TrueHd, "truehd")]
+    [InlineData(MediaCodec.Mp2, "mp2", "libtwolame", "mp2fixed")]
+    [InlineData(MediaCodec.Mp3, "libmp3lame", "libshine", "mp3_mf")]
+    [InlineData(MediaCodec.Vorbis, "libvorbis", "vorbis")]
+    [InlineData(MediaCodec.RealAudio, "real_144")]
     public void EachCodecNamesTheEncodersThatCanWriteIt(MediaCodec codec, params string[] expected) =>
         FFmpegFormatMap.EncoderNames(codec).Should().Equal(expected);
+
+    [Theory]
+    [InlineData("dca")]
+    [InlineData("truehd")]
+    [InlineData("mlp")]
+    [InlineData("opus")]
+    [InlineData("vorbis")]
+    public void TheEncodersFFmpegMarksExperimentalAreOpenedAsSuch(string encoder) =>
+        FFmpegFormatMap.IsExperimental(encoder).Should().BeTrue();
+
+    [Theory]
+    [InlineData("libopus")]
+    [InlineData("libvorbis")]
+    [InlineData("aac")]
+    [InlineData("ac3")]
+    [InlineData("flac")]
+    [InlineData("libmp3lame")]
+    [InlineData("real_144")]
+    public void TheOnesItDoesNotAreNot(string encoder) =>
+        FFmpegFormatMap.IsExperimental(encoder).Should().BeFalse();
+
+    [Fact]
+    public void AWrapperIsNotExperimentalJustBecauseTheNativeEncoderIs()
+    {
+        // FFmpeg ships both, and only the native one is marked.
+        FFmpegFormatMap.IsExperimental("libopus").Should().NotBe(FFmpegFormatMap.IsExperimental("opus"));
+        FFmpegFormatMap.IsExperimental("libvorbis").Should().NotBe(FFmpegFormatMap.IsExperimental("vorbis"));
+    }
+
+    [Fact]
+    public void TheFirstEncoderNamedForACodecIsTheOneToPrefer()
+    {
+        using var _ = new AssertionScope();
+
+        // The wrappers come first where FFmpeg has both, because the native
+        // encoders of those two are experimental and worse.
+        FFmpegFormatMap.EncoderNames(MediaCodec.Vorbis)[0].Should().Be("libvorbis");
+        FFmpegFormatMap.EncoderNames(MediaCodec.Opus)[0].Should().Be("libopus");
+        FFmpegFormatMap.EncoderNames(MediaCodec.Mp3)[0].Should().Be("libmp3lame");
+    }
 
     [Fact]
     public void TheDefaultCodecNamesNoEncoderOfItsOwn() =>

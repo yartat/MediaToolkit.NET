@@ -65,3 +65,4 @@ src/FFMpeg/**/*.dll
 src/FFMpeg/**/*.so
 src/FFMpeg/**/*.so.*
 src/FFMpeg/**/*.dylib
+CLAUDE.md

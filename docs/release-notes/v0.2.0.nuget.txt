@@ -1,0 +1,107 @@
+MediaToolkit.NET 0.2.0 - the filter graph release.
+
+Four native stacks can assemble a processing graph, and all four are now wrapped:
+the DirectShow filter graph on Windows, libavfilter through FFmpeg, mpv's vf and
+af chains, and GStreamer pipelines on Linux. Each is wrapped in its own terms
+rather than behind a common abstraction, because the shapes are genuinely
+different and hiding that would cost more than it saves.
+
+The README on this page covers what the library does and what it needs at
+runtime. These notes cover only what is specific to this release.
+
+NEW PACKAGE
+
+MediaToolkitNet.GStreamer, for GStreamer 1.x on Linux: a pipeline built from a
+gst-launch description, its state, bus and seeking, the element-factory registry,
+and video and audio frames taken out of an appsink. It implements no capture or
+playback interface of its own, because the pipeline covers those roles in
+GStreamer's own terms. MediaToolkitNet.All pulls it in.
+
+ADDED
+
+- DirectShow filter graph (MediaToolkitNet.Windows). Filters, pins, media types,
+  intelligent connect, RenderFile, transport control, seeking, bus events and a
+  text dump of the graph. A catalogue of thirty built-in filters - the splitters,
+  the parsers, the ACM and MPEG decoders, the DVD Navigator, the tees, the
+  renderers and the muxers - is addressed by name through the DsFilter enum
+  rather than by class id.
+- DirectShow Sample Grabber, which is frame access from inside the graph.
+  VideoGrabbed and AudioGrabbed deliver borrowed frames on the streaming thread;
+  AcceptVideo and AcceptAudio pin the format the graph has to negotiate to, so
+  the builder inserts a decoder and a colour converter as needed. Bottom-up DIBs
+  arrive with a negative stride, which VideoFrame already understands. A buffered
+  snapshot path, SetOneShot with BufferSamples and CopyCurrentBuffer, covers
+  grabbing a single frame out of a file.
+- libavfilter (MediaToolkitNet.FFmpeg). FFmpegFilterGraph.ForVideo and ForAudio
+  take the chain in FFmpeg's own syntax, the same string the command line takes
+  after -vf or -af; the buffer source and sink at either end are added for you.
+  Frames go in as an AVFrame or as a borrowed VideoFrame or AudioFrame and come
+  out borrowed. FFmpegFilters lists what the loaded library was built with, which
+  is not a fixed list the way the DirectShow catalogue is.
+- mpv filter chains (MediaToolkitNet.Mpv). MpvPlayer.VideoFilters and
+  AudioFilters wrap the vf and af properties: Set, Add, Remove, Toggle and Clear,
+  plus MpvFilterChain.Lavfi to hand a libavfilter chain to mpv.
+- Seven sample commands: ds-filters, ds-graph, ds-grab, av-filters, av-filter,
+  gst-elements and gst-run.
+
+CHANGED
+
+- FFmpegGeneration takes an AvFilter major version, as its seventh positional
+  parameter. Code that constructs one has to pass it; nothing else moves.
+- libavfilter is optional, like libavdevice, and is looked for only in the major
+  version belonging to the series that was already loaded. When it is missing,
+  FFmpegFilterGraph.IsAvailable is false and nothing else changes.
+
+VERIFIED BY RUNNING (Windows 11)
+
+- All thirty catalogued DirectShow class ids were instantiated. Twenty-eight
+  resolve; Line21Decoder and WavDest are not registered on current Windows, which
+  is the operating system's doing and not a bad GUID.
+- A WAVE file through the Sample Grabber: 23 buffers, 122868 samples at 22050 Hz,
+  which is 5.5722 seconds and exactly the duration the graph reported.
+- An H.264 file through decoder, colour converter and Sample Grabber to BGR24 at
+  1728x1080: thirty frames per second sustained, a negative stride as a bottom-up
+  DIB should have, and pixels read end to end of every plane rather than at the
+  corners, so a wrong pointer or stride could not pass as a plausible frame count.
+
+NOT EXERCISED YET - PLEASE READ BEFORE DEPENDING ON THIS
+
+- libavfilter has not been run. The development machine has no FFmpeg installed.
+  The two struct layouts it needs are found at startup by parsing a graph and
+  reading the labels back, and the graph refuses to build when that probe does
+  not pass, so a mismatch should produce a clear error rather than corruption -
+  but that path is untested too.
+- The mpv filter chains have not been run; libmpv was not installed either.
+- Nothing in MediaToolkitNet.GStreamer has run at all. It binds the Linux library
+  names, and the development machine is Windows. The four things GStreamer
+  exposes only as macros - the message type, the buffer timestamp, GstMapInfo and
+  the links of a GList - are each found by probing an object built for the
+  purpose rather than hard-coded, and a probe that fails disables the backend.
+  The parts most worth checking first on real hardware are those probes and the
+  floating-reference handling.
+
+Everything 0.1.2 verified still stands: the FFmpeg backend was run on Debian 13
+against FFmpeg 7.1.5 and on Windows 11 against FFmpeg 9.0.1.
+
+That is why this is 0.2.0 rather than 1.0. The public API may still change.
+
+KNOWN LIMITATIONS
+
+- The GStreamer backend reports itself unavailable on Windows and macOS even
+  where GStreamer is installed, because it binds the Linux library names. Lifting
+  that is a matter of the file names and nothing else.
+- The Sample Grabber is registered for SampleCB only. BufferCB returns E_NOTIMPL:
+  SampleCB carries the sample itself, and therefore its timestamps and any
+  mid-stream format change.
+- A filter graph is not a player. None of the four renders audio or video on its
+  own - they hand frames back, and what happens next is the caller's.
+- Media Foundation video recording still needs a video encoder MFT registered on
+  the machine.
+- MacOSBackend cannot write files, because AVAssetWriter is not wrapped.
+- FFmpegPlayer only decodes: no renderer and no audio output.
+- Only the mpv client API is wrapped; the render API is not.
+
+Reports from Linux and macOS are especially welcome.
+
+Full notes: https://github.com/yartat/MediaToolkit.NET/releases/tag/v0.2.0
+Issues: https://github.com/yartat/MediaToolkit.NET/issues

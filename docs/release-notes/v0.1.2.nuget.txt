@@ -32,16 +32,28 @@ ADDED
 
 - FFmpeg 8.x and 9.x beside 7.x. The loader matches the versions it got against a
   table of release series and refuses a mixture belonging to none of them.
-- AC-3 and DTS. The DCA encoder is experimental in FFmpeg and is opened as such
-  without the caller having to say so.
-- PCM at 8, 16, 24 and 32 bits.
+- Eight audio codecs the recorder could not name before: Ac3, Dts, TrueHd, Mp2,
+  Mp3, Vorbis, RealAudio and PCM at 8, 16, 24 and 32 bits. With Aac, Opus and
+  Flac that is eleven. Encoders FFmpeg marks experimental, such as DCA and
+  TrueHD, are opened as experimental without the caller having to say so, and the
+  wrappers are preferred where FFmpeg ships both: libopus over opus, libvorbis
+  over vorbis.
 - Variable bitrate, through AudioEncodingSettings.Quality, on the scale -q:a uses.
+- A pinned sample format, through AudioEncodingSettings.SampleFormat. Left unset
+  the backend probes for one the encoder accepts; set, it opens with that one or
+  fails. This is how a lossless encoder is asked for a width: FLAC and TrueHD
+  write 24 bits out of s32 and 16 out of s16.
 - Per-stream EncoderName and Options, which name an encoder outright and pass
   AVOptions to that stream alone.
 - Stated channel layouts: the ChannelLayout constants and AudioFormat.ChannelMask.
   Six channels are 5.1 twice over, the back arrangement and the side one, and
   only a mask tells an encoder which.
-- 134 unit tests and 43 integration tests, the latter checking every struct field
+- FFmpegBackend.GetLogLevel, beside the SetLogLevel that was already there.
+  FFmpeg writes at AV_LOG_ERROR for things a caller may well be doing on purpose,
+  such as the recorder trying one sample format after another until an encoder
+  accepts one, so an application that reports its own failures will want to turn
+  that down and put it back afterwards.
+- 153 unit tests and 56 integration tests, the latter checking every struct field
   read by offset against the installed library.
 
 CHANGED
@@ -57,9 +69,14 @@ CHANGED
 
 VERIFIED BY RUNNING
 
-On Windows 11 against FFmpeg 9.0.1: AC-3 at one, four and six channels, DTS, AAC
-at a fixed rate and at a quality, and PCM at 8, 16, 24 and 32 bits, each encoded
-into Matroska and read back as the codec, rate and channel count it was given;
+On Debian 13 against FFmpeg 7.1.5 and on Windows 11 against FFmpeg 9.0.1. Both
+series were detected from the libraries themselves and read with their own
+AVCodecContext::pix_fmt, which is 140 on 7.x and 136 on 9.x, the one offset that
+moves between them; the full suite passes on both. On each: every audio codec the
+recorder names, from AC-3 and DTS through TrueHD, MP2, MP3, Opus, Vorbis, FLAC,
+RealAudio and PCM at 8, 16, 24 and 32 bits, each encoded into Matroska and read
+back as the codec, rate and channel count it was given; FLAC pinned to s16 and to
+s32 coming back 16-bit and 24-bit;
 MJPEG video encoded and muxed, which is the path that writes through
 AVStream::codecpar; and every hard-coded offset checked against the running
 library. The offset tests were themselves checked by breaking three offsets on
@@ -67,11 +84,12 @@ purpose, each of which failed loudly and corrupted nothing.
 
 NOT EXERCISED YET
 
-- FFmpeg 7.x and 8.x have not been run. Their entries in the series table were
-  read with offsetof against the headers of n7.1.5 and n8.1.2, and they name the
-  same fields 9.x uses, but no library of those series was loaded. Running
-  "dotnet test" on a machine that has one confirms them.
-- The Linux, macOS and mpv backends have still never been run.
+- FFmpeg 8.x has not been run. Its entry in the series table was read with
+  offsetof against the headers of n8.1.2, and it names the same fields 7.x and
+  9.x do, both of which now run, but no 8.x library was loaded. Running
+  "dotnet test" on a machine that has one confirms it.
+- The macOS and mpv backends have still never been run. Of the Linux backend only
+  the FFmpeg path has: V4L2, ALSA and PulseAudio have not.
 - Media Foundation video recording is still untested; audio recording works.
 
 That is why this is still 0.1.x. The public API may still change.
@@ -79,7 +97,8 @@ That is why this is still 0.1.x. The public API may still change.
 KNOWN LIMITATIONS
 
 - An encoder's own constraints are the caller's to meet: DCA takes only the side
-  arrangement of 5.1 and refuses stereo below 384 kbps, and AC-3 does not do 7.1.
+  arrangements and has a bitrate floor per channel count (192 kbps for mono, 320
+  for stereo, 576 for quad, 768 for 5.1), and AC-3 does not do 7.1 at all.
   The failure names the encoder, the sample rate and the layout asked for. The
   FFmpeg command line hides this behind an automatic conversion filter; this API
   does not.

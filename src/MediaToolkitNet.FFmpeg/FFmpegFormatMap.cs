@@ -88,6 +88,11 @@ public static class FFmpegFormatMap
         Abstractions.Recording.MediaCodec.Flac => ["flac"],
         Abstractions.Recording.MediaCodec.Ac3 => ["ac3", "ac3_fixed"],
         Abstractions.Recording.MediaCodec.Dts => ["dca"],
+        Abstractions.Recording.MediaCodec.TrueHd => ["truehd"],
+        Abstractions.Recording.MediaCodec.Mp2 => ["mp2", "libtwolame", "mp2fixed"],
+        Abstractions.Recording.MediaCodec.Mp3 => ["libmp3lame", "libshine", "mp3_mf"],
+        Abstractions.Recording.MediaCodec.Vorbis => ["libvorbis", "vorbis"],
+        Abstractions.Recording.MediaCodec.RealAudio => ["real_144"],
         Abstractions.Recording.MediaCodec.Pcm or Abstractions.Recording.MediaCodec.PcmS16 => ["pcm_s16le"],
         Abstractions.Recording.MediaCodec.PcmU8 => ["pcm_u8"],
         Abstractions.Recording.MediaCodec.PcmS24 => ["pcm_s24le"],
@@ -109,6 +114,21 @@ public static class FFmpegFormatMap
             ".mkv" or ".mka" or ".mks" or ".webm" => true,
             _ => false,
         };
+
+    /// <summary>
+    /// Encoders FFmpeg marks experimental, which will not open unless the
+    /// compliance level is lowered to <see cref="AVConstants.ComplianceExperimental"/>.
+    /// </summary>
+    /// <param name="encoderName">The encoder that was chosen.</param>
+    /// <returns>Returns whether it has to be opened as experimental.</returns>
+    /// <remarks>
+    /// This is a property of the encoder rather than of the codec: FFmpeg ships a
+    /// native <c>opus</c> and <c>vorbis</c> encoder that are experimental beside
+    /// the libopus and libvorbis wrappers that are not, and picking one of those
+    /// is something the caller asked for by naming the codec.
+    /// </remarks>
+    public static bool IsExperimental(string encoderName) =>
+        encoderName is "dca" or "truehd" or "mlp" or "opus" or "vorbis" or "sonic" or "sonicls" or "s302m";
 
     /// <summary>
     /// Describes a channel layout the way the <c>ch_layout</c> option parses it.

@@ -1,4 +1,4 @@
-namespace MediaToolkitNet.FFmpeg.Native;
+﻿namespace MediaToolkitNet.FFmpeg.Native;
 
 /// <summary>
 /// One release series of FFmpeg: the major versions its libraries carry, and
@@ -10,6 +10,7 @@ namespace MediaToolkitNet.FFmpeg.Native;
 /// <param name="AvFormat">libavformat major version.</param>
 /// <param name="SwScale">libswscale major version.</param>
 /// <param name="SwResample">libswresample major version.</param>
+/// <param name="AvFilter">libavfilter major version.</param>
 /// <param name="CodecContextTimeBase">Offset of <c>AVCodecContext::time_base</c>.</param>
 /// <param name="CodecContextPixFmt">Offset of <c>AVCodecContext::pix_fmt</c>.</param>
 /// <remarks>
@@ -26,6 +27,7 @@ public readonly record struct FFmpegGeneration(
     int AvFormat,
     int SwScale,
     int SwResample,
+    int AvFilter,
     int CodecContextTimeBase,
     int CodecContextPixFmt)
 {
@@ -35,11 +37,11 @@ public readonly record struct FFmpegGeneration(
     /// <summary>The series this binding knows, newest first.</summary>
     public static IReadOnlyList<FFmpegGeneration> Known { get; } =
     [
-        new(Release: 9, AvUtil: 61, AvCodec: 63, AvFormat: 63, SwScale: 10, SwResample: 7,
+        new(Release: 9, AvUtil: 61, AvCodec: 63, AvFormat: 63, SwScale: 10, SwResample: 7, AvFilter: 12,
             CodecContextTimeBase: 84, CodecContextPixFmt: 136),
-        new(Release: 8, AvUtil: 60, AvCodec: 62, AvFormat: 62, SwScale: 9, SwResample: 6,
+        new(Release: 8, AvUtil: 60, AvCodec: 62, AvFormat: 62, SwScale: 9, SwResample: 6, AvFilter: 11,
             CodecContextTimeBase: 84, CodecContextPixFmt: 136),
-        new(Release: 7, AvUtil: 59, AvCodec: 61, AvFormat: 61, SwScale: 8, SwResample: 5,
+        new(Release: 7, AvUtil: 59, AvCodec: 61, AvFormat: 61, SwScale: 8, SwResample: 5, AvFilter: 10,
             CodecContextTimeBase: 84, CodecContextPixFmt: 140),
     ];
 
