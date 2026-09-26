@@ -1,7 +1,13 @@
+﻿#region Copyright
+// Copyright (c) 2026 Yaroslav V Tatarenko.
+// Licensed under the MIT License. See LICENSE in the repository root for details.
+#endregion
+
 using MediaToolkitNet.Abstractions.Capture;
 using MediaToolkitNet.Abstractions.Devices;
 using MediaToolkitNet.Abstractions.Playback;
 using MediaToolkitNet.Abstractions.Recording;
+using MediaToolkitNet.Abstractions.Transcoding;
 
 namespace MediaToolkitNet.Abstractions;
 
@@ -29,6 +35,12 @@ public enum BackendCapabilities
 
     /// <summary>Can create an <see cref="IMediaRecorder"/>.</summary>
     Recording = 1 << 5,
+
+    /// <summary>Can create an <see cref="IMediaProber"/>.</summary>
+    Probing = 1 << 6,
+
+    /// <summary>Can create an <see cref="IMediaTranscoder"/>.</summary>
+    Transcoding = 1 << 7,
 }
 
 /// <summary>
@@ -75,6 +87,14 @@ public interface IMediaBackend
     /// <summary>Creates a recorder writing to <paramref name="outputPath"/>.</summary>
     /// <exception cref="NotSupportedException">The backend does not support recording.</exception>
     IMediaRecorder CreateRecorder(string outputPath);
+
+    /// <summary>Creates a prober.</summary>
+    /// <exception cref="NotSupportedException">The backend does not support probing.</exception>
+    IMediaProber CreateProber();
+
+    /// <summary>Creates a transcoder.</summary>
+    /// <exception cref="NotSupportedException">The backend does not support transcoding.</exception>
+    IMediaTranscoder CreateTranscoder();
 }
 
 /// <summary>
@@ -113,6 +133,12 @@ public abstract class MediaBackendBase : IMediaBackend
 
     /// <inheritdoc />
     public virtual IMediaRecorder CreateRecorder(string outputPath) => throw Unsupported(nameof(CreateRecorder));
+
+    /// <inheritdoc />
+    public virtual IMediaProber CreateProber() => throw Unsupported(nameof(CreateProber));
+
+    /// <inheritdoc />
+    public virtual IMediaTranscoder CreateTranscoder() => throw Unsupported(nameof(CreateTranscoder));
 
     /// <summary>Throws when the backend is not usable on this machine.</summary>
     protected void EnsureAvailable()

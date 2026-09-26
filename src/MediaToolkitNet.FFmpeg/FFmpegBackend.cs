@@ -1,3 +1,8 @@
+﻿#region Copyright
+// Copyright (c) 2026 Yaroslav V Tatarenko.
+// Licensed under the MIT License. See LICENSE in the repository root for details.
+#endregion
+
 using MediaToolkitNet.Abstractions;
 using MediaToolkitNet.Abstractions.Devices;
 using MediaToolkitNet.Abstractions.Playback;
@@ -27,7 +32,9 @@ public sealed class FFmpegBackend : MediaBackendBase
     public override BackendCapabilities Capabilities =>
         BackendCapabilities.DeviceEnumeration |
         BackendCapabilities.Playback |
-        BackendCapabilities.Recording;
+        BackendCapabilities.Recording |
+        BackendCapabilities.Probing |
+        BackendCapabilities.Transcoding;
 
     /// <inheritdoc />
     public override bool IsAvailable => FFmpegLibraries.IsAvailable;
@@ -82,5 +89,19 @@ public sealed class FFmpegBackend : MediaBackendBase
     {
         EnsureAvailable();
         return new FFmpegRecorder(outputPath);
+    }
+
+    /// <inheritdoc />
+    public override Abstractions.Transcoding.IMediaProber CreateProber()
+    {
+        EnsureAvailable();
+        return new FFmpegProber();
+    }
+
+    /// <inheritdoc />
+    public override Abstractions.Transcoding.IMediaTranscoder CreateTranscoder()
+    {
+        EnsureAvailable();
+        return new Transcoding.FFmpegTranscoder();
     }
 }

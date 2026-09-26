@@ -1,3 +1,8 @@
+﻿#region Copyright
+// Copyright (c) 2026 Yaroslav V Tatarenko.
+// Licensed under the MIT License. See LICENSE in the repository root for details.
+#endregion
+
 using MediaToolkitNet.Abstractions.Formats;
 using MediaToolkitNet.FFmpeg.Native;
 using MediaToolkitNet.Interop;
@@ -106,7 +111,7 @@ public sealed unsafe class FFmpegDemuxer : IDisposable
             }
         }
 
-        AbiLayout.ValidateOpenInput(context);
+        AbiLayout.ValidateOpenInput(context, url);
 
         var demuxer = new FFmpegDemuxer(context);
         demuxer.ReadStreamInfo();

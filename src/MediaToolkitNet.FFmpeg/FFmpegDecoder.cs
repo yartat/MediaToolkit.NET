@@ -1,3 +1,8 @@
+﻿#region Copyright
+// Copyright (c) 2026 Yaroslav V Tatarenko.
+// Licensed under the MIT License. See LICENSE in the repository root for details.
+#endregion
+
 using MediaToolkitNet.Abstractions.Formats;
 using MediaToolkitNet.FFmpeg.Native;
 
@@ -69,6 +74,10 @@ public sealed unsafe class FFmpegDecoder : IDisposable
                 AV.SetOption(context, "threads", threadCount);
             }
 
+            // FFmpeg 7 expects decoders to be told the packet time base, and some,
+            // subtitles among them, derive durations from it.
+            AV.SetOption(context, "pkt_timebase", $"{info.TimeBase.Numerator}/{info.TimeBase.Denominator}");
+
             FFmpegError.Check(AV.avcodec_open2(context, codec, null), $"avcodec_open2({info.CodecName})");
         }
         catch
@@ -88,11 +97,12 @@ public sealed unsafe class FFmpegDecoder : IDisposable
 
     private void ReadAudioFormat()
     {
-        // "ar" and "ac" are AVCodecContext AVOptions, so reading them avoids
-        // depending on where sample_rate and ch_layout sit in the struct.
-        var sampleRate = (int)AV.GetOption(_context, "ar");
-        var channels = (int)AV.GetOption(_context, "ac");
-        AudioFormat = new AudioFormat(sampleRate, channels, SampleFormat.Unknown);
+        // Read through AVOptions, so it does not depend on where sample_rate and
+        // ch_layout sit in the struct. The channel count comes from "ch_layout":
+        // "ac" is a command-line option, and on FFmpeg 7 and later reading it as
+        // an AVOption fails, which used to leave every decoded frame at 0 channels.
+        var (sampleRate, channels, mask) = FFmpegStreamFormats.ReadAudioOptions(_context);
+        AudioFormat = new AudioFormat(sampleRate, channels, SampleFormat.Unknown, mask);
     }
 
     /// <summary>

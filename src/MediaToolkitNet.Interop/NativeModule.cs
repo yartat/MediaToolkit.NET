@@ -1,3 +1,8 @@
+#region Copyright
+// Copyright (c) 2026 Yaroslav V Tatarenko.
+// Licensed under the MIT License. See LICENSE in the repository root for details.
+#endregion
+
 using System.Runtime.InteropServices;
 using MediaToolkitNet.Abstractions;
 

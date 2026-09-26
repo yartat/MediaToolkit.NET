@@ -1,4 +1,9 @@
-﻿namespace MediaToolkitNet.FFmpeg.Native;
+﻿#region Copyright
+// Copyright (c) 2026 Yaroslav V Tatarenko.
+// Licensed under the MIT License. See LICENSE in the repository root for details.
+#endregion
+
+namespace MediaToolkitNet.FFmpeg.Native;
 
 /// <summary>
 /// One release series of FFmpeg: the major versions its libraries carry, and

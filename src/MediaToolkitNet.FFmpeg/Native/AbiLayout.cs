@@ -1,4 +1,9 @@
-﻿using MediaToolkitNet.Abstractions;
+﻿#region Copyright
+// Copyright (c) 2026 Yaroslav V Tatarenko.
+// Licensed under the MIT License. See LICENSE in the repository root for details.
+#endregion
+
+using MediaToolkitNet.Abstractions;
 using MediaToolkitNet.Interop;
 
 namespace MediaToolkitNet.FFmpeg.Native;
@@ -59,6 +64,12 @@ public static unsafe class AbiLayout
 
     /// <summary>Offset of <c>AVCodecParameters::codec_id</c>.</summary>
     public const int CodecParametersCodecId = 4;
+
+    /// <summary>
+    /// Offset of <c>AVCodecParameters::codec_tag</c>: the four bytes right after
+    /// <c>codec_id</c>, the same in every series from 6 to 9.
+    /// </summary>
+    public const int CodecParametersCodecTag = 8;
 
     /// <summary>Offset of <c>AVCodec::type</c>.</summary>
     public const int CodecType = 16;
@@ -174,6 +185,41 @@ public static unsafe class AbiLayout
     /// <summary>Reads <c>AVCodecParameters::codec_id</c>.</summary>
     public static int CodecIdOf(void* codecParameters) =>
         *(int*)((byte*)codecParameters + CodecParametersCodecId);
+
+    /// <summary>
+    /// Clears <c>AVCodecParameters::codec_tag</c>, so a muxer picks the tag its
+    /// own container uses for the codec instead of keeping the input's.
+    /// </summary>
+    public static void ClearCodecTag(void* codecParameters) =>
+        *(uint*)((byte*)codecParameters + CodecParametersCodecTag) = 0;
+
+    /// <summary>Reads <c>AVCodecParameters::format</c>: an AVPixelFormat for video, an AVSampleFormat for audio.</summary>
+    public static int FormatOf(void* codecParameters)
+    {
+        RequireCodecParametersLayout();
+        return *(int*)((byte*)codecParameters + CodecParametersFormat);
+    }
+
+    /// <summary>Reads <c>AVCodecParameters::bit_rate</c>.</summary>
+    public static long BitRateOf(void* codecParameters)
+    {
+        RequireCodecParametersLayout();
+        return *(long*)((byte*)codecParameters + CodecParametersBitRate);
+    }
+
+    /// <summary>Reads <c>AVCodecParameters::width</c>.</summary>
+    public static int WidthOf(void* codecParameters)
+    {
+        RequireCodecParametersLayout();
+        return *(int*)((byte*)codecParameters + CodecParametersWidth);
+    }
+
+    /// <summary>Reads <c>AVCodecParameters::height</c>.</summary>
+    public static int HeightOf(void* codecParameters)
+    {
+        RequireCodecParametersLayout();
+        return *(int*)((byte*)codecParameters + CodecParametersHeight);
+    }
 
     /// <summary>Reads <c>AVCodec::id</c> from a codec descriptor.</summary>
     public static int IdOfCodec(void* codec) => *(int*)((byte*)codec + CodecId);
@@ -365,6 +411,590 @@ public static unsafe class AbiLayout
         return filter is null ? string.Empty : Utf8.ToManagedOrEmpty(NameOfFilter(filter));
     }
 
+    // ------------------------------------------------- containers and streams
+    //
+    // Everything below was read with offsetof against the headers of n7.1.5,
+    // n8.1.2 and n9.0.1, and is the same in all three. Each group is confirmed at
+    // startup by writing a value through an API and reading it back at the
+    // offset, or the other way round, so none of it is trusted blind.
+
+    /// <summary>Offset of <c>AVFormatContext::iformat</c>.</summary>
+    public const int FormatContextInputFormat = 8;
+
+    /// <summary>Offset of <c>AVFormatContext::oformat</c>.</summary>
+    public const int FormatContextOutputFormat = 16;
+
+    /// <summary>Offset of <c>AVFormatContext::nb_chapters</c>.</summary>
+    public const int FormatContextNbChapters = 72;
+
+    /// <summary>Offset of <c>AVFormatContext::chapters</c>.</summary>
+    public const int FormatContextChapters = 80;
+
+    /// <summary>Offset of <c>AVFormatContext::url</c>. Read only by <see cref="ValidateOpenInput"/>.</summary>
+    public const int FormatContextUrl = 88;
+
+    /// <summary>Offset of <c>AVFormatContext::start_time</c>, right after <c>url</c>, in AV_TIME_BASE units.</summary>
+    public const int FormatContextStartTime = 96;
+
+    /// <summary>Offset of <c>AVFormatContext::duration</c>, right after <c>start_time</c>, in AV_TIME_BASE units.</summary>
+    public const int FormatContextDuration = 104;
+
+    /// <summary>Offset of <c>AVFormatContext::metadata</c>.</summary>
+    public const int FormatContextMetadata = 192;
+
+    /// <summary>Offset of <c>AVFormatContext::start_time_realtime</c>. Read only by the metadata probe.</summary>
+    public const int FormatContextStartTimeRealtime = 200;
+
+    /// <summary>Offset of <c>AVFormatContext::fps_probe_size</c>. Read only by the metadata probe.</summary>
+    public const int FormatContextFpsProbeSize = 208;
+
+    /// <summary>Offset of <c>name</c> in both <c>AVInputFormat</c> and <c>AVOutputFormat</c>.</summary>
+    public const int FormatName = 0;
+
+    /// <summary>Offset of <c>AVOutputFormat::flags</c>.</summary>
+    public const int OutputFormatFlags = 44;
+
+    /// <summary>Offset of <c>AVStream::disposition</c>.</summary>
+    public const int StreamDisposition = 64;
+
+    /// <summary>
+    /// Offset of <c>AVStream::discard</c>: the four bytes between
+    /// <c>disposition</c> and <c>sample_aspect_ratio</c>, the same in 7, 8 and 9.
+    /// </summary>
+    public const int StreamDiscard = 68;
+
+    /// <summary>Offset of <c>AVStream::sample_aspect_ratio</c>.</summary>
+    public const int StreamSampleAspectRatio = 72;
+
+    /// <summary>Offset of <c>AVStream::metadata</c>.</summary>
+    public const int StreamMetadata = 80;
+
+    /// <summary>Offset of <c>AVChapter::id</c>.</summary>
+    public const int ChapterId = 0;
+
+    /// <summary>Offset of <c>AVChapter::time_base</c>.</summary>
+    public const int ChapterTimeBase = 8;
+
+    /// <summary>Offset of <c>AVChapter::start</c>.</summary>
+    public const int ChapterStart = 16;
+
+    /// <summary>Offset of <c>AVChapter::end</c>.</summary>
+    public const int ChapterEnd = 24;
+
+    /// <summary>Offset of <c>AVChapter::metadata</c>.</summary>
+    public const int ChapterMetadata = 32;
+
+    /// <summary><c>sizeof(AVChapter)</c>. Chapters written to an output are allocated here, as ffmpeg does it.</summary>
+    public const int ChapterSize = 40;
+
+    /// <summary>Offset of <c>AVDictionaryEntry::key</c>.</summary>
+    public const int DictionaryEntryKey = 0;
+
+    /// <summary>Offset of <c>AVDictionaryEntry::value</c>.</summary>
+    public const int DictionaryEntryValue = 8;
+
+    /// <summary>Offset of <c>AVCodecDescriptor::type</c>.</summary>
+    public const int DescriptorType = 4;
+
+    /// <summary>Offset of <c>AVCodecDescriptor::name</c>.</summary>
+    public const int DescriptorName = 8;
+
+    /// <summary>Offset of <c>AVCodecDescriptor::props</c>.</summary>
+    public const int DescriptorProps = 24;
+
+    /// <summary>Offset of <c>AVCodecContext::subtitle_header_size</c>.</summary>
+    public const int CodecContextSubtitleHeaderSize = 748;
+
+    /// <summary>Offset of <c>AVCodecContext::subtitle_header</c>.</summary>
+    public const int CodecContextSubtitleHeader = 752;
+
+    /// <summary><c>sizeof(AVSubtitle)</c>. The caller allocates it for <c>avcodec_decode_subtitle2</c>.</summary>
+    public const int SubtitleSize = 32;
+
+    /// <summary>Offset of <c>AVSubtitle::format</c>: 0 for bitmaps, 1 for text.</summary>
+    public const int SubtitleFormat = 0;
+
+    /// <summary>Offset of <c>AVSubtitle::start_display_time</c>, in milliseconds after <c>pts</c>.</summary>
+    public const int SubtitleStartDisplayTime = 4;
+
+    /// <summary>Offset of <c>AVSubtitle::end_display_time</c>, in milliseconds after <c>pts</c>.</summary>
+    public const int SubtitleEndDisplayTime = 8;
+
+    /// <summary>Offset of <c>AVSubtitle::num_rects</c>.</summary>
+    public const int SubtitleNumRects = 12;
+
+    /// <summary>Offset of <c>AVSubtitle::rects</c>.</summary>
+    public const int SubtitleRects = 16;
+
+    /// <summary>Offset of <c>AVSubtitle::pts</c>, in AV_TIME_BASE units.</summary>
+    public const int SubtitlePts = 24;
+
+    /// <summary><c>sizeof(AVSubtitleRect)</c>.</summary>
+    public const int SubtitleRectSize = 96;
+
+    /// <summary>Offset of <c>AVSubtitleRect::type</c>.</summary>
+    public const int SubtitleRectType = 76;
+
+    /// <summary>Offset of <c>AVSubtitleRect::text</c>.</summary>
+    public const int SubtitleRectText = 80;
+
+    /// <summary>Offset of <c>AVSubtitleRect::ass</c>.</summary>
+    public const int SubtitleRectAss = 88;
+
+    /// <summary>
+    /// True when <c>AVDictionaryEntry</c>, <c>AVFormatContext::metadata</c> and
+    /// the <c>AVStream</c> tag fields were confirmed. Tags are neither read nor
+    /// written when this is false.
+    /// </summary>
+    public static bool MetadataLayoutVerified { get; private set; }
+
+    /// <summary>True when <c>AVCodecDescriptor</c> was confirmed, which is how text subtitles are told from bitmaps.</summary>
+    public static bool DescriptorLayoutVerified { get; private set; }
+
+    /// <summary>
+    /// True when <c>AVSubtitle</c>, <c>AVSubtitleRect</c> and the subtitle header
+    /// of <c>AVCodecContext</c> were confirmed by decoding a subtitle. Subtitle
+    /// conversion and subtitle reading are refused when this is false.
+    /// </summary>
+    public static bool SubtitleLayoutVerified { get; private set; }
+
+    /// <summary>
+    /// Reads <c>AVFormatContext::start_time</c>: where the input's timestamps
+    /// begin, in AV_TIME_BASE units, or 0 when it states none. MPEG-TS commonly
+    /// starts well above zero, and the transcoder measures trims from here.
+    /// </summary>
+    public static long StartTimeOfInput(void* formatContext)
+    {
+        var value = *(long*)((byte*)formatContext + FormatContextStartTime);
+        return value == AVConstants.NoPtsValue ? 0 : value;
+    }
+
+    /// <summary>
+    /// Reads <c>AVFormatContext::duration</c>: the length of the whole input, in
+    /// AV_TIME_BASE units, or 0 when it states none. Matroska keeps per-stream
+    /// durations only as tags, so for it this is often the only length there is.
+    /// </summary>
+    public static long DurationOfInput(void* formatContext)
+    {
+        var value = *(long*)((byte*)formatContext + FormatContextDuration);
+        return value is AVConstants.NoPtsValue or < 0 ? 0 : value;
+    }
+
+    /// <summary>Reads <c>AVFormatContext::iformat</c>.</summary>
+    public static void* InputFormatOf(void* formatContext) =>
+        *(void**)((byte*)formatContext + FormatContextInputFormat);
+
+    /// <summary>Reads <c>AVFormatContext::oformat</c>.</summary>
+    public static void* OutputFormatOf(void* formatContext) =>
+        *(void**)((byte*)formatContext + FormatContextOutputFormat);
+
+    /// <summary>Reads the <c>name</c> of an <c>AVInputFormat</c> or <c>AVOutputFormat</c>.</summary>
+    public static string NameOfFormat(void* format) =>
+        format is null ? string.Empty : Utf8.ToManagedOrEmpty(*(byte**)((byte*)format + FormatName));
+
+    /// <summary>Reads <c>AVOutputFormat::flags</c>.</summary>
+    public static int FlagsOfOutputFormat(void* outputFormat) => *(int*)((byte*)outputFormat + OutputFormatFlags);
+
+    /// <summary>The address of <c>AVFormatContext::metadata</c>, for the <c>av_dict_*</c> functions.</summary>
+    public static void** MetadataOf(void* formatContext)
+    {
+        RequireMetadataLayout();
+        return (void**)((byte*)formatContext + FormatContextMetadata);
+    }
+
+    /// <summary>The address of <c>AVStream::metadata</c>, for the <c>av_dict_*</c> functions.</summary>
+    public static void** MetadataOfStream(void* stream)
+    {
+        RequireMetadataLayout();
+        return (void**)((byte*)stream + StreamMetadata);
+    }
+
+    /// <summary>Reads <c>AVStream::disposition</c>.</summary>
+    public static int DispositionOf(void* stream) => *(int*)((byte*)stream + StreamDisposition);
+
+    /// <summary>Writes <c>AVStream::disposition</c>.</summary>
+    public static void SetDisposition(void* stream, int value)
+    {
+        RequireMetadataLayout();
+        *(int*)((byte*)stream + StreamDisposition) = value;
+    }
+
+    /// <summary>
+    /// Tells the demuxer to drop every packet of a stream, so a reader that wants
+    /// one stream does not pay for reading the others. <c>AVDISCARD_ALL</c> is 48.
+    /// </summary>
+    public static void DiscardStream(void* stream) => *(int*)((byte*)stream + StreamDiscard) = AVConstants.DiscardAll;
+
+    /// <summary>Reads <c>AVStream::sample_aspect_ratio</c>.</summary>
+    public static AVRationalNative SampleAspectRatioOf(void* stream) =>
+        *(AVRationalNative*)((byte*)stream + StreamSampleAspectRatio);
+
+    /// <summary>Reads <c>AVFormatContext::nb_chapters</c>.</summary>
+    public static int ChapterCountOf(void* formatContext) =>
+        (int)*(uint*)((byte*)formatContext + FormatContextNbChapters);
+
+    /// <summary>Reads <c>AVFormatContext::chapters[index]</c>.</summary>
+    public static void* ChapterAt(void* formatContext, int index) =>
+        (*(void***)((byte*)formatContext + FormatContextChapters))[index];
+
+    /// <summary>Reads the time span of an <c>AVChapter</c>.</summary>
+    public static (long Start, long End, AVRationalNative TimeBase) SpanOfChapter(void* chapter) =>
+        (*(long*)((byte*)chapter + ChapterStart),
+         *(long*)((byte*)chapter + ChapterEnd),
+         *(AVRationalNative*)((byte*)chapter + ChapterTimeBase));
+
+    /// <summary>The address of <c>AVChapter::metadata</c>, for the <c>av_dict_*</c> functions.</summary>
+    public static void** MetadataOfChapter(void* chapter)
+    {
+        RequireMetadataLayout();
+        return (void**)((byte*)chapter + ChapterMetadata);
+    }
+
+    /// <summary>
+    /// Appends a chapter to an output, the way ffmpeg does: libavformat has no
+    /// function for it, so the chapter is allocated at its documented size and
+    /// added to the array the muxer reads.
+    /// </summary>
+    /// <returns>Returns the chapter, whose metadata the caller may fill.</returns>
+    public static void* AddChapter(void* formatContext, long id, AVRationalNative timeBase, long start, long end)
+    {
+        RequireMetadataLayout();
+
+        var chapter = (byte*)AV.av_mallocz(ChapterSize);
+        if (chapter is null)
+        {
+            return null;
+        }
+
+        *(long*)(chapter + ChapterId) = id;
+        *(AVRationalNative*)(chapter + ChapterTimeBase) = timeBase;
+        *(long*)(chapter + ChapterStart) = start;
+        *(long*)(chapter + ChapterEnd) = end;
+
+        var raw = (byte*)formatContext;
+        if (AV.av_dynarray_add_nofree(raw + FormatContextChapters, (int*)(raw + FormatContextNbChapters), chapter) < 0)
+        {
+            AV.av_free(chapter);
+            return null;
+        }
+
+        return chapter;
+    }
+
+    /// <summary>Reads every entry of an <c>AVDictionary</c>, which may be null.</summary>
+    public static Dictionary<string, string> ReadDictionary(void* dictionary)
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (dictionary is null || !MetadataLayoutVerified)
+        {
+            return result;
+        }
+
+        Span<byte> empty = stackalloc byte[1];
+        fixed (byte* key = empty)
+        {
+            void* entry = null;
+            while ((entry = AV.av_dict_get(dictionary, key, entry, AVConstants.DictIgnoreSuffix)) is not null)
+            {
+                var name = Utf8.ToManagedOrEmpty(*(byte**)((byte*)entry + DictionaryEntryKey));
+                result[name] = Utf8.ToManagedOrEmpty(*(byte**)((byte*)entry + DictionaryEntryValue));
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>Reads <c>AVCodecDescriptor::props</c> for a codec, or 0 when there is no descriptor.</summary>
+    public static int PropertiesOfCodec(int codecId)
+    {
+        if (!DescriptorLayoutVerified)
+        {
+            return 0;
+        }
+
+        var descriptor = AV.avcodec_descriptor_get(codecId);
+        return descriptor is null ? 0 : *(int*)((byte*)descriptor + DescriptorProps);
+    }
+
+    /// <summary>Reads the ASS header a subtitle decoder produced, or <see langword="null"/>.</summary>
+    public static byte[]? SubtitleHeaderOf(void* codecContext)
+    {
+        RequireSubtitleLayout();
+
+        var size = *(int*)((byte*)codecContext + CodecContextSubtitleHeaderSize);
+        var header = *(byte**)((byte*)codecContext + CodecContextSubtitleHeader);
+        return size <= 0 || header is null ? null : new ReadOnlySpan<byte>(header, size).ToArray();
+    }
+
+    /// <summary>
+    /// Gives an encoder the ASS header to write, copied into memory libavcodec
+    /// frees with the context. ffmpeg copies the decoder's header the same way;
+    /// the ASS encoder writes nothing usable without one.
+    /// </summary>
+    public static void SetSubtitleHeader(void* codecContext, ReadOnlySpan<byte> header)
+    {
+        RequireSubtitleLayout();
+
+        var copy = (byte*)AV.av_mallocz((nuint)header.Length + 1);
+        if (copy is null)
+        {
+            throw Fail("could not allocate the subtitle header.");
+        }
+
+        header.CopyTo(new Span<byte>(copy, header.Length));
+        *(byte**)((byte*)codecContext + CodecContextSubtitleHeader) = copy;
+        *(int*)((byte*)codecContext + CodecContextSubtitleHeaderSize) = header.Length;
+    }
+
+    /// <summary>Reads the timing of a decoded <c>AVSubtitle</c>: its pts in AV_TIME_BASE units and its display window in milliseconds.</summary>
+    public static (long Pts, uint StartMs, uint EndMs) TimingOfSubtitle(void* subtitle)
+    {
+        RequireSubtitleLayout();
+        var raw = (byte*)subtitle;
+        return (*(long*)(raw + SubtitlePts), *(uint*)(raw + SubtitleStartDisplayTime), *(uint*)(raw + SubtitleEndDisplayTime));
+    }
+
+    /// <summary>Writes the timing of an <c>AVSubtitle</c>.</summary>
+    public static void SetTimingOfSubtitle(void* subtitle, long pts, uint startMs, uint endMs)
+    {
+        RequireSubtitleLayout();
+        var raw = (byte*)subtitle;
+        *(long*)(raw + SubtitlePts) = pts;
+        *(uint*)(raw + SubtitleStartDisplayTime) = startMs;
+        *(uint*)(raw + SubtitleEndDisplayTime) = endMs;
+    }
+
+    /// <summary>Reads <c>AVSubtitle::num_rects</c>.</summary>
+    public static int RectCountOf(void* subtitle) => (int)*(uint*)((byte*)subtitle + SubtitleNumRects);
+
+    /// <summary>Reads the type, text and ASS event of <c>AVSubtitle::rects[index]</c>.</summary>
+    public static (int Type, string? Text, string? Ass) RectOf(void* subtitle, int index)
+    {
+        RequireSubtitleLayout();
+        var rects = *(byte***)((byte*)subtitle + SubtitleRects);
+        var rect = rects is null ? null : rects[index];
+        if (rect is null)
+        {
+            return (0, null, null);
+        }
+
+        var text = *(byte**)(rect + SubtitleRectText);
+        var ass = *(byte**)(rect + SubtitleRectAss);
+        return (*(int*)(rect + SubtitleRectType),
+                text is null ? null : Utf8.ToManagedOrEmpty(text),
+                ass is null ? null : Utf8.ToManagedOrEmpty(ass));
+    }
+
+    /// <summary>
+    /// Fills a caller-owned <c>AVSubtitle</c> with one ASS event, for
+    /// <c>avcodec_encode_subtitle</c>, which only reads it.
+    /// </summary>
+    /// <param name="subtitle">A zeroed block of <see cref="SubtitleSize"/> bytes.</param>
+    /// <param name="rect">A zeroed block of <see cref="SubtitleRectSize"/> bytes.</param>
+    /// <param name="rectArray">One pointer's worth of memory to hold the rect array.</param>
+    /// <param name="assEvent">The event, NUL-terminated.</param>
+    /// <param name="pts">Presentation time in AV_TIME_BASE units.</param>
+    /// <param name="durationMs">How long the event stays up.</param>
+    public static void FillAssSubtitle(void* subtitle, void* rect, void** rectArray, byte* assEvent, long pts, uint durationMs)
+    {
+        RequireSubtitleLayout();
+
+        *(int*)((byte*)rect + SubtitleRectType) = AVConstants.SubtitleAss;
+        *(byte**)((byte*)rect + SubtitleRectAss) = assEvent;
+        rectArray[0] = rect;
+
+        var raw = (byte*)subtitle;
+        *(ushort*)(raw + SubtitleFormat) = 1;
+        *(uint*)(raw + SubtitleNumRects) = 1;
+        *(void***)(raw + SubtitleRects) = rectArray;
+        SetTimingOfSubtitle(subtitle, pts, 0, durationMs);
+    }
+
+    private static void RequireMetadataLayout()
+    {
+        if (!MetadataLayoutVerified)
+        {
+            throw Fail("the AVDictionary and metadata fields were not confirmed, so tags are unavailable on this FFmpeg build.");
+        }
+    }
+
+    /// <summary>Throws unless the subtitle layouts were confirmed.</summary>
+    public static void RequireSubtitleLayout()
+    {
+        if (!SubtitleLayoutVerified)
+        {
+            throw Fail("the AVSubtitle layout was not confirmed, so subtitle conversion is unavailable on this FFmpeg build.");
+        }
+    }
+
+    /// <summary>
+    /// Confirms <c>AVDictionaryEntry</c> against an entry set through the API,
+    /// and <c>AVFormatContext::metadata</c> by the two option-backed fields right
+    /// after it, written through AVOptions and read back at their offsets.
+    /// </summary>
+    private static bool ProbeMetadataLayout()
+    {
+        void* dictionary = null;
+        try
+        {
+            if (AV.DictionarySet(&dictionary, "mediatoolkitnet", "probe") < 0 || dictionary is null)
+            {
+                return false;
+            }
+
+            Span<byte> scratch = stackalloc byte[Utf8Scoped.StackThreshold];
+            using var key = new Utf8Scoped("mediatoolkitnet", scratch);
+            var entry = AV.av_dict_get(dictionary, key.Pointer, null, 0);
+            if (entry is null
+                || Utf8.ToManagedOrEmpty(*(byte**)((byte*)entry + DictionaryEntryKey)) != "mediatoolkitnet"
+                || Utf8.ToManagedOrEmpty(*(byte**)((byte*)entry + DictionaryEntryValue)) != "probe")
+            {
+                return false;
+            }
+        }
+        finally
+        {
+            AV.av_dict_free(&dictionary);
+        }
+
+        var context = (byte*)AV.avformat_alloc_context();
+        if (context is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            const int fpsProbe = 0x2345;
+            const long realtime = 0x0123_4567_89AB;
+            return *(void**)(context + FormatContextMetadata) is null
+                && AV.SetOption(context, "fpsprobesize", fpsProbe) >= 0
+                && AV.SetOption(context, "start_time_realtime", realtime) >= 0
+                && *(int*)(context + FormatContextFpsProbeSize) == fpsProbe
+                && *(long*)(context + FormatContextStartTimeRealtime) == realtime;
+        }
+        finally
+        {
+            AV.avformat_free_context(context);
+        }
+    }
+
+    /// <summary>
+    /// Confirms <c>AVCodecDescriptor</c> against two codecs whose kind is known:
+    /// SubRip is text and DVD subtitles are bitmaps.
+    /// </summary>
+    private static bool ProbeDescriptorLayout()
+    {
+        return Check("subrip", AVConstants.CodecPropTextSub) && Check("dvd_subtitle", AVConstants.CodecPropBitmapSub);
+
+        static bool Check(string name, int expectedProp)
+        {
+            Span<byte> scratch = stackalloc byte[Utf8Scoped.StackThreshold];
+            using var utf8 = new Utf8Scoped(name, scratch);
+            var descriptor = (byte*)AV.avcodec_descriptor_get_by_name(utf8.Pointer);
+            return descriptor is not null
+                && Utf8.ToManagedOrEmpty(*(byte**)(descriptor + DescriptorName)) == name
+                && *(int*)(descriptor + DescriptorType) == (int)AVMediaType.Subtitle
+                && (*(int*)(descriptor + DescriptorProps) & expectedProp) != 0;
+        }
+    }
+
+    /// <summary>
+    /// Confirms <c>AVSubtitle</c>, <c>AVSubtitleRect</c> and the subtitle header
+    /// by decoding one SubRip packet whose text, time and duration are known.
+    /// </summary>
+    /// <remarks>
+    /// The SubRip decoder produces a default ASS header when it opens, and turns
+    /// the packet into one rect of type SUBTITLE_ASS holding the text, with the
+    /// packet's pts moved to AV_TIME_BASE and its duration into
+    /// <c>end_display_time</c>. Finding all of those where the offsets say pins
+    /// every field this binding touches.
+    /// </remarks>
+    private static bool ProbeSubtitleLayout()
+    {
+        const string text = "mediatoolkitnet probe";
+        const long ptsMs = 2000;
+        const long durationMs = 500;
+
+        Span<byte> nameScratch = stackalloc byte[Utf8Scoped.StackThreshold];
+        using var name = new Utf8Scoped("subrip", nameScratch);
+        var codec = AV.avcodec_find_decoder_by_name(name.Pointer);
+        if (codec is null)
+        {
+            return false;
+        }
+
+        var context = AV.avcodec_alloc_context3(codec);
+        if (context is null)
+        {
+            return false;
+        }
+
+        var packet = AV.av_packet_alloc();
+        var subtitle = stackalloc byte[SubtitleSize];
+        new Span<byte>(subtitle, SubtitleSize).Clear();
+        var decoded = false;
+        try
+        {
+            if (packet is null
+                || AV.SetOption(context, "pkt_timebase", "1/1000") < 0
+                || AV.avcodec_open2(context, codec, null) < 0)
+            {
+                return false;
+            }
+
+            var headerSize = *(int*)((byte*)context + CodecContextSubtitleHeaderSize);
+            var header = *(byte**)((byte*)context + CodecContextSubtitleHeader);
+            if (headerSize is <= 0 or > 1 << 20 || header is null
+                || !Utf8.ToManagedOrEmpty(header).StartsWith("[Script Info]", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            var payload = System.Text.Encoding.UTF8.GetBytes(text);
+            if (AV.av_new_packet(packet, payload.Length) < 0)
+            {
+                return false;
+            }
+
+            payload.CopyTo(new Span<byte>(packet->Data, payload.Length));
+            packet->Pts = ptsMs;
+            packet->Dts = ptsMs;
+            packet->Duration = durationMs;
+
+            int got;
+            if (AV.avcodec_decode_subtitle2(context, subtitle, &got, packet) < 0 || got == 0)
+            {
+                return false;
+            }
+
+            decoded = true;
+            var rects = *(byte***)(subtitle + SubtitleRects);
+            return *(ushort*)(subtitle + SubtitleFormat) == 1
+                && *(uint*)(subtitle + SubtitleNumRects) == 1
+                && *(uint*)(subtitle + SubtitleEndDisplayTime) == durationMs
+                && *(long*)(subtitle + SubtitlePts) == ptsMs * 1000
+                && rects is not null && rects[0] is not null
+                && *(int*)(rects[0] + SubtitleRectType) == AVConstants.SubtitleAss
+                && *(byte**)(rects[0] + SubtitleRectAss) is not null
+                && Utf8.ToManagedOrEmpty(*(byte**)(rects[0] + SubtitleRectAss)).Contains(text, StringComparison.Ordinal);
+        }
+        finally
+        {
+            if (decoded)
+            {
+                AV.avsubtitle_free(subtitle);
+            }
+
+            if (packet is not null)
+            {
+                AV.av_packet_free(&packet);
+            }
+
+            AV.avcodec_free_context(&context);
+        }
+    }
+
     // ------------------------------------------------------------ validation
 
     /// <summary>
@@ -380,6 +1010,9 @@ public static unsafe class AbiLayout
         EncoderLayoutVerified = CodecParametersLayoutVerified && ValidateCodecContext();
         AudioFrameLayoutVerified = ProbeAudioFrameFields() && ConfirmAudioFrameFields();
         FilterLayoutVerified = ProbeFilterLayout();
+        MetadataLayoutVerified = ProbeMetadataLayout();
+        DescriptorLayoutVerified = ProbeDescriptorLayout();
+        SubtitleLayoutVerified = DescriptorLayoutVerified && ProbeSubtitleLayout();
     }
 
     /// <summary>
@@ -757,8 +1390,23 @@ public static unsafe class AbiLayout
     /// Verifies the AVStream and AVFormatContext offsets against an open input.
     /// Called once per demuxer, which is cheap and catches a wrong build early.
     /// </summary>
-    internal static void ValidateOpenInput(void* formatContext)
+    internal static void ValidateOpenInput(void* formatContext, string url)
     {
+        // url sits just after the chapter fields, and avformat_open_input stores
+        // exactly the string it was given, so finding it where it belongs pins them.
+        var storedUrl = *(byte**)((byte*)formatContext + FormatContextUrl);
+        if (storedUrl is null || Utf8.ToManagedOrEmpty(storedUrl) != url)
+        {
+            throw Fail("the AVFormatContext layout does not match: url is not the one that was opened.");
+        }
+
+        var chapters = ChapterCountOf(formatContext);
+        if (chapters is < 0 or > 100_000
+            || (chapters > 0 && *(void**)((byte*)formatContext + FormatContextChapters) is null))
+        {
+            throw Fail($"the AVFormatContext layout does not match: nb_chapters = {chapters}.");
+        }
+
         var count = NbStreams(formatContext);
         if (count is < 0 or > 4096)
         {
@@ -789,6 +1437,13 @@ public static unsafe class AbiLayout
             if (timeBase.Den <= 0 || timeBase.Num <= 0)
             {
                 throw Fail($"the AVStream layout does not match: time_base = {timeBase.Num}/{timeBase.Den}.");
+            }
+
+            // Demuxers may set a stream aside on open, as the MOV demuxer does its
+            // chapter track, but only ever to one of the seven AVDiscard values.
+            if (*(int*)((byte*)stream + StreamDiscard) is not (-16 or 0 or 8 or 16 or 24 or 32 or 48))
+            {
+                throw Fail("the AVStream layout does not match: discard holds no AVDiscard value.");
             }
         }
     }
@@ -828,6 +1483,16 @@ public static unsafe class AbiLayout
                 $"the AVStream layout does not match: codecpar->codec_type of a new stream is {(int)type} " +
                 $"rather than {(int)AVMediaType.Unknown}.");
         }
+
+        // avformat_new_stream sets the aspect ratio to 0/1 and leaves the tags
+        // and disposition empty, which pins the fields tags are written through.
+        var aspect = SampleAspectRatioOf(stream);
+        if (aspect.Num != 0 || aspect.Den != 1
+            || *(void**)((byte*)stream + StreamMetadata) is not null
+            || DispositionOf(stream) != 0)
+        {
+            throw Fail("the AVStream layout does not match: a new stream's aspect ratio, tags or disposition are not empty.");
+        }
     }
 
     private static void RequireEncoderLayout()
@@ -840,5 +1505,5 @@ public static unsafe class AbiLayout
 
     private static MediaBackendUnavailableException Fail(string reason) =>
         new(FFmpegLibraries.BackendName,
-            $"{reason} FFmpeg 7.x is expected; adjust the offsets in AbiLayout for your build.");
+            $"{reason} The series listed in FFmpegGeneration are expected; adjust the offsets in AbiLayout for your build.");
 }

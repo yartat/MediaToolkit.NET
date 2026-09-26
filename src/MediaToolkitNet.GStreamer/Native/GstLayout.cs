@@ -1,4 +1,9 @@
-﻿using MediaToolkitNet.Abstractions;
+﻿#region Copyright
+// Copyright (c) 2026 Yaroslav V Tatarenko.
+// Licensed under the MIT License. See LICENSE in the repository root for details.
+#endregion
+
+using MediaToolkitNet.Abstractions;
 using MediaToolkitNet.Interop;
 
 namespace MediaToolkitNet.GStreamer.Native;
@@ -11,10 +16,11 @@ namespace MediaToolkitNet.GStreamer.Native;
 /// <para>
 /// GStreamer exposes almost everything through functions, but a handful of
 /// things are macros over struct fields and have no accessor at all:
-/// <c>GST_MESSAGE_TYPE</c>, <c>GST_BUFFER_PTS</c>, the contents of
-/// <c>GstMapInfo</c> and the links of a <c>GList</c>. Those four are the whole
-/// list, and none of them is hard-coded: each is found by building an object
-/// whose contents are known and looking for the value in it.
+/// <c>GST_MESSAGE_TYPE</c>, <c>GST_EVENT_TYPE</c>, <c>GST_BUFFER_PTS</c>, the
+/// contents of <c>GstMapInfo</c>, the links of a <c>GList</c> and the class
+/// pointer behind <c>G_OBJECT_GET_CLASS</c>. Those six are the whole list, and
+/// none of them is hard-coded: each is found by building an object whose
+/// contents are known and looking for the value in it.
 /// </para>
 /// <para>
 /// A probe that fails leaves <see cref="Verified"/> false, and the pipeline
@@ -47,6 +53,12 @@ public static unsafe class GstLayout
     /// <summary>Offset of <c>GstMessage::type</c>, found by <see cref="Validate"/>.</summary>
     public static int MessageType { get; private set; } = -1;
 
+    /// <summary>Offset of <c>GstEvent::type</c>, found by <see cref="Validate"/>.</summary>
+    public static int EventType { get; private set; } = -1;
+
+    /// <summary>Offset of <c>GTypeInstance::g_class</c>, the first field of every GObject.</summary>
+    public const int InstanceClass = 0;
+
     /// <summary>Offset of <c>GstBuffer::pts</c>, found by <see cref="Validate"/>.</summary>
     public static int BufferPts { get; private set; } = -1;
 
@@ -56,6 +68,12 @@ public static unsafe class GstLayout
     /// <summary>Reads <c>GST_MESSAGE_TYPE</c>.</summary>
     public static GstMessageType TypeOfMessage(void* message) =>
         (GstMessageType)(*(uint*)((byte*)message + MessageType));
+
+    /// <summary>Reads <c>GST_EVENT_TYPE</c>.</summary>
+    public static GstEventType TypeOfEvent(void* evt) => (GstEventType)(*(int*)((byte*)evt + EventType));
+
+    /// <summary>Reads <c>G_OBJECT_GET_CLASS</c>, the class structure of an object.</summary>
+    public static void* ClassOf(void* instance) => *(void**)((byte*)instance + InstanceClass);
 
     /// <summary>Reads <c>GST_BUFFER_PTS</c>, in nanoseconds.</summary>
     public static ulong PtsOfBuffer(void* buffer) => *(ulong*)((byte*)buffer + BufferPts);
@@ -77,7 +95,8 @@ public static unsafe class GstLayout
         {
             throw new MediaBackendUnavailableException(
                 GstConstants.BackendName,
-                "the GStreamer struct layout could not be confirmed against this build, so the backend is disabled.");
+                "the GStreamer struct layout could not be confirmed against this build, so the backend is disabled " +
+                $"(failed: {string.Join(", ", FailedProbes)}).");
         }
     }
 
@@ -87,16 +106,60 @@ public static unsafe class GstLayout
     internal static void Validate()
     {
         MessageType = ProbeMessageType();
+        EventType = ProbeEventType();
         BufferPts = ProbeBufferPts();
-        Verified = MessageType >= 0 && BufferPts >= 0 && ProbeList() && ProbeMapInfo() && ProbeError();
+
+        // Every probe runs, so the message names all of them that failed rather
+        // than the first.
+        var failed = new List<string>();
+        if (MessageType < 0)
+        {
+            failed.Add("GstMessage::type");
+        }
+
+        if (EventType < 0)
+        {
+            failed.Add("GstEvent::type");
+        }
+
+        if (!ProbeInstanceClass())
+        {
+            failed.Add("GTypeInstance::g_class");
+        }
+
+        if (BufferPts < 0)
+        {
+            failed.Add("GstBuffer::pts");
+        }
+
+        if (!ProbeList())
+        {
+            failed.Add("GList");
+        }
+
+        if (!ProbeMapInfo())
+        {
+            failed.Add("GstMapInfo");
+        }
+
+        if (!ProbeError())
+        {
+            failed.Add("GError");
+        }
+
+        FailedProbes = failed;
+        Verified = failed.Count == 0;
     }
+
+    /// <summary>The layouts that did not check out, empty once <see cref="Verified"/> is true.</summary>
+    public static IReadOnlyList<string> FailedProbes { get; private set; } = [];
 
     /// <summary>
     /// Finds <c>GstMessage::type</c> by posting a message of a type no element
     /// ever posts.
     /// </summary>
     /// <remarks>
-    /// GST_MESSAGE_APPLICATION is 1&lt;&lt;22, a value that does not occur in the
+    /// GST_MESSAGE_APPLICATION is 1&lt;&lt;14, a value that does not occur in the
     /// reference counts, flags or pointers that surround the field, so the first
     /// match is the field.
     /// </remarks>
@@ -138,6 +201,88 @@ public static unsafe class GstLayout
         finally
         {
             Gst.gst_mini_object_unref(message);
+        }
+    }
+
+    /// <summary>
+    /// Finds <c>GstEvent::type</c> as the one offset at which a flush-start, a
+    /// flush-stop and an end-of-stream event each hold their own type.
+    /// </summary>
+    /// <remarks>
+    /// Any one of the values could turn up in a neighbouring field by chance;
+    /// all three at the same offset, in three different events, cannot.
+    /// </remarks>
+    private static int ProbeEventType()
+    {
+        const int searchLimit = 128;
+
+        var events = new[]
+        {
+            ((nint)Gst.gst_event_new_flush_start(), GstEventType.FlushStart),
+            ((nint)Gst.gst_event_new_flush_stop(1), GstEventType.FlushStop),
+            ((nint)Gst.gst_event_new_eos(), GstEventType.Eos),
+        };
+
+        try
+        {
+            if (events.Any(e => e.Item1 == 0))
+            {
+                return -1;
+            }
+
+            // The scan starts past the GType that opens every GstMiniObject.
+            for (var offset = 8; offset + 4 <= searchLimit; offset += 4)
+            {
+                if (events.All(e => *(int*)((byte*)e.Item1 + offset) == (int)e.Item2))
+                {
+                    return offset;
+                }
+            }
+
+            return -1;
+        }
+        finally
+        {
+            foreach (var (handle, _) in events)
+            {
+                if (handle != 0)
+                {
+                    Gst.gst_mini_object_unref((void*)handle);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Confirms the class pointer by looking up, through it, a property the
+    /// <c>identity</c> element has and one no element has.
+    /// </summary>
+    private static bool ProbeInstanceClass()
+    {
+        Span<byte> factoryScratch = stackalloc byte[Utf8Scoped.StackThreshold];
+        Span<byte> knownScratch = stackalloc byte[Utf8Scoped.StackThreshold];
+        Span<byte> unknownScratch = stackalloc byte[Utf8Scoped.StackThreshold];
+        using var factory = new Utf8Scoped("identity", factoryScratch);
+        using var known = new Utf8Scoped("silent", knownScratch);
+        using var unknown = new Utf8Scoped("mediatoolkitnet-probe", unknownScratch);
+
+        var element = Gst.gst_element_factory_make(factory.Pointer, null);
+        if (element is null)
+        {
+            return false;
+        }
+
+        Gst.gst_object_ref_sink(element);
+        try
+        {
+            var type = ClassOf(element);
+            return type is not null
+                   && Gst.g_object_class_find_property(type, known.Pointer) is not null
+                   && Gst.g_object_class_find_property(type, unknown.Pointer) is null;
+        }
+        finally
+        {
+            Gst.gst_object_unref(element);
         }
     }
 

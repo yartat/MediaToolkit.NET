@@ -1,3 +1,9 @@
+﻿#region Copyright
+// Copyright (c) 2026 Yaroslav V Tatarenko.
+// Licensed under the MIT License. See LICENSE in the repository root for details.
+#endregion
+
+using System.Globalization;
 using MediaToolkitNet.Abstractions.Formats;
 using MediaToolkitNet.FFmpeg.Native;
 
@@ -78,8 +84,11 @@ public static class FFmpegFormatMap
     /// </summary>
     public static string[] EncoderNames(Abstractions.Recording.MediaCodec codec) => codec switch
     {
-        Abstractions.Recording.MediaCodec.H264 => ["libx264", "h264_nvenc", "h264_qsv", "h264_videotoolbox", "h264_amf"],
-        Abstractions.Recording.MediaCodec.Hevc => ["libx265", "hevc_nvenc", "hevc_qsv", "hevc_videotoolbox"],
+        // libopenh264 is the H.264 encoder an LGPL build has, and the _mf ones
+        // go through whatever Media Foundation has registered; both come after
+        // the hardware encoders, which are faster and better where they open.
+        Abstractions.Recording.MediaCodec.H264 => ["libx264", "h264_nvenc", "h264_qsv", "h264_videotoolbox", "h264_amf", "libopenh264", "h264_mf"],
+        Abstractions.Recording.MediaCodec.Hevc => ["libx265", "hevc_nvenc", "hevc_qsv", "hevc_videotoolbox", "hevc_amf", "hevc_mf"],
         Abstractions.Recording.MediaCodec.Vp9 => ["libvpx-vp9"],
         Abstractions.Recording.MediaCodec.Av1 => ["libsvtav1", "librav1e", "libaom-av1"],
         Abstractions.Recording.MediaCodec.Mjpeg => ["mjpeg"],
@@ -97,6 +106,13 @@ public static class FFmpegFormatMap
         Abstractions.Recording.MediaCodec.PcmU8 => ["pcm_u8"],
         Abstractions.Recording.MediaCodec.PcmS24 => ["pcm_s24le"],
         Abstractions.Recording.MediaCodec.PcmS32 => ["pcm_s32le"],
+        Abstractions.Recording.MediaCodec.SubRip => ["srt", "subrip"],
+        Abstractions.Recording.MediaCodec.Ass => ["ass", "ssa"],
+        Abstractions.Recording.MediaCodec.WebVtt => ["webvtt"],
+        Abstractions.Recording.MediaCodec.MovText => ["mov_text"],
+        Abstractions.Recording.MediaCodec.DvdSubtitle => ["dvdsub"],
+
+        // FFmpeg decodes PGS but has no encoder for it, so it can only be copied.
         _ => [],
     };
 
@@ -143,4 +159,84 @@ public static class FFmpegFormatMap
     /// </remarks>
     public static string ChannelLayoutDescription(int channels, ulong mask) =>
         mask != 0 ? $"0x{mask:x}" : $"{channels}c";
+
+    /// <summary>The libavformat muxer for a container, or <see langword="null"/> to guess from the file name.</summary>
+    public static string? MuxerName(Abstractions.Transcoding.MediaContainer? container) => container switch
+    {
+        Abstractions.Transcoding.MediaContainer.Mp4 => "mp4",
+        Abstractions.Transcoding.MediaContainer.Mov => "mov",
+        Abstractions.Transcoding.MediaContainer.Matroska => "matroska",
+        Abstractions.Transcoding.MediaContainer.WebM => "webm",
+        Abstractions.Transcoding.MediaContainer.MpegTs => "mpegts",
+        Abstractions.Transcoding.MediaContainer.Ogg => "ogg",
+        Abstractions.Transcoding.MediaContainer.Avi => "avi",
+        Abstractions.Transcoding.MediaContainer.Wav => "wav",
+        Abstractions.Transcoding.MediaContainer.Flac => "flac",
+        Abstractions.Transcoding.MediaContainer.Mp3 => "mp3",
+        _ => null,
+    };
+
+    /// <summary>
+    /// The encoder's private options for speed and quality, which only
+    /// <c>avcodec_open2</c> can set, or mpv's <c>--ovcopts</c>. The caller's own
+    /// options go last and win.
+    /// </summary>
+    public static Dictionary<string, string> VideoEncoderOptions(string encoder, Abstractions.Transcoding.VideoOutputSettings settings)
+    {
+        var options = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (settings.Speed is { } speed)
+        {
+            switch (encoder)
+            {
+                case "libx264" or "libx265":
+                    options["preset"] = speed.ToString().ToLowerInvariant();
+                    break;
+                case "libsvtav1":
+                    options["preset"] = (12 - ((int)speed * 10 / 8)).ToString(CultureInfo.InvariantCulture);
+                    break;
+                case "libvpx-vp9" or "libaom-av1":
+                    options["cpu-used"] = (8 - (int)speed).ToString(CultureInfo.InvariantCulture);
+                    break;
+                case var nvenc when nvenc.EndsWith("_nvenc", StringComparison.Ordinal):
+                    options["preset"] = $"p{7 - ((int)speed * 6 / 8)}";
+                    break;
+            }
+        }
+
+        if (settings.Quality is { } quality && UsesConstantQuality(encoder))
+        {
+            var value = Transcoding.FilterChains.Number(quality);
+            if (encoder.EndsWith("_nvenc", StringComparison.Ordinal))
+            {
+                options["cq"] = value;
+            }
+            else
+            {
+                options["crf"] = value;
+                if (encoder == "libvpx-vp9")
+                {
+                    // libvpx only honours crf as constant quality with the rate cap removed.
+                    options["b"] = "0";
+                }
+            }
+        }
+
+        if (settings.Options is not null)
+        {
+            foreach (var (key, value) in settings.Options)
+            {
+                options[key] = value;
+            }
+        }
+
+        return options;
+    }
+
+    /// <summary>
+    /// True for the encoders whose constant-quality setting is a private option
+    /// (<c>crf</c> or <c>cq</c>) rather than <c>global_quality</c>.
+    /// </summary>
+    public static bool UsesConstantQuality(string encoder) =>
+        encoder is "libx264" or "libx265" or "libsvtav1" or "libaom-av1" or "libvpx-vp9"
+        || encoder.EndsWith("_nvenc", StringComparison.Ordinal);
 }

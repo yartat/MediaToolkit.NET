@@ -1,3 +1,8 @@
+﻿#region Copyright
+// Copyright (c) 2026 Yaroslav V Tatarenko.
+// Licensed under the MIT License. See LICENSE in the repository root for details.
+#endregion
+
 using MediaToolkitNet.Abstractions.Formats;
 using MediaToolkitNet.Abstractions.Frames;
 
@@ -68,6 +73,24 @@ public enum MediaCodec
 
     /// <summary>Uncompressed 32-bit signed little-endian PCM audio.</summary>
     PcmS32,
+
+    /// <summary>SubRip (SRT) text subtitles.</summary>
+    SubRip,
+
+    /// <summary>Advanced SubStation Alpha text subtitles, with styling.</summary>
+    Ass,
+
+    /// <summary>WebVTT text subtitles.</summary>
+    WebVtt,
+
+    /// <summary>MPEG-4 Timed Text (tx3g), the only text subtitle format MP4 and MOV accept.</summary>
+    MovText,
+
+    /// <summary>DVD bitmap subtitles (VobSub). Can be copied, not produced from text.</summary>
+    DvdSubtitle,
+
+    /// <summary>Blu-ray bitmap subtitles (PGS). Can be copied, not produced from text.</summary>
+    Pgs,
 }
 
 /// <summary>
@@ -148,6 +171,17 @@ public readonly record struct AudioEncodingSettings(
     public IReadOnlyDictionary<string, string>? Options { get; init; }
 }
 
+/// <summary>Description of a subtitle stream to write.</summary>
+/// <param name="Codec">A text subtitle format: SubRip, Ass, WebVtt or MovText.</param>
+public readonly record struct SubtitleEncodingSettings(MediaCodec Codec = MediaCodec.SubRip)
+{
+    /// <summary>ISO 639 language tag, for example <c>eng</c>.</summary>
+    public string? Language { get; init; }
+
+    /// <summary>Title of the stream.</summary>
+    public string? Title { get; init; }
+}
+
 /// <summary>
 /// Writes encoded media to a container. Frames are pushed in by the caller,
 /// which keeps the recorder independent of where they came from.
@@ -186,4 +220,19 @@ public interface IMediaRecorder : IDisposable
 
     /// <summary>Flushes the encoders, writes the trailer and closes the output.</summary>
     void Stop();
+}
+
+/// <summary>
+/// A recorder that also writes text subtitles. Kept apart from
+/// <see cref="IMediaRecorder"/> so that recorders with no subtitle support, such
+/// as Media Foundation's, do not have to pretend.
+/// </summary>
+public interface ISubtitleRecorder : IMediaRecorder
+{
+    /// <summary>Adds a subtitle stream. Must be called before <see cref="IMediaRecorder.Start"/>.</summary>
+    /// <returns>Stream index to pass to <see cref="WriteSubtitle"/>.</returns>
+    int AddSubtitleStream(SubtitleEncodingSettings settings);
+
+    /// <summary>Encodes and writes one cue. Cues must arrive in order of their start.</summary>
+    void WriteSubtitle(int streamIndex, Frames.SubtitleCue cue);
 }

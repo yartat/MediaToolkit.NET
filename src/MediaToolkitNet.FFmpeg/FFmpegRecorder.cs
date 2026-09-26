@@ -1,9 +1,16 @@
+﻿#region Copyright
+// Copyright (c) 2026 Yaroslav V Tatarenko.
+// Licensed under the MIT License. See LICENSE in the repository root for details.
+#endregion
+
 using System.Diagnostics;
 using System.Numerics;
 using MediaToolkitNet.Abstractions;
 using MediaToolkitNet.Abstractions.Formats;
 using MediaToolkitNet.Abstractions.Frames;
 using MediaToolkitNet.Abstractions.Recording;
+using MediaToolkitNet.Abstractions.Transcoding;
+using System.Runtime.InteropServices;
 using MediaToolkitNet.FFmpeg.Native;
 using MediaToolkitNet.Interop;
 
@@ -19,7 +26,7 @@ namespace MediaToolkitNet.FFmpeg;
 /// <c>AVAudioFifo</c> handle sample format, rate and the fixed frame size most
 /// audio encoders require.
 /// </remarks>
-public sealed unsafe class FFmpegRecorder : IMediaRecorder
+public sealed unsafe class FFmpegRecorder : ISubtitleRecorder
 {
     private readonly string _outputPath;
     private readonly List<EncoderStream> _streams = [];
@@ -272,6 +279,149 @@ public sealed unsafe class FFmpegRecorder : IMediaRecorder
     }
 
     /// <inheritdoc />
+    public int AddSubtitleStream(SubtitleEncodingSettings settings)
+    {
+        EnsureNotStarted();
+        if (!settings.Codec.IsTextSubtitle())
+        {
+            throw new ArgumentException($"{settings.Codec} is not a text subtitle format.", nameof(settings));
+        }
+
+        AbiLayout.RequireSubtitleLayout();
+        var codec = FindEncoder(settings.Codec, MediaCodec.SubRip, null, out var encoderName);
+        var context = FFmpegError.CheckAlloc(AV.avcodec_alloc_context3(codec), "avcodec_alloc_context3");
+        try
+        {
+            var milliseconds = new AVRationalNative(1, 1000);
+            AbiLayout.SetCodecTimeBase(context, milliseconds);
+
+            // The ASS encoder writes nothing usable without a header, and MP4 timed
+            // text takes its default style from one; libavcodec's own default is
+            // what its SubRip decoder produces.
+            AbiLayout.SetSubtitleHeader(context, DefaultSubtitleHeader());
+            FFmpegError.Check(AV.avcodec_open2(context, codec, null), $"avcodec_open2({encoderName})");
+
+            var stream = CreateStream(context, milliseconds);
+            if (AbiLayout.MetadataLayoutVerified)
+            {
+                SetTag(AbiLayout.MetadataOfStream(stream), "language", settings.Language);
+                SetTag(AbiLayout.MetadataOfStream(stream), "title", settings.Title);
+            }
+
+            _streams.Add(new EncoderStream(context, stream, AVMediaType.Subtitle) { EncoderTimeBase = milliseconds });
+            return _streams.Count - 1;
+        }
+        catch
+        {
+            AV.avcodec_free_context(&context);
+            throw;
+        }
+    }
+
+    /// <inheritdoc />
+    public void WriteSubtitle(int streamIndex, SubtitleCue cue)
+    {
+        ArgumentNullException.ThrowIfNull(cue);
+        var entry = Require(streamIndex, AVMediaType.Subtitle);
+        if (!_started)
+        {
+            throw new InvalidOperationException("Recording has not started: call Start.");
+        }
+
+        if (cue.End <= cue.Start)
+        {
+            throw new ArgumentException("A cue has to end after it starts.", nameof(cue));
+        }
+
+        // Every text encoder reads ASS events; the read order is the only field
+        // a caller would not know to set.
+        var assEvent = cue.Ass ?? $"{entry.NextPts++},0,Default,,0,0,0,,{EscapeAss(cue.Text)}";
+        var eventBytes = System.Text.Encoding.UTF8.GetBytes(assEvent + "\0");
+
+        const int bufferSize = 1 << 16;
+        var buffer = (byte*)NativeMemory.Alloc(bufferSize);
+        var subtitle = NativeMemory.AllocZeroed(AbiLayout.SubtitleSize);
+        var rect = NativeMemory.AllocZeroed(AbiLayout.SubtitleRectSize);
+        var rects = (void**)NativeMemory.AllocZeroed((nuint)sizeof(void*));
+        try
+        {
+            fixed (byte* text = eventBytes)
+            {
+                AbiLayout.FillAssSubtitle(
+                    subtitle,
+                    rect,
+                    rects,
+                    text,
+                    cue.Start.Ticks / 10,
+                    (uint)cue.Duration.TotalMilliseconds);
+
+                var size = AV.avcodec_encode_subtitle(entry.Context, buffer, bufferSize, subtitle);
+                if (size < 0)
+                {
+                    throw new MediaToolkitNetException(Backend, $"avcodec_encode_subtitle: {FFmpegError.Describe(size)}", size);
+                }
+
+                FFmpegError.Check(AV.av_new_packet(_packet, size), "av_new_packet");
+                new ReadOnlySpan<byte>(buffer, size).CopyTo(new Span<byte>(_packet->Data, size));
+            }
+
+            var microseconds = new AVRationalNative(1, AVConstants.TimeBase);
+            var streamTimeBase = AbiLayout.TimeBaseOf(entry.Stream);
+            _packet->Pts = AV.av_rescale_q(cue.Start.Ticks / 10, microseconds, streamTimeBase);
+            _packet->Dts = _packet->Pts;
+            _packet->Duration = AV.av_rescale_q(cue.Duration.Ticks / 10, microseconds, streamTimeBase);
+            _packet->Flags = AVConstants.PacketFlagKey;
+            _packet->StreamIndex = AbiLayout.StreamIndexOf(entry.Stream);
+            FFmpegError.Check(AV.av_interleaved_write_frame(_output, _packet), "av_interleaved_write_frame");
+        }
+        finally
+        {
+            AV.av_packet_unref(_packet);
+            NativeMemory.Free(rects);
+            NativeMemory.Free(rect);
+            NativeMemory.Free(subtitle);
+            NativeMemory.Free(buffer);
+        }
+    }
+
+    /// <summary>Writes cue text as the text field of an ASS event.</summary>
+    private static string EscapeAss(string text) =>
+        text.Replace("\r\n", "\\N", StringComparison.Ordinal).Replace("\n", "\\N", StringComparison.Ordinal);
+
+    /// <summary>The ASS header libavcodec's SubRip decoder makes, which is its default style.</summary>
+    private static byte[] DefaultSubtitleHeader()
+    {
+        Span<byte> scratch = stackalloc byte[16];
+        using var name = new Utf8Scoped("subrip", scratch);
+        var codec = AV.avcodec_find_decoder_by_name(name.Pointer);
+        var context = AV.avcodec_alloc_context3(codec);
+        try
+        {
+            FFmpegError.Check(AV.avcodec_open2(context, codec, null), "avcodec_open2(subrip)");
+            return AbiLayout.SubtitleHeaderOf(context)
+                ?? throw new MediaToolkitNetException(FFmpegLibraries.BackendName, "the SubRip decoder made no subtitle header", AVConstants.ErrorInvalid);
+        }
+        finally
+        {
+            AV.avcodec_free_context(&context);
+        }
+    }
+
+    private static void SetTag(void** dictionary, string key, string? value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return;
+        }
+
+        Span<byte> keyScratch = stackalloc byte[Utf8Scoped.StackThreshold];
+        Span<byte> valueScratch = stackalloc byte[Utf8Scoped.StackThreshold];
+        using var keyUtf8 = new Utf8Scoped(key, keyScratch);
+        using var valueUtf8 = new Utf8Scoped(value, valueScratch);
+        FFmpegError.Check(AV.av_dict_set(dictionary, keyUtf8.Pointer, valueUtf8.Pointer, 0), $"av_dict_set({key})");
+    }
+
+    /// <inheritdoc />
     public void Start()
     {
         EnsureNotStarted();
@@ -436,6 +586,12 @@ public sealed unsafe class FFmpegRecorder : IMediaRecorder
 
         foreach (var entry in _streams)
         {
+            if (entry.MediaType == AVMediaType.Subtitle)
+            {
+                // Subtitle encoders are not fed frames and hold nothing back.
+                continue;
+            }
+
             if (entry.MediaType == AVMediaType.Audio)
             {
                 // Feed whatever is still buffered before draining the encoder.
@@ -481,45 +637,12 @@ public sealed unsafe class FFmpegRecorder : IMediaRecorder
         }
     }
 
-    /// <summary>
-    /// Finds the encoder to use: the one the caller named, or the first of those
-    /// known for the codec that this FFmpeg build actually carries.
-    /// </summary>
-    /// <param name="requested">Codec asked for.</param>
-    /// <param name="fallback">Codec to use when none was asked for.</param>
-    /// <param name="encoderName">Encoder named outright, which overrides the codec.</param>
-    /// <param name="chosen">Receives the name of the encoder that was found.</param>
-    /// <returns>Returns the encoder.</returns>
-    /// <exception cref="MediaToolkitNetException">This build carries none of them.</exception>
     private static void* FindEncoder(
         MediaCodec requested,
         MediaCodec fallback,
         string? encoderName,
-        out string chosen)
-    {
-        var names = string.IsNullOrWhiteSpace(encoderName)
-            ? FFmpegFormatMap.EncoderNames(requested == MediaCodec.Default ? fallback : requested)
-            : [encoderName];
-
-        Span<byte> scratch = stackalloc byte[64];
-        foreach (var name in names)
-        {
-            using var utf8 = new Utf8Scoped(name, scratch);
-            var codec = AV.avcodec_find_encoder_by_name(utf8.Pointer);
-            if (codec is not null)
-            {
-                chosen = name;
-                return codec;
-            }
-        }
-
-        throw new MediaToolkitNetException(
-            FFmpegLibraries.BackendName,
-            names.Length == 0
-                ? $"no encoder is known for {requested}"
-                : $"none of the encoders [{string.Join(", ", names)}] is available in this FFmpeg build",
-            AVConstants.ErrorInvalid);
-    }
+        out string chosen) =>
+        EncoderFactory.Find(requested, fallback, encoderName, out chosen);
 
     private void* TryOpenEncoder(
         void* codec,
@@ -531,87 +654,20 @@ public sealed unsafe class FFmpegRecorder : IMediaRecorder
         AVRationalNative timeBase,
         Action<nint> configure,
         int extraFlags = 0,
-        IReadOnlyDictionary<string, string>? streamOptions = null)
-    {
-        var context = AV.avcodec_alloc_context3(codec);
-        if (context is null)
-        {
-            return null;
-        }
-
-        var parameters = AV.avcodec_parameters_alloc();
-        if (parameters is null)
-        {
-            AV.avcodec_free_context(&context);
-            return null;
-        }
-
-        void* options = null;
-        try
-        {
-            AbiLayout.FillCodecParameters(
-                parameters, mediaType, AbiLayout.IdOfCodec(codec), format, bitrate, width, height);
-
-            if (AV.avcodec_parameters_to_context(context, parameters) < 0)
-            {
-                return Fail(context);
-            }
-
-            AbiLayout.SetCodecTimeBase(context, timeBase);
-            if (bitrate > 0)
-            {
-                AV.SetOption(context, "b", bitrate);
-            }
-
-            // One assignment, because "flags" is the whole field: setting it twice
-            // would drop whichever bit was set first.
-            var flags = extraFlags;
-            if (FFmpegFormatMap.NeedsGlobalHeader(_outputPath))
-            {
-                flags |= AVConstants.CodecFlagGlobalHeader;
-            }
-
-            if (flags != 0)
-            {
-                AV.SetOption(context, "flags", flags);
-            }
-
-            configure((nint)context);
-
-            // The recorder-wide options first, then the ones this stream asked for,
-            // so a stream can disagree with the recorder about its own encoder.
-            foreach (var (key, value) in EncoderOptions)
-            {
-                AV.DictionarySet(&options, key, value);
-            }
-
-            if (streamOptions is not null)
-            {
-                foreach (var (key, value) in streamOptions)
-                {
-                    AV.DictionarySet(&options, key, value);
-                }
-            }
-
-            return AV.avcodec_open2(context, codec, &options) < 0 ? Fail(context) : context;
-        }
-        finally
-        {
-            var localParameters = parameters;
-            AV.avcodec_parameters_free(&localParameters);
-            if (options is not null)
-            {
-                AV.av_dict_free(&options);
-            }
-        }
-
-        static void* Fail(void* context)
-        {
-            var local = context;
-            AV.avcodec_free_context(&local);
-            return null;
-        }
-    }
+        IReadOnlyDictionary<string, string>? streamOptions = null) =>
+        EncoderFactory.TryOpen(
+            codec,
+            mediaType,
+            format,
+            bitrate,
+            width,
+            height,
+            timeBase,
+            FFmpegFormatMap.NeedsGlobalHeader(_outputPath),
+            configure,
+            extraFlags,
+            EncoderOptions,
+            streamOptions);
 
     private void* CreateStream(void* encoderContext, AVRationalNative timeBase)
     {

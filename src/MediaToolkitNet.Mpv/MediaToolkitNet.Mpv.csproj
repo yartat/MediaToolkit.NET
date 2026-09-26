@@ -1,13 +1,15 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <Description>libmpv backend for MediaToolkit.NET: a self-rendering media player driven through the mpv client API, including property access and the event loop. libmpv is not included and must be present at runtime.</Description>
+    <Description>libmpv backend for MediaToolkit.NET: a self-rendering media player driven through the mpv client API, including property access, the event loop, filter chains and encoding mode. libmpv is not included and must be present at runtime.</Description>
     <PackageTags>mpv;libmpv;player;playback;interop</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="../MediaToolkitNet.Abstractions/MediaToolkitNet.Abstractions.csproj" />
     <ProjectReference Include="../MediaToolkitNet.Interop/MediaToolkitNet.Interop.csproj" />
+    <!-- mpv encodes and filters through libavcodec and libavfilter; their names and chain syntax come from here. -->
+    <ProjectReference Include="../MediaToolkitNet.FFmpeg/MediaToolkitNet.FFmpeg.csproj" />
   </ItemGroup>
 
 </Project>

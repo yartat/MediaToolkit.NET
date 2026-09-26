@@ -1,8 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <Description>FFmpeg backend for MediaToolkit.NET: demuxing, decoding, encoding and muxing through libavformat, libavcodec, libavutil, libswscale and libswresample. Supports the FFmpeg 7.x, 8.x and 9.x ABI and validates the struct layout at startup. The FFmpeg shared libraries are not included and must be present at runtime.</Description>
-    <PackageTags>ffmpeg;libav;avcodec;avformat;decoding;encoding;muxing;interop</PackageTags>
+    <Description>FFmpeg backend for MediaToolkit.NET: demuxing, decoding, encoding and muxing through libavformat, libavcodec, libavutil, libswscale and libswresample, plus probing, transcoding with subtitle conversion and burn-in, and a frame reader. Supports the FFmpeg 7.x, 8.x and 9.x ABI and validates the struct layout at startup. The FFmpeg shared libraries are not included and must be present at runtime.</Description>
+    <PackageTags>ffmpeg;libav;avcodec;avformat;decoding;encoding;muxing;transcoding;subtitles;interop</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>

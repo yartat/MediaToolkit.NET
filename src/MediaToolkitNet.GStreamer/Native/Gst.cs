@@ -1,4 +1,9 @@
-﻿using MediaToolkitNet.Abstractions;
+﻿#region Copyright
+// Copyright (c) 2026 Yaroslav V Tatarenko.
+// Licensed under the MIT License. See LICENSE in the repository root for details.
+#endregion
+
+using MediaToolkitNet.Abstractions;
 using MediaToolkitNet.Interop;
 
 namespace MediaToolkitNet.GStreamer.Native;
@@ -61,7 +66,7 @@ public static unsafe class Gst
         {
             throw _failure as MediaBackendUnavailableException
                   ?? new MediaBackendUnavailableException(
-                      GstConstants.BackendName, "could not initialise GStreamer.", _failure);
+                      GstConstants.BackendName, $"could not initialise GStreamer: {_failure.Message}", _failure);
         }
     }
 
@@ -90,6 +95,21 @@ public static unsafe class Gst
     /// <summary><c>void g_object_unref(gpointer)</c></summary>
     public static delegate* unmanaged[Cdecl]<void*, void> g_object_unref;
 
+    /// <summary><c>GParamSpec *g_object_class_find_property(GObjectClass *, const gchar *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, byte*, void*> g_object_class_find_property;
+
+    /// <summary><c>gboolean g_type_check_instance_is_a(GTypeInstance *, GType)</c>, behind the G_TYPE_CHECK macros.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, nuint, int> g_type_check_instance_is_a;
+
+    /// <summary><c>GValue *g_value_init(GValue *, GType)</c></summary>
+    public static delegate* unmanaged[Cdecl]<byte*, nuint, byte*> g_value_init;
+
+    /// <summary><c>void g_value_set_string(GValue *, const gchar *)</c>, which copies the string.</summary>
+    public static delegate* unmanaged[Cdecl]<byte*, byte*, void> g_value_set_string;
+
+    /// <summary><c>void g_value_unset(GValue *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<byte*, void> g_value_unset;
+
     // ------------------------------------------------------------- gstreamer
 
     /// <summary><c>gboolean gst_init_check(int *argc, char **argv[], GError **)</c></summary>
@@ -100,6 +120,12 @@ public static unsafe class Gst
 
     /// <summary><c>GstElement *gst_parse_launch(const gchar *, GError **)</c></summary>
     public static delegate* unmanaged[Cdecl]<byte*, void**, void*> gst_parse_launch;
+
+    /// <summary><c>GstElement *gst_parse_launch_full(const gchar *, GstParseContext *, GstParseFlags, GError **)</c></summary>
+    public static delegate* unmanaged[Cdecl]<byte*, void*, int, void**, void*> gst_parse_launch_full;
+
+    /// <summary><c>gchar *gst_filename_to_uri(const gchar *, GError **)</c>, which the caller frees.</summary>
+    public static delegate* unmanaged[Cdecl]<byte*, void**, byte*> gst_filename_to_uri;
 
     /// <summary><c>GstElement *gst_element_factory_make(const gchar *factory, const gchar *name)</c></summary>
     public static delegate* unmanaged[Cdecl]<byte*, byte*, void*> gst_element_factory_make;
@@ -197,11 +223,71 @@ public static unsafe class Gst
     /// <summary><c>void gst_plugin_feature_list_free(GList *)</c></summary>
     public static delegate* unmanaged[Cdecl]<void*, void> gst_plugin_feature_list_free;
 
-    /// <summary><c>const gchar *gst_plugin_feature_get_name(GstPluginFeature *)</c></summary>
-    public static delegate* unmanaged[Cdecl]<void*, byte*> gst_plugin_feature_get_name;
-
     /// <summary><c>const gchar *gst_element_factory_get_metadata(GstElementFactory *, const gchar *)</c></summary>
     public static delegate* unmanaged[Cdecl]<void*, byte*, byte*> gst_element_factory_get_metadata;
+
+    /// <summary><c>GstEvent *gst_event_new_seek(gdouble rate, GstFormat, GstSeekFlags, GstSeekType, gint64 start, GstSeekType, gint64 stop)</c></summary>
+    public static delegate* unmanaged[Cdecl]<double, int, int, int, long, int, long, void*> gst_event_new_seek;
+
+    /// <summary><c>GstEvent *gst_event_new_flush_start(void)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*> gst_event_new_flush_start;
+
+    /// <summary><c>GstEvent *gst_event_new_flush_stop(gboolean reset_time)</c></summary>
+    public static delegate* unmanaged[Cdecl]<int, void*> gst_event_new_flush_stop;
+
+    /// <summary><c>GstEvent *gst_event_new_eos(void)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*> gst_event_new_eos;
+
+    /// <summary><c>gboolean gst_pad_send_event(GstPad *, GstEvent *)</c>, which takes the event.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, void*, int> gst_pad_send_event;
+
+    /// <summary>
+    /// <c>gulong gst_pad_add_probe(GstPad *, GstPadProbeType, GstPadProbeCallback, gpointer, GDestroyNotify)</c>;
+    /// the callback is <c>GstPadProbeReturn (*)(GstPad *, GstPadProbeInfo *, gpointer)</c>.
+    /// </summary>
+    public static delegate* unmanaged[Cdecl]<void*, int, delegate* unmanaged[Cdecl]<void*, void*, void*, int>, void*, void*, nuint> gst_pad_add_probe;
+
+    /// <summary><c>GstEvent *gst_pad_probe_info_get_event(GstPadProbeInfo *)</c>, valid only in an event probe.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, void*> gst_pad_probe_info_get_event;
+
+    /// <summary><c>gint gst_tag_list_n_tags(const GstTagList *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, int> gst_tag_list_n_tags;
+
+    /// <summary><c>const gchar *gst_tag_list_nth_tag_name(const GstTagList *, guint)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, uint, byte*> gst_tag_list_nth_tag_name;
+
+    /// <summary><c>gboolean gst_tag_list_get_string(const GstTagList *, const gchar *, gchar **)</c>; the caller frees the string.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, byte*, byte**, int> gst_tag_list_get_string;
+
+    /// <summary><c>gboolean gst_tag_exists(const gchar *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<byte*, int> gst_tag_exists;
+
+    /// <summary><c>GType gst_tag_get_type(const gchar *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<byte*, nuint> gst_tag_get_type;
+
+    /// <summary><c>GType gst_tag_setter_get_type(void)</c></summary>
+    public static delegate* unmanaged[Cdecl]<nuint> gst_tag_setter_get_type;
+
+    /// <summary><c>void gst_tag_setter_add_tag_value(GstTagSetter *, GstTagMergeMode, const gchar *, const GValue *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, int, byte*, byte*, void> gst_tag_setter_add_tag_value;
+
+    /// <summary><c>void gst_tag_setter_set_tag_merge_mode(GstTagSetter *, GstTagMergeMode)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, int, void> gst_tag_setter_set_tag_merge_mode;
+
+    /// <summary><c>GList *gst_toc_get_entries(const GstToc *)</c>, borrowed from the TOC.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, void*> gst_toc_get_entries;
+
+    /// <summary><c>GList *gst_toc_entry_get_sub_entries(const GstTocEntry *)</c>, borrowed from the entry.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, void*> gst_toc_entry_get_sub_entries;
+
+    /// <summary><c>GstTocEntryType gst_toc_entry_get_entry_type(const GstTocEntry *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, int> gst_toc_entry_get_entry_type;
+
+    /// <summary><c>gboolean gst_toc_entry_get_start_stop_times(const GstTocEntry *, gint64 *, gint64 *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, long*, long*, int> gst_toc_entry_get_start_stop_times;
+
+    /// <summary><c>GstTagList *gst_toc_entry_get_tags(const GstTocEntry *)</c>, borrowed from the entry.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, void*> gst_toc_entry_get_tags;
 
     // ----------------------------------------------------------- gstapp
 
@@ -211,8 +297,11 @@ public static unsafe class Gst
     /// <summary><c>gboolean gst_app_sink_is_eos(GstAppSink *)</c></summary>
     public static delegate* unmanaged[Cdecl]<void*, int> gst_app_sink_is_eos;
 
-    /// <summary><c>GstCaps *gst_app_sink_get_caps(GstAppSink *)</c>, a reference the caller owns.</summary>
-    public static delegate* unmanaged[Cdecl]<void*, void*> gst_app_sink_get_caps;
+    /// <summary><c>GstPad *gst_element_get_static_pad(GstElement *, const gchar *)</c>, a reference the caller owns.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, byte*, void*> gst_element_get_static_pad;
+
+    /// <summary><c>GstCaps *gst_pad_get_current_caps(GstPad *)</c>, a reference the caller owns, or null before negotiation.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, void*> gst_pad_get_current_caps;
 
     /// <summary><c>GstBuffer *gst_sample_get_buffer(GstSample *)</c>, borrowed from the sample.</summary>
     public static delegate* unmanaged[Cdecl]<void*, void*> gst_sample_get_buffer;
@@ -340,10 +429,17 @@ public static unsafe class Gst
         g_error_free = (delegate* unmanaged[Cdecl]<void*, void>)GLib.GetExport(nameof(g_error_free));
 
         g_object_unref = (delegate* unmanaged[Cdecl]<void*, void>)GObject.GetExport(nameof(g_object_unref));
+        g_object_class_find_property = (delegate* unmanaged[Cdecl]<void*, byte*, void*>)GObject.GetExport(nameof(g_object_class_find_property));
+        g_type_check_instance_is_a = (delegate* unmanaged[Cdecl]<void*, nuint, int>)GObject.GetExport(nameof(g_type_check_instance_is_a));
+        g_value_init = (delegate* unmanaged[Cdecl]<byte*, nuint, byte*>)GObject.GetExport(nameof(g_value_init));
+        g_value_set_string = (delegate* unmanaged[Cdecl]<byte*, byte*, void>)GObject.GetExport(nameof(g_value_set_string));
+        g_value_unset = (delegate* unmanaged[Cdecl]<byte*, void>)GObject.GetExport(nameof(g_value_unset));
 
         gst_init_check = (delegate* unmanaged[Cdecl]<int*, byte***, void**, int>)Core.GetExport(nameof(gst_init_check));
         gst_version_string = (delegate* unmanaged[Cdecl]<byte*>)Core.GetExport(nameof(gst_version_string));
         gst_parse_launch = (delegate* unmanaged[Cdecl]<byte*, void**, void*>)Core.GetExport(nameof(gst_parse_launch));
+        gst_parse_launch_full = (delegate* unmanaged[Cdecl]<byte*, void*, int, void**, void*>)Core.GetExport(nameof(gst_parse_launch_full));
+        gst_filename_to_uri = (delegate* unmanaged[Cdecl]<byte*, void**, byte*>)Core.GetExport(nameof(gst_filename_to_uri));
         gst_element_factory_make = (delegate* unmanaged[Cdecl]<byte*, byte*, void*>)Core.GetExport(nameof(gst_element_factory_make));
         gst_element_set_state = (delegate* unmanaged[Cdecl]<void*, int, int>)Core.GetExport(nameof(gst_element_set_state));
         gst_element_get_state = (delegate* unmanaged[Cdecl]<void*, int*, int*, ulong, int>)Core.GetExport(nameof(gst_element_get_state));
@@ -376,12 +472,32 @@ public static unsafe class Gst
         gst_registry_get_feature_list = (delegate* unmanaged[Cdecl]<void*, nuint, void*>)Core.GetExport(nameof(gst_registry_get_feature_list));
         gst_element_factory_get_type = (delegate* unmanaged[Cdecl]<nuint>)Core.GetExport(nameof(gst_element_factory_get_type));
         gst_plugin_feature_list_free = (delegate* unmanaged[Cdecl]<void*, void>)Core.GetExport(nameof(gst_plugin_feature_list_free));
-        gst_plugin_feature_get_name = (delegate* unmanaged[Cdecl]<void*, byte*>)Core.GetExport(nameof(gst_plugin_feature_get_name));
         gst_element_factory_get_metadata = (delegate* unmanaged[Cdecl]<void*, byte*, byte*>)Core.GetExport(nameof(gst_element_factory_get_metadata));
+        gst_event_new_seek = (delegate* unmanaged[Cdecl]<double, int, int, int, long, int, long, void*>)Core.GetExport(nameof(gst_event_new_seek));
+        gst_event_new_flush_start = (delegate* unmanaged[Cdecl]<void*>)Core.GetExport(nameof(gst_event_new_flush_start));
+        gst_event_new_flush_stop = (delegate* unmanaged[Cdecl]<int, void*>)Core.GetExport(nameof(gst_event_new_flush_stop));
+        gst_event_new_eos = (delegate* unmanaged[Cdecl]<void*>)Core.GetExport(nameof(gst_event_new_eos));
+        gst_pad_send_event = (delegate* unmanaged[Cdecl]<void*, void*, int>)Core.GetExport(nameof(gst_pad_send_event));
+        gst_pad_add_probe = (delegate* unmanaged[Cdecl]<void*, int, delegate* unmanaged[Cdecl]<void*, void*, void*, int>, void*, void*, nuint>)Core.GetExport(nameof(gst_pad_add_probe));
+        gst_pad_probe_info_get_event = (delegate* unmanaged[Cdecl]<void*, void*>)Core.GetExport(nameof(gst_pad_probe_info_get_event));
+        gst_tag_list_n_tags = (delegate* unmanaged[Cdecl]<void*, int>)Core.GetExport(nameof(gst_tag_list_n_tags));
+        gst_tag_list_nth_tag_name = (delegate* unmanaged[Cdecl]<void*, uint, byte*>)Core.GetExport(nameof(gst_tag_list_nth_tag_name));
+        gst_tag_list_get_string = (delegate* unmanaged[Cdecl]<void*, byte*, byte**, int>)Core.GetExport(nameof(gst_tag_list_get_string));
+        gst_tag_exists = (delegate* unmanaged[Cdecl]<byte*, int>)Core.GetExport(nameof(gst_tag_exists));
+        gst_tag_get_type = (delegate* unmanaged[Cdecl]<byte*, nuint>)Core.GetExport(nameof(gst_tag_get_type));
+        gst_tag_setter_get_type = (delegate* unmanaged[Cdecl]<nuint>)Core.GetExport(nameof(gst_tag_setter_get_type));
+        gst_tag_setter_add_tag_value = (delegate* unmanaged[Cdecl]<void*, int, byte*, byte*, void>)Core.GetExport(nameof(gst_tag_setter_add_tag_value));
+        gst_tag_setter_set_tag_merge_mode = (delegate* unmanaged[Cdecl]<void*, int, void>)Core.GetExport(nameof(gst_tag_setter_set_tag_merge_mode));
+        gst_toc_get_entries = (delegate* unmanaged[Cdecl]<void*, void*>)Core.GetExport(nameof(gst_toc_get_entries));
+        gst_toc_entry_get_sub_entries = (delegate* unmanaged[Cdecl]<void*, void*>)Core.GetExport(nameof(gst_toc_entry_get_sub_entries));
+        gst_toc_entry_get_entry_type = (delegate* unmanaged[Cdecl]<void*, int>)Core.GetExport(nameof(gst_toc_entry_get_entry_type));
+        gst_toc_entry_get_start_stop_times = (delegate* unmanaged[Cdecl]<void*, long*, long*, int>)Core.GetExport(nameof(gst_toc_entry_get_start_stop_times));
+        gst_toc_entry_get_tags = (delegate* unmanaged[Cdecl]<void*, void*>)Core.GetExport(nameof(gst_toc_entry_get_tags));
 
         gst_app_sink_try_pull_sample = (delegate* unmanaged[Cdecl]<void*, ulong, void*>)App.GetExport(nameof(gst_app_sink_try_pull_sample));
         gst_app_sink_is_eos = (delegate* unmanaged[Cdecl]<void*, int>)App.GetExport(nameof(gst_app_sink_is_eos));
-        gst_app_sink_get_caps = (delegate* unmanaged[Cdecl]<void*, void*>)App.GetExport(nameof(gst_app_sink_get_caps));
+        gst_element_get_static_pad = (delegate* unmanaged[Cdecl]<void*, byte*, void*>)Core.GetExport(nameof(gst_element_get_static_pad));
+        gst_pad_get_current_caps = (delegate* unmanaged[Cdecl]<void*, void*>)Core.GetExport(nameof(gst_pad_get_current_caps));
         gst_sample_get_buffer = (delegate* unmanaged[Cdecl]<void*, void*>)Core.GetExport(nameof(gst_sample_get_buffer));
         gst_sample_get_caps = (delegate* unmanaged[Cdecl]<void*, void*>)Core.GetExport(nameof(gst_sample_get_caps));
     }

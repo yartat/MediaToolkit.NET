@@ -1,4 +1,9 @@
-﻿using MediaToolkitNet.Interop;
+﻿#region Copyright
+// Copyright (c) 2026 Yaroslav V Tatarenko.
+// Licensed under the MIT License. See LICENSE in the repository root for details.
+#endregion
+
+using MediaToolkitNet.Interop;
 
 namespace MediaToolkitNet.FFmpeg.Native;
 
@@ -261,6 +266,86 @@ public static unsafe class AV
     /// <summary><c>void swr_free(SwrContext **)</c></summary>
     public static delegate* unmanaged[Cdecl]<void**, void> swr_free;
 
+    // ---------------------------------------------- probing and transcoding
+
+    /// <summary>
+    /// <c>int avcodec_get_supported_config(const AVCodecContext *, const AVCodec *, enum AVCodecConfig, unsigned flags, const void **out_configs, int *out_num_configs)</c>,
+    /// or null on FFmpeg 7.0, which predates it.
+    /// </summary>
+    public static delegate* unmanaged[Cdecl]<void*, void*, int, uint, void**, int*, int> avcodec_get_supported_config;
+
+    /// <summary><c>AVDictionaryEntry *av_dict_get(const AVDictionary *, const char *key, const AVDictionaryEntry *prev, int flags)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, byte*, void*, int, void*> av_dict_get;
+
+    /// <summary><c>int av_dict_copy(AVDictionary **dst, const AVDictionary *src, int flags)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void**, void*, int, int> av_dict_copy;
+
+    /// <summary><c>void av_frame_move_ref(AVFrame *dst, AVFrame *src)</c></summary>
+    public static delegate* unmanaged[Cdecl]<AVFrameHead*, AVFrameHead*, void> av_frame_move_ref;
+
+    /// <summary><c>void *av_mallocz(size_t size)</c></summary>
+    public static delegate* unmanaged[Cdecl]<nuint, void*> av_mallocz;
+
+    /// <summary><c>void *av_malloc(size_t size)</c></summary>
+    public static delegate* unmanaged[Cdecl]<nuint, void*> av_malloc;
+
+    /// <summary><c>void av_free(void *ptr)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, void> av_free;
+
+    /// <summary><c>int av_dynarray_add_nofree(void *tab_ptr, int *nb_ptr, void *elem)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, int*, void*, int> av_dynarray_add_nofree;
+
+    /// <summary><c>int av_opt_get(void *obj, const char *name, int search_flags, uint8_t **out_val)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, byte*, int, byte**, int> av_opt_get;
+
+    /// <summary><c>int av_opt_get_chlayout(void *obj, const char *name, int search_flags, AVChannelLayout *layout)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, byte*, int, AVChannelLayoutNative*, int> av_opt_get_chlayout;
+
+    /// <summary><c>void av_channel_layout_uninit(AVChannelLayout *channel_layout)</c></summary>
+    public static delegate* unmanaged[Cdecl]<AVChannelLayoutNative*, void> av_channel_layout_uninit;
+
+    /// <summary><c>int av_channel_layout_describe(const AVChannelLayout *channel_layout, char *buf, size_t buf_size)</c></summary>
+    public static delegate* unmanaged[Cdecl]<AVChannelLayoutNative*, byte*, nuint, int> av_channel_layout_describe;
+
+    /// <summary><c>const char *av_get_pix_fmt_name(enum AVPixelFormat pix_fmt)</c></summary>
+    public static delegate* unmanaged[Cdecl]<int, byte*> av_get_pix_fmt_name;
+
+    /// <summary><c>const char *av_get_sample_fmt_name(enum AVSampleFormat sample_fmt)</c></summary>
+    public static delegate* unmanaged[Cdecl]<int, byte*> av_get_sample_fmt_name;
+
+    /// <summary><c>const AVCodecDescriptor *avcodec_descriptor_get(enum AVCodecID id)</c></summary>
+    public static delegate* unmanaged[Cdecl]<int, void*> avcodec_descriptor_get;
+
+    /// <summary><c>const AVCodecDescriptor *avcodec_descriptor_get_by_name(const char *name)</c></summary>
+    public static delegate* unmanaged[Cdecl]<byte*, void*> avcodec_descriptor_get_by_name;
+
+    /// <summary><c>int avcodec_decode_subtitle2(AVCodecContext *, AVSubtitle *sub, int *got_sub_ptr, const AVPacket *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, void*, int*, AVPacketNative*, int> avcodec_decode_subtitle2;
+
+    /// <summary><c>int avcodec_encode_subtitle(AVCodecContext *, uint8_t *buf, int buf_size, const AVSubtitle *sub)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, byte*, int, void*, int> avcodec_encode_subtitle;
+
+    /// <summary><c>void avsubtitle_free(AVSubtitle *sub)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, void> avsubtitle_free;
+
+    /// <summary><c>int av_new_packet(AVPacket *pkt, int size)</c></summary>
+    public static delegate* unmanaged[Cdecl]<AVPacketNative*, int, int> av_new_packet;
+
+    /// <summary><c>int av_packet_ref(AVPacket *dst, const AVPacket *src)</c></summary>
+    public static delegate* unmanaged[Cdecl]<AVPacketNative*, AVPacketNative*, int> av_packet_ref;
+
+    /// <summary><c>AVPacket *av_packet_clone(const AVPacket *src)</c></summary>
+    public static delegate* unmanaged[Cdecl]<AVPacketNative*, AVPacketNative*> av_packet_clone;
+
+    /// <summary><c>AVFormatContext *avformat_alloc_context(void)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*> avformat_alloc_context;
+
+    /// <summary><c>int avformat_query_codec(const AVOutputFormat *ofmt, enum AVCodecID codec_id, int std_compliance)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, int, int, int> avformat_query_codec;
+
+    /// <summary><c>const AVOutputFormat *av_guess_format(const char *short_name, const char *filename, const char *mime_type)</c></summary>
+    public static delegate* unmanaged[Cdecl]<byte*, byte*, byte*, void*> av_guess_format;
+
     /// <summary>Resolves every function pointer. Called once by <see cref="FFmpegLibraries"/>.</summary>
     internal static void Bind()
     {
@@ -363,7 +448,45 @@ public static unsafe class AV
             avdevice_free_list_devices = (delegate* unmanaged[Cdecl]<void**, void>)device.GetExport(nameof(avdevice_free_list_devices));
         }
 
+        BindTranscoding(util, codec, format);
         _bound = true;
+    }
+
+    /// <summary>
+    /// Resolves the entry points probing and transcoding need. They live in the
+    /// libraries every series ships, so a missing one is a broken build rather
+    /// than an optional feature, and fails the load like the rest.
+    /// </summary>
+    private static void BindTranscoding(NativeModule util, NativeModule codec, NativeModule format)
+    {
+        // Added in libavcodec 61.13 (FFmpeg 7.1); without it encoders are opened by trial.
+        avcodec_get_supported_config = codec.TryGetExport(nameof(avcodec_get_supported_config), out var supported)
+            ? (delegate* unmanaged[Cdecl]<void*, void*, int, uint, void**, int*, int>)supported
+            : null;
+        av_dict_get = (delegate* unmanaged[Cdecl]<void*, byte*, void*, int, void*>)util.GetExport(nameof(av_dict_get));
+        av_dict_copy = (delegate* unmanaged[Cdecl]<void**, void*, int, int>)util.GetExport(nameof(av_dict_copy));
+        av_frame_move_ref = (delegate* unmanaged[Cdecl]<AVFrameHead*, AVFrameHead*, void>)util.GetExport(nameof(av_frame_move_ref));
+        av_mallocz = (delegate* unmanaged[Cdecl]<nuint, void*>)util.GetExport(nameof(av_mallocz));
+        av_malloc = (delegate* unmanaged[Cdecl]<nuint, void*>)util.GetExport(nameof(av_malloc));
+        av_free = (delegate* unmanaged[Cdecl]<void*, void>)util.GetExport(nameof(av_free));
+        av_dynarray_add_nofree = (delegate* unmanaged[Cdecl]<void*, int*, void*, int>)util.GetExport(nameof(av_dynarray_add_nofree));
+        av_opt_get = (delegate* unmanaged[Cdecl]<void*, byte*, int, byte**, int>)util.GetExport(nameof(av_opt_get));
+        av_opt_get_chlayout = (delegate* unmanaged[Cdecl]<void*, byte*, int, AVChannelLayoutNative*, int>)util.GetExport(nameof(av_opt_get_chlayout));
+        av_channel_layout_uninit = (delegate* unmanaged[Cdecl]<AVChannelLayoutNative*, void>)util.GetExport(nameof(av_channel_layout_uninit));
+        av_channel_layout_describe = (delegate* unmanaged[Cdecl]<AVChannelLayoutNative*, byte*, nuint, int>)util.GetExport(nameof(av_channel_layout_describe));
+        av_get_pix_fmt_name = (delegate* unmanaged[Cdecl]<int, byte*>)util.GetExport(nameof(av_get_pix_fmt_name));
+        av_get_sample_fmt_name = (delegate* unmanaged[Cdecl]<int, byte*>)util.GetExport(nameof(av_get_sample_fmt_name));
+        avcodec_descriptor_get = (delegate* unmanaged[Cdecl]<int, void*>)codec.GetExport(nameof(avcodec_descriptor_get));
+        avcodec_descriptor_get_by_name = (delegate* unmanaged[Cdecl]<byte*, void*>)codec.GetExport(nameof(avcodec_descriptor_get_by_name));
+        avcodec_decode_subtitle2 = (delegate* unmanaged[Cdecl]<void*, void*, int*, AVPacketNative*, int>)codec.GetExport(nameof(avcodec_decode_subtitle2));
+        avcodec_encode_subtitle = (delegate* unmanaged[Cdecl]<void*, byte*, int, void*, int>)codec.GetExport(nameof(avcodec_encode_subtitle));
+        avsubtitle_free = (delegate* unmanaged[Cdecl]<void*, void>)codec.GetExport(nameof(avsubtitle_free));
+        av_new_packet = (delegate* unmanaged[Cdecl]<AVPacketNative*, int, int>)codec.GetExport(nameof(av_new_packet));
+        av_packet_clone = (delegate* unmanaged[Cdecl]<AVPacketNative*, AVPacketNative*>)codec.GetExport(nameof(av_packet_clone));
+        av_packet_ref = (delegate* unmanaged[Cdecl]<AVPacketNative*, AVPacketNative*, int>)codec.GetExport(nameof(av_packet_ref));
+        avformat_alloc_context = (delegate* unmanaged[Cdecl]<void*>)format.GetExport(nameof(avformat_alloc_context));
+        avformat_query_codec = (delegate* unmanaged[Cdecl]<void*, int, int, int>)format.GetExport(nameof(avformat_query_codec));
+        av_guess_format = (delegate* unmanaged[Cdecl]<byte*, byte*, byte*, void*>)format.GetExport(nameof(av_guess_format));
     }
 
     // ------------------------------------------------------------- avfilter
@@ -434,6 +557,12 @@ public static unsafe class AV
     /// <summary><c>int av_buffersink_get_sample_rate(const AVFilterContext *)</c></summary>
     public static delegate* unmanaged[Cdecl]<void*, int> av_buffersink_get_sample_rate;
 
+    /// <summary><c>AVRational av_buffersink_get_sample_aspect_ratio(const AVFilterContext *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, AVRationalNative> av_buffersink_get_sample_aspect_ratio;
+
+    /// <summary><c>void av_buffersink_set_frame_size(AVFilterContext *, unsigned frame_size)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, uint, void> av_buffersink_set_frame_size;
+
     /// <summary><c>int av_buffersink_get_ch_layout(const AVFilterContext *, AVChannelLayout *)</c></summary>
     public static delegate* unmanaged[Cdecl]<void*, AVChannelLayoutNative*, int> av_buffersink_get_ch_layout;
 
@@ -481,6 +610,10 @@ public static unsafe class AV
             (delegate* unmanaged[Cdecl]<void*, int>)filter.GetExport(nameof(av_buffersink_get_sample_rate));
         av_buffersink_get_ch_layout =
             (delegate* unmanaged[Cdecl]<void*, AVChannelLayoutNative*, int>)filter.GetExport(nameof(av_buffersink_get_ch_layout));
+        av_buffersink_set_frame_size =
+            (delegate* unmanaged[Cdecl]<void*, uint, void>)filter.GetExport(nameof(av_buffersink_set_frame_size));
+        av_buffersink_get_sample_aspect_ratio =
+            (delegate* unmanaged[Cdecl]<void*, AVRationalNative>)filter.GetExport(nameof(av_buffersink_get_sample_aspect_ratio));
     }
 
     /// <summary>Sets an AVOption by name on any object that starts with an AVClass pointer.</summary>

@@ -1,3 +1,8 @@
+﻿#region Copyright
+// Copyright (c) 2026 Yaroslav V Tatarenko.
+// Licensed under the MIT License. See LICENSE in the repository root for details.
+#endregion
+
 using System.Runtime.Versioning;
 using MediaToolkitNet.GStreamer.Native;
 using MediaToolkitNet.Interop;
@@ -31,7 +36,7 @@ public readonly record struct GStreamerElementInfo(
 /// nothing can be written down in advance: which elements exist depends on
 /// which of gst-plugins-base, -good, -bad, -ugly and libav are installed, so the
 /// list is read from the registry. An element a pipeline needs but does not
-/// find is the usual reason <see cref="GStreamerPipeline.Parse"/> fails.
+/// find is the usual reason <see cref="GStreamerPipeline.Parse(string)"/> fails.
 /// </remarks>
 [SupportedOSPlatform("linux")]
 public static unsafe class GStreamerElements
@@ -68,7 +73,10 @@ public static unsafe class GStreamerElements
                 }
 
                 result.Add(new GStreamerElementInfo(
-                    Utf8.ToManagedOrEmpty(Gst.gst_plugin_feature_get_name(factory)),
+                    // gst_plugin_feature_get_name is a macro over GST_OBJECT_NAME with no
+                    // exported symbol behind it; a feature is a GstObject, so this is the
+                    // function that exists, and it hands back a copy to free.
+                    Gst.TakeString(Gst.gst_object_get_name(factory)),
                     Metadata(factory, "long-name"),
                     Metadata(factory, "klass"),
                     Metadata(factory, "description")));

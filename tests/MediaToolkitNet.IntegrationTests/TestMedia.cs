@@ -1,3 +1,9 @@
+﻿#region Copyright
+// Copyright (c) 2026 Yaroslav V Tatarenko.
+// Licensed under the MIT License. See LICENSE in the repository root for details.
+#endregion
+
+using System.Globalization;
 using MediaToolkitNet.Abstractions.Formats;
 using MediaToolkitNet.Abstractions.Frames;
 using MediaToolkitNet.Abstractions.Recording;
@@ -75,6 +81,62 @@ public sealed class TestMedia : IDisposable
         WriteFrames(recorder, video, videoFormat, 25);
         WriteTone(recorder, audio, audioFormat, audioFormat.SampleRate);
         recorder.Stop();
+        return path;
+    }
+
+    /// <summary>The cues <see cref="WriteMovie"/> writes, in order.</summary>
+    public static IReadOnlyList<SubtitleCue> MovieCues { get; } =
+    [
+        new(TimeSpan.FromSeconds(0.2), TimeSpan.FromSeconds(0.8), "First line"),
+        new(TimeSpan.FromSeconds(1.0), TimeSpan.FromSeconds(1.6), "Second line\nwith a break"),
+    ];
+
+    /// <summary>
+    /// Writes two seconds of video, audio and English SubRip subtitles, all
+    /// through the recorder: MJPEG at 25 frames per second, AAC at 48 kHz stereo.
+    /// </summary>
+    /// <param name="name">File name, whose extension picks the container.</param>
+    /// <returns>Returns the path written.</returns>
+    public string WriteMovie(string name)
+    {
+        var path = PathTo(name);
+        using var recorder = new FFmpegRecorder(path);
+
+        var videoFormat = new VideoFormat(320, 240, PixelFormat.Yuv420P, new Rational(25, 1));
+        var audioFormat = new AudioFormat(48000, 2, SampleFormat.S16, ChannelLayout.Stereo);
+
+        var video = recorder.AddVideoStream(new VideoEncodingSettings(videoFormat, MediaCodec.Mjpeg));
+        var audio = recorder.AddAudioStream(new AudioEncodingSettings(audioFormat, MediaCodec.Aac, 128_000));
+        var subtitles = recorder.AddSubtitleStream(new SubtitleEncodingSettings(MediaCodec.SubRip) { Language = "eng" });
+
+        recorder.Start();
+        foreach (var cue in MovieCues)
+        {
+            recorder.WriteSubtitle(subtitles, cue);
+        }
+
+        WriteFrames(recorder, video, videoFormat, 50);
+        WriteTone(recorder, audio, audioFormat, audioFormat.SampleRate * 2);
+        recorder.Stop();
+        return path;
+    }
+
+    /// <summary>Writes a SubRip file holding <see cref="MovieCues"/>.</summary>
+    public string WriteSrt(string name)
+    {
+        var path = PathTo(name);
+        var lines = new List<string>();
+        for (var i = 0; i < MovieCues.Count; i++)
+        {
+            var cue = MovieCues[i];
+            lines.Add((i + 1).ToString(CultureInfo.InvariantCulture));
+            lines.Add($"{cue.Start.ToString(@"hh\:mm\:ss\,fff", CultureInfo.InvariantCulture)} --> " +
+                      $"{cue.End.ToString(@"hh\:mm\:ss\,fff", CultureInfo.InvariantCulture)}");
+            lines.AddRange(cue.Text.Split('\n'));
+            lines.Add(string.Empty);
+        }
+
+        File.WriteAllLines(path, lines);
         return path;
     }
 
