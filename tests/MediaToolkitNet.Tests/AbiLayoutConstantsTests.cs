@@ -1,4 +1,9 @@
-﻿using FluentAssertions;
+﻿#region Copyright
+// Copyright (c) 2026 Yaroslav V Tatarenko.
+// Licensed under the MIT License. See LICENSE in the repository root for details.
+#endregion
+
+using FluentAssertions;
 using FluentAssertions.Execution;
 using MediaToolkitNet.FFmpeg.Native;
 using Xunit;

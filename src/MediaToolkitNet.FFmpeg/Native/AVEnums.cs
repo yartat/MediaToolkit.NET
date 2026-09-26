@@ -1,3 +1,8 @@
+﻿#region Copyright
+// Copyright (c) 2026 Yaroslav V Tatarenko.
+// Licensed under the MIT License. See LICENSE in the repository root for details.
+#endregion
+
 namespace MediaToolkitNet.FFmpeg.Native;
 
 /// <summary>Mirrors <c>AVMediaType</c>.</summary>
@@ -132,6 +137,33 @@ public static class AVConstants
     /// <summary>AVERROR_EOF, computed as -MKTAG('E','O','F',' ').</summary>
     public const int ErrorEof = -541478725;
 
+    /// <summary>AV_DICT_IGNORE_SUFFIX, which with an empty key walks every entry.</summary>
+    public const int DictIgnoreSuffix = 2;
+
+    /// <summary>AVDISCARD_ALL.</summary>
+    public const int DiscardAll = 48;
+
+    /// <summary>AV_CODEC_PROP_BITMAP_SUB.</summary>
+    public const int CodecPropBitmapSub = 1 << 16;
+
+    /// <summary>AV_CODEC_PROP_TEXT_SUB.</summary>
+    public const int CodecPropTextSub = 1 << 17;
+
+    /// <summary>SUBTITLE_TEXT, a rect holding plain text.</summary>
+    public const int SubtitleText = 2;
+
+    /// <summary>SUBTITLE_ASS, a rect holding one ASS event, which is what every text decoder produces.</summary>
+    public const int SubtitleAss = 3;
+
+    /// <summary>AV_DISPOSITION_DEFAULT.</summary>
+    public const int DispositionDefault = 1;
+
+    /// <summary>AV_DISPOSITION_FORCED.</summary>
+    public const int DispositionForced = 64;
+
+    /// <summary>AV_DISPOSITION_ATTACHED_PIC.</summary>
+    public const int DispositionAttachedPicture = 1024;
+
     /// <summary>AVERROR_EAGAIN. FFmpeg uses the C errno value, which is 11 on every platform it supports.</summary>
     public const int ErrorAgain = -11;
 
@@ -155,6 +187,9 @@ public static class AVConstants
 
     /// <summary>FF_COMPLIANCE_EXPERIMENTAL, the compliance level an experimental encoder demands.</summary>
     public const int ComplianceExperimental = -2;
+
+    /// <summary>FF_COMPLIANCE_NORMAL.</summary>
+    public const int ComplianceNormal = 0;
 
     /// <summary>AV_LOG_QUIET: libav* writes nothing at all.</summary>
     public const int LogQuiet = -8;

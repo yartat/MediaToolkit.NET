@@ -1,4 +1,9 @@
-﻿using MediaToolkitNet.Abstractions;
+﻿#region Copyright
+// Copyright (c) 2026 Yaroslav V Tatarenko.
+// Licensed under the MIT License. See LICENSE in the repository root for details.
+#endregion
+
+using MediaToolkitNet.Abstractions;
 using MediaToolkitNet.Abstractions.Formats;
 using MediaToolkitNet.Abstractions.Frames;
 using MediaToolkitNet.FFmpeg.Native;
@@ -122,11 +127,13 @@ public sealed unsafe class FFmpegFilterGraph : IDisposable
         var graph = new FFmpegFilterGraph(video: false);
         try
         {
+            // abuffer calls it channel_layout in every series from 7 to 9; ch_layout,
+            // the AVCodecContext name, is not an option of this filter and is refused.
             var arguments =
                 $"time_base=1/{TickRate}" +
                 $":sample_rate={input.SampleRate}" +
                 $":sample_fmt={(int)FFmpegFormatMap.ToAV(input.SampleFormat)}" +
-                $":ch_layout={FFmpegFormatMap.ChannelLayoutDescription(input.Channels, input.ChannelMask)}";
+                $":channel_layout={FFmpegFormatMap.ChannelLayoutDescription(input.Channels, input.ChannelMask)}";
 
             graph.Build("abuffer", arguments, "abuffersink", description, "anull");
             graph.ReadOutputAudioFormat();
@@ -137,6 +144,242 @@ public sealed unsafe class FFmpegFilterGraph : IDisposable
             graph.Dispose();
             throw;
         }
+    }
+
+    /// <summary>
+    /// Builds a video graph fed with frames exactly as a decoder produces them,
+    /// described in FFmpeg's own terms rather than the toolkit's.
+    /// </summary>
+    /// <remarks>
+    /// This is the entry point for frames that come straight from libavcodec:
+    /// the pixel format is the raw <c>AVPixelFormat</c>, so ten-bit and full-range
+    /// layouts the toolkit has no name for pass through untouched, and the time
+    /// base is the stream's, so timestamps need no conversion on the way in.
+    /// </remarks>
+    /// <param name="width">Frame width.</param>
+    /// <param name="height">Frame height.</param>
+    /// <param name="pixelFormat">An <c>AVPixelFormat</c>.</param>
+    /// <param name="timeBase">Time base of the timestamps that will be pushed.</param>
+    /// <param name="frameRate">Nominal frame rate, or 0/0 when unknown.</param>
+    /// <param name="sampleAspectRatio">Pixel aspect ratio, or 0/0 for square pixels.</param>
+    /// <param name="description">The filter chain, in FFmpeg syntax; empty passes the frames through.</param>
+    /// <param name="colorSpace">An <c>AVColorSpace</c>, or <see langword="null"/> when unknown.</param>
+    /// <param name="colorRange">An <c>AVColorRange</c>, or <see langword="null"/> when unknown.</param>
+    /// <remarks>
+    /// Stating the colour space and range the decoder reports keeps the first
+    /// frame from looking like a format change to the buffer source. FFmpeg
+    /// builds whose buffer source has no such options get a graph without them.
+    /// </remarks>
+    public static FFmpegFilterGraph ForVideo(
+        int width,
+        int height,
+        int pixelFormat,
+        AVRationalNative timeBase,
+        AVRationalNative frameRate,
+        AVRationalNative sampleAspectRatio,
+        string description,
+        int? colorSpace = null,
+        int? colorRange = null)
+    {
+        if (colorSpace is not null || colorRange is not null)
+        {
+            try
+            {
+                return ForVideo(
+                    width, height, pixelFormat, timeBase, frameRate, sampleAspectRatio, description,
+                    ColorArguments(colorSpace, colorRange));
+            }
+            catch (MediaToolkitNetException)
+            {
+                // Retried without them below; a chain that is itself wrong fails there too.
+            }
+        }
+
+        return ForVideo(width, height, pixelFormat, timeBase, frameRate, sampleAspectRatio, description, string.Empty);
+    }
+
+    private static string ColorArguments(int? colorSpace, int? colorRange) =>
+        (colorSpace is { } space ? $":colorspace={space}" : string.Empty) +
+        (colorRange is { } range ? $":range={range}" : string.Empty);
+
+    private static FFmpegFilterGraph ForVideo(
+        int width,
+        int height,
+        int pixelFormat,
+        AVRationalNative timeBase,
+        AVRationalNative frameRate,
+        AVRationalNative sampleAspectRatio,
+        string description,
+        string extraArguments)
+    {
+        EnsureAvailable();
+        ArgumentNullException.ThrowIfNull(description);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(width);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(height);
+        if (timeBase.Num <= 0 || timeBase.Den <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(timeBase), "The time base must be positive.");
+        }
+
+        var aspect = sampleAspectRatio.Num > 0 && sampleAspectRatio.Den > 0 ? sampleAspectRatio : new AVRationalNative(1, 1);
+        var graph = new FFmpegFilterGraph(video: true);
+        try
+        {
+            var arguments =
+                $"video_size={width}x{height}:pix_fmt={pixelFormat}" +
+                $":time_base={timeBase.Num}/{timeBase.Den}" +
+                $":pixel_aspect={aspect.Num}/{aspect.Den}" +
+                (frameRate.Num > 0 && frameRate.Den > 0 ? $":frame_rate={frameRate.Num}/{frameRate.Den}" : string.Empty) +
+                extraArguments;
+
+            graph.Build("buffer", arguments, "buffersink", description, "null");
+            graph.ReadOutputVideoFormat();
+            return graph;
+        }
+        catch
+        {
+            graph.Dispose();
+            throw;
+        }
+    }
+
+    /// <summary>Builds an audio graph fed with frames exactly as a decoder produces them.</summary>
+    /// <param name="sampleRate">Sample rate.</param>
+    /// <param name="sampleFormat">An <c>AVSampleFormat</c>.</param>
+    /// <param name="channelLayout">The layout as <c>av_channel_layout_describe</c> writes it, for example <c>stereo</c>.</param>
+    /// <param name="timeBase">Time base of the timestamps that will be pushed.</param>
+    /// <param name="description">The filter chain, in FFmpeg syntax; empty passes the frames through.</param>
+    public static FFmpegFilterGraph ForAudio(
+        int sampleRate,
+        int sampleFormat,
+        string channelLayout,
+        AVRationalNative timeBase,
+        string description)
+    {
+        EnsureAvailable();
+        ArgumentNullException.ThrowIfNull(description);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sampleRate);
+        ArgumentException.ThrowIfNullOrWhiteSpace(channelLayout);
+        if (timeBase.Num <= 0 || timeBase.Den <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(timeBase), "The time base must be positive.");
+        }
+
+        var graph = new FFmpegFilterGraph(video: false);
+        try
+        {
+            var arguments =
+                $"time_base={timeBase.Num}/{timeBase.Den}:sample_rate={sampleRate}" +
+                $":sample_fmt={sampleFormat}:channel_layout={channelLayout}";
+
+            graph.Build("abuffer", arguments, "abuffersink", description, "anull");
+            graph.ReadOutputAudioFormat();
+            return graph;
+        }
+        catch
+        {
+            graph.Dispose();
+            throw;
+        }
+    }
+
+    /// <summary>The <c>AVPixelFormat</c> the graph produces.</summary>
+    public int OutputPixelFormat => AV.av_buffersink_get_format(_sink);
+
+    /// <summary>The <c>AVSampleFormat</c> the graph produces.</summary>
+    public int OutputSampleFormat => AV.av_buffersink_get_format(_sink);
+
+    /// <summary>Time base of the timestamps the graph produces.</summary>
+    public AVRationalNative OutputTimeBase => AV.av_buffersink_get_time_base(_sink);
+
+    /// <summary>Frame rate the graph produces, or 0/0 when it is not constant or not known.</summary>
+    public AVRationalNative OutputFrameRate => AV.av_buffersink_get_frame_rate(_sink);
+
+    /// <summary>Pixel aspect ratio the graph produces.</summary>
+    public AVRationalNative OutputSampleAspectRatio => AV.av_buffersink_get_sample_aspect_ratio(_sink);
+
+    /// <summary>The channel layout the graph produces, as <c>av_channel_layout_describe</c> writes it.</summary>
+    public string OutputChannelLayout
+    {
+        get
+        {
+            AVChannelLayoutNative layout;
+            if (AV.av_buffersink_get_ch_layout(_sink, &layout) < 0)
+            {
+                return string.Empty;
+            }
+
+            try
+            {
+                return DescribeLayout(&layout);
+            }
+            finally
+            {
+                AV.av_channel_layout_uninit(&layout);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Makes the sink hand out audio in blocks of exactly this many samples,
+    /// except the last, which is what an encoder with a fixed frame size needs.
+    /// </summary>
+    public void SetOutputFrameSize(int samples)
+    {
+        EnsureAlive();
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(samples);
+        AV.av_buffersink_set_frame_size(_sink, (uint)samples);
+    }
+
+    /// <summary>
+    /// Takes one filtered frame into <paramref name="destination"/>, which is
+    /// unreferenced first and then owns the frame's buffers.
+    /// </summary>
+    /// <returns>False when the graph needs more input or has reached its end.</returns>
+    public bool TryReceive(AVFrameHead* destination)
+    {
+        EnsureAlive();
+        ArgumentNullException.ThrowIfNull(destination);
+        AV.av_frame_unref(destination);
+
+        var result = AV.av_buffersink_get_frame(_sink, destination);
+        if (result is AVConstants.ErrorAgain or AVConstants.ErrorEof)
+        {
+            return false;
+        }
+
+        FFmpegError.Check(result, "av_buffersink_get_frame");
+        return true;
+    }
+
+    /// <summary>Writes a channel layout the way the filter options read it.</summary>
+    internal static string DescribeLayout(AVChannelLayoutNative* layout)
+    {
+        const int size = 128;
+        var buffer = stackalloc byte[size];
+        return AV.av_channel_layout_describe(layout, buffer, size) < 0
+            ? string.Empty
+            : Utf8.ToManagedOrEmpty(buffer);
+    }
+
+    /// <summary>
+    /// Pushes a frame, answering false instead of throwing when the graph has
+    /// already ended, as it does once a <c>trim</c> filter has passed its end.
+    /// The graph takes its own reference, so the caller keeps the frame. A null
+    /// frame tells the graph no more are coming.
+    /// </summary>
+    /// <returns>False when the graph takes no more frames.</returns>
+    public bool TryPush(AVFrameHead* frame)
+    {
+        EnsureAlive();
+        var result = AV.av_buffersrc_add_frame_flags(_source, frame, frame is null ? 0 : KeepReference);
+        if (result == AVConstants.ErrorEof)
+        {
+            return false;
+        }
+
+        FFmpegError.Check(result, "av_buffersrc_add_frame_flags");
+        return true;
     }
 
     /// <summary>

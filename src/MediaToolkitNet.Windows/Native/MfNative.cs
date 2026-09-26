@@ -1,3 +1,8 @@
+#region Copyright
+// Copyright (c) 2026 Yaroslav V Tatarenko.
+// Licensed under the MIT License. See LICENSE in the repository root for details.
+#endregion
+
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using MediaToolkitNet.Interop.Com;
@@ -55,7 +60,7 @@ public static unsafe partial class MfApi
     public static partial int MFCreateMemoryBuffer(uint maxLength, void** buffer);
 
     /// <summary>MFT_CATEGORY_VIDEO_ENCODER.</summary>
-    public static readonly Guid CategoryVideoEncoder = new("f79eac7d-e545-4c6d-4cd5-2b1d0fbc5d2c");
+    public static readonly Guid CategoryVideoEncoder = new("f79eac7d-e545-4387-bdee-d647d7bde42a");
 
     /// <summary>MFT_CATEGORY_AUDIO_ENCODER.</summary>
     public static readonly Guid CategoryAudioEncoder = new("91c64bd0-f91e-4d8c-9276-db248279d975");

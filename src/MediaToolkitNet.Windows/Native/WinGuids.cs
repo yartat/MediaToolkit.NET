@@ -1,3 +1,8 @@
+#region Copyright
+// Copyright (c) 2026 Yaroslav V Tatarenko.
+// Licensed under the MIT License. See LICENSE in the repository root for details.
+#endregion
+
 namespace MediaToolkitNet.Windows.Native;
 
 /// <summary>
@@ -116,7 +121,7 @@ public static class WinGuids
     public static readonly Guid DefaultStride = new("644b4e48-1e02-4516-b0eb-c01ca9d49ac6");
 
     /// <summary>MF_MT_INTERLACE_MODE.</summary>
-    public static readonly Guid InterlaceMode = new("e2724bb8-e676-4806-b4b6-a48c7ed27025");
+    public static readonly Guid InterlaceMode = new("e2724bb8-e676-4806-b4b2-a8d6efb44ccd");
 
     /// <summary>MF_MT_ALL_SAMPLES_INDEPENDENT.</summary>
     public static readonly Guid AllSamplesIndependent = new("c9173739-5e56-461c-b713-46fb995cb95f");

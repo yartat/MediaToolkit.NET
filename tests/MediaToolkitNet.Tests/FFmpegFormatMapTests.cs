@@ -1,3 +1,8 @@
+﻿#region Copyright
+// Copyright (c) 2026 Yaroslav V Tatarenko.
+// Licensed under the MIT License. See LICENSE in the repository root for details.
+#endregion
+
 using FluentAssertions;
 using FluentAssertions.Execution;
 using MediaToolkitNet.Abstractions.Formats;
@@ -81,7 +86,8 @@ public class FFmpegFormatMapTests
     {
         foreach (var codec in Enum.GetValues<MediaCodec>())
         {
-            if (codec == MediaCodec.Default)
+            // PGS is decode-only in FFmpeg: it can be copied and burned in, never written.
+            if (codec is MediaCodec.Default or MediaCodec.Pgs)
             {
                 continue;
             }

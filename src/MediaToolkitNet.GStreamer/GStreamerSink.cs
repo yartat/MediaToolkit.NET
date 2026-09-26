@@ -1,4 +1,9 @@
-﻿using System.Runtime.Versioning;
+﻿#region Copyright
+// Copyright (c) 2026 Yaroslav V Tatarenko.
+// Licensed under the MIT License. See LICENSE in the repository root for details.
+#endregion
+
+using System.Runtime.Versioning;
 using MediaToolkitNet.Abstractions.Formats;
 using MediaToolkitNet.Abstractions.Frames;
 using MediaToolkitNet.GStreamer.Native;
@@ -52,26 +57,48 @@ public sealed unsafe class GStreamerSink : IDisposable
     }
 
     /// <summary>
-    /// The format the sink negotiated, once the pipeline has prerolled.
+    /// The format the sink negotiated, once the pipeline has prerolled, or
+    /// <see langword="null"/> before that.
     /// </summary>
+    /// <remarks>
+    /// This is read off the sink pad. The appsink's own <c>caps</c> property is
+    /// what the application restricted it to, which is a different thing and is
+    /// usually empty.
+    /// </remarks>
     public GstMediaFormat? NegotiatedFormat
     {
         get
         {
-            var caps = Gst.gst_app_sink_get_caps(_element.Handle);
-            if (caps is null)
+            ObjectDisposedException.ThrowIf(_disposed, this);
+
+            Span<byte> scratch = stackalloc byte[Utf8Scoped.StackThreshold];
+            using var name = new Utf8Scoped("sink", scratch);
+            var pad = Gst.gst_element_get_static_pad(_element.Handle, name.Pointer);
+            if (pad is null)
             {
                 return null;
             }
 
             try
             {
-                return GstMediaFormat.From(caps);
+                var caps = Gst.gst_pad_get_current_caps(pad);
+                if (caps is null)
+                {
+                    return null;
+                }
+
+                try
+                {
+                    return GstMediaFormat.From(caps);
+                }
+                finally
+                {
+                    Gst.gst_mini_object_unref(caps);
+                }
             }
             finally
             {
-                // gst_app_sink_get_caps hands over a reference of its own.
-                Gst.gst_mini_object_unref(caps);
+                Gst.gst_object_unref(pad);
             }
         }
     }
@@ -81,64 +108,45 @@ public sealed unsafe class GStreamerSink : IDisposable
     /// </summary>
     /// <param name="timeout">How long to wait for a sample; negative waits forever.</param>
     /// <param name="handler">Receives the frame, which is valid only for the call.</param>
-    /// <returns>False on a timeout, at the end of the stream, or when the sink carries audio.</returns>
+    /// <returns>False on a timeout or at the end of the stream.</returns>
+    /// <exception cref="InvalidOperationException">The sink carries audio.</exception>
     public bool TryPullVideo(TimeSpan timeout, VideoFrameHandler handler)
     {
         ArgumentNullException.ThrowIfNull(handler);
-        ObjectDisposedException.ThrowIf(_disposed, this);
-
-        var sample = Gst.gst_app_sink_try_pull_sample(_element.Handle, Nanoseconds(timeout));
-        if (sample is null)
-        {
-            return false;
-        }
-
-        try
-        {
-            var caps = Gst.gst_sample_get_caps(sample);
-            var buffer = Gst.gst_sample_get_buffer(sample);
-            if (caps is null || buffer is null || GstMediaFormat.From(caps).Video is not { } format)
-            {
-                return false;
-            }
-
-            var info = stackalloc byte[GstLayout.MapInfoSize];
-            new Span<byte>(info, GstLayout.MapInfoSize).Clear();
-            if (Gst.gst_buffer_map(buffer, info, (int)GstMapFlags.Read) == 0)
-            {
-                return false;
-            }
-
-            try
-            {
-                Span<nint> planes = stackalloc nint[MediaPlanes.MaxPlanes];
-                Span<int> strides = stackalloc int[MediaPlanes.MaxPlanes];
-                var data = *(byte**)(info + GstLayout.MapInfoData);
-                var planeCount = BuildPlanes(format, data, planes, strides);
-
-                var frame = new VideoFrame(format, TimestampOf(buffer), planes, strides, planeCount);
-                handler(in frame);
-                return true;
-            }
-            finally
-            {
-                Gst.gst_buffer_unmap(buffer, info);
-            }
-        }
-        finally
-        {
-            Gst.gst_mini_object_unref(sample);
-        }
+        return TryPull(timeout, handler, null);
     }
 
     /// <summary>Takes the next block of audio, waiting up to <paramref name="timeout"/>.</summary>
     /// <param name="timeout">How long to wait for a sample; negative waits forever.</param>
     /// <param name="handler">Receives the frame, which is valid only for the call.</param>
-    /// <returns>False on a timeout, at the end of the stream, or when the sink carries video.</returns>
+    /// <returns>False on a timeout or at the end of the stream.</returns>
+    /// <exception cref="InvalidOperationException">The sink carries video.</exception>
     public bool TryPullAudio(TimeSpan timeout, AudioFrameHandler handler)
     {
         ArgumentNullException.ThrowIfNull(handler);
+        return TryPull(timeout, null, handler);
+    }
+
+    /// <summary>
+    /// Takes the next sample, whatever it carries, and hands it to the handler
+    /// for its kind.
+    /// </summary>
+    /// <param name="timeout">How long to wait for a sample; negative waits forever.</param>
+    /// <param name="video">Receives video frames.</param>
+    /// <param name="audio">Receives audio frames.</param>
+    /// <returns>False on a timeout or at the end of the stream.</returns>
+    /// <exception cref="InvalidOperationException">
+    /// The sample is of a kind no handler was given for, or is not raw media.
+    /// A pulled sample cannot be put back, so skipping it would lose it without
+    /// a trace.
+    /// </exception>
+    public bool TryPull(TimeSpan timeout, VideoFrameHandler? video, AudioFrameHandler? audio)
+    {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        if (video is null && audio is null)
+        {
+            throw new ArgumentException("At least one handler is required.");
+        }
 
         var sample = Gst.gst_app_sink_try_pull_sample(_element.Handle, Nanoseconds(timeout));
         if (sample is null)
@@ -150,15 +158,22 @@ public sealed unsafe class GStreamerSink : IDisposable
         {
             var caps = Gst.gst_sample_get_caps(sample);
             var buffer = Gst.gst_sample_get_buffer(sample);
-            if (caps is null || buffer is null || GstMediaFormat.From(caps).Audio is not { } format)
+            if (caps is null || buffer is null)
             {
                 return false;
             }
 
-            var blockAlign = format.SampleFormat.BytesPerSample() * format.Channels;
-            if (blockAlign <= 0)
+            var format = GstMediaFormat.From(caps);
+            if (format.Video is null && format.Audio is null)
             {
-                return false;
+                throw new InvalidOperationException(
+                    $"the sink delivered {format.Caps}, which is not raw audio or video; put a converter in front of it.");
+            }
+
+            if ((format.Video is not null && video is null) || (format.Audio is not null && audio is null))
+            {
+                throw new InvalidOperationException(
+                    $"the sink delivered {format.MediaType}, and no handler was given for it.");
             }
 
             var info = stackalloc byte[GstLayout.MapInfoSize];
@@ -172,9 +187,29 @@ public sealed unsafe class GStreamerSink : IDisposable
             {
                 var data = *(byte**)(info + GstLayout.MapInfoData);
                 var length = (long)*(nuint*)(info + GstLayout.MapInfoSizeField);
+                var timestamp = TimestampOf(buffer);
+                Span<nint> planes = stackalloc nint[MediaPlanes.MaxPlanes];
 
-                var frame = new AudioFrame(format, TimestampOf(buffer), (int)(length / blockAlign), data);
-                handler(in frame);
+                if (format.Video is { } videoFormat)
+                {
+                    Span<int> strides = stackalloc int[MediaPlanes.MaxPlanes];
+                    var planeCount = BuildPlanes(videoFormat, data, planes, strides);
+                    var frame = new VideoFrame(videoFormat, timestamp, planes, strides, planeCount);
+                    video!(in frame);
+                    return true;
+                }
+
+                var audioFormat = format.Audio!.Value;
+                var bytesPerSample = audioFormat.SampleFormat.BytesPerSample();
+                if (bytesPerSample <= 0 || audioFormat.Channels <= 0)
+                {
+                    throw new InvalidOperationException(
+                        $"the sink delivered {format.Caps}, whose sample format this library does not read.");
+                }
+
+                var samples = (int)(length / (bytesPerSample * audioFormat.Channels));
+                var audioFrame = BuildAudioFrame(audioFormat, timestamp, samples, data, planes);
+                audio!(in audioFrame);
                 return true;
             }
             finally
@@ -186,6 +221,28 @@ public sealed unsafe class GStreamerSink : IDisposable
         {
             Gst.gst_mini_object_unref(sample);
         }
+    }
+
+    /// <summary>
+    /// Builds the audio frame, splitting a non-interleaved buffer into its
+    /// channels, which GStreamer stores one after another.
+    /// </summary>
+    private static AudioFrame BuildAudioFrame(
+        AudioFormat format, TimeSpan timestamp, int samples, byte* data, Span<nint> planes)
+    {
+        if (!format.SampleFormat.IsPlanar())
+        {
+            return new AudioFrame(format, timestamp, samples, data);
+        }
+
+        var planeCount = Math.Min(format.Channels, MediaPlanes.MaxPlanes);
+        var planeBytes = (long)samples * format.SampleFormat.BytesPerSample();
+        for (var plane = 0; plane < planeCount; plane++)
+        {
+            planes[plane] = (nint)(data + (plane * planeBytes));
+        }
+
+        return new AudioFrame(format, timestamp, samples, planes, planeCount);
     }
 
     /// <inheritdoc />

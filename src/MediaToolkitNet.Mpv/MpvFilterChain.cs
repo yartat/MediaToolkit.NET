@@ -1,4 +1,9 @@
-﻿namespace MediaToolkitNet.Mpv;
+﻿#region Copyright
+// Copyright (c) 2026 Yaroslav V Tatarenko.
+// Licensed under the MIT License. See LICENSE in the repository root for details.
+#endregion
+
+namespace MediaToolkitNet.Mpv;
 
 /// <summary>
 /// One of mpv's two filter chains, <c>vf</c> for video and <c>af</c> for audio.

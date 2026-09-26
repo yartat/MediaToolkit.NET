@@ -1,0 +1,7 @@
+root = true
+
+[*.cs]
+# The header every C# file starts with, inside "#region Copyright" / "#endregion".
+# The IDE inserts it for new files; IDE0073 reports a file whose header differs.
+file_header_template = Copyright (c) 2026 Yaroslav V Tatarenko.\nLicensed under the MIT License. See LICENSE in the repository root for details.
+dotnet_diagnostic.IDE0073.severity = suggestion

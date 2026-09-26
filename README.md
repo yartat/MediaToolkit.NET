@@ -1,5 +1,10 @@
 ﻿# MediaToolkit.NET
 
+[![Build](https://github.com/yartat/MediaToolkit.NET/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/yartat/MediaToolkit.NET/actions/workflows/ci.yml)
+[![NuGet](https://img.shields.io/nuget/v/MediaToolkitNet.All.svg?label=MediaToolkitNet.All)](https://www.nuget.org/packages/MediaToolkitNet.All)
+[![NuGet downloads](https://img.shields.io/nuget/dt/MediaToolkitNet.All.svg)](https://www.nuget.org/packages/MediaToolkitNet.All)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Low-level wrappers over the native media stacks for .NET 10, plus one
 cross-platform API on top of them.
 
@@ -13,13 +18,13 @@ remains AOT- and trim-safe.
 
 | Project | Wraps |
 |---|---|
-| `MediaToolkitNet.Abstractions` | Abstractions: devices, formats, frames, player, capture, recording. No dependencies. |
+| `MediaToolkitNet.Abstractions` | Abstractions: devices, formats, frames, player, capture, recording, probing, transcoding. No dependencies. |
 | `MediaToolkitNet.Interop` | Native library loading, UTF-8, `ComPtr` and vtable access. |
 | `MediaToolkitNet.FFmpeg` | libavformat / libavcodec / libavutil / libswscale / libswresample / libavdevice |
 | `MediaToolkitNet.Mpv` | libmpv (client API) |
 | `MediaToolkitNet.Windows` | Media Foundation, WASAPI, DirectShow (devices, filter graph, Sample Grabber) |
 | `MediaToolkitNet.Linux` | ALSA, PulseAudio (simple API), V4L2 |
-| `MediaToolkitNet.GStreamer` | GStreamer 1.x: pipeline, element registry, appsink |
+| `MediaToolkitNet.GStreamer` | GStreamer 1.x: pipeline, element registry, appsink, GstDiscoverer, transcoding |
 | `MediaToolkitNet.MacOS` | AVFoundation through the Objective-C runtime, CoreAudio / AudioQueue |
 | `MediaToolkitNet.All` | Facade: backend registry and per-platform selection |
 | `samples/MediaToolkitNet.Sample.Cli` | Demonstrates every scenario |
@@ -35,6 +40,9 @@ remains AOT- and trim-safe.
 | Playback | — | — | `AVPlayer` | decode to frames | full |
 | Recording to file | `IMFSinkWriter` | — | — | encode + mux | — |
 | Filter graph | DirectShow + Sample Grabber | GStreamer pipeline | — | libavfilter | `vf` / `af` chains |
+| Probing a file | — | GstDiscoverer | — | libavformat | track list |
+| Transcoding | — | GStreamer pipeline | — | full | encoding mode |
+| Reading frames from a file | — | — | — | `FFmpegMediaReader` | — |
 
 A dash means the backend does not take that role: FFmpeg owns no audio output,
 mpv never hands frames back, and on Linux and macOS writing files is the FFmpeg
@@ -166,10 +174,78 @@ while (!sink.IsEndOfStream)
 }
 ```
 
+## Transcoding
+
+A transcode is described once, as a `TranscodeRequest`, and run by whichever
+backend accepts it: FFmpeg first, then GStreamer, then mpv. The request names
+inputs, an output, and what each output stream does with an input stream —
+copy it, re-encode it, convert subtitles, burn them in — plus a trim, tags and
+chapters. With no streams named it copies every video, audio and subtitle
+stream, which is a container change:
+
+```csharp
+await MediaToolkitNetBackends.TranscodeAsync(TranscodeRequest.Remux("in.mkv", "out.mp4"));
+
+await MediaToolkitNetBackends.TranscodeAsync(new TranscodeRequest("out.mkv")
+{
+    Inputs = ["film.mkv", "film.en.srt"],
+    Start = TimeSpan.FromMinutes(1),
+    End = TimeSpan.FromMinutes(2),
+    Streams =
+    [
+        OutputStream.Video(StreamSource.First(MediaStreamKind.Video),
+            new VideoOutputSettings(MediaCodec.H264) { Width = 1280, Quality = 23, Speed = EncoderSpeed.Fast }),
+        OutputStream.Audio(StreamSource.All(MediaStreamKind.Audio), new AudioOutputSettings(MediaCodec.Opus)),
+        OutputStream.Subtitles(StreamSource.First(MediaStreamKind.Subtitle, input: 1), MediaCodec.SubRip),
+    ],
+    Metadata = new Dictionary<string, string> { ["title"] = "Film" },
+});
+```
+
+Every backend starts from the same `TranscodePlan`, which resolves the
+selectors against what the inputs contain and finds the mistakes no backend can
+fix. Each backend then says what it cannot do, through `Validate`, before
+anything is written; when every backend refuses, the exception carries every
+refusal. The three differ a good deal:
+
+| | FFmpeg | GStreamer | mpv |
+|---|:---:|:---:|:---:|
+| Stream copy, container change | yes | video and audio | — |
+| Re-encode video / audio | yes | yes | one track each |
+| Several audio or video streams | yes | yes | — |
+| Subtitle copy / conversion | yes | — | — |
+| Subtitle burn-in | text (libass) | text (`textoverlay`) | yes |
+| Several inputs | yes | yes | external audio and subtitles |
+| Trim | yes | yes | yes |
+| Tags / chapters | yes / yes | yes / Matroska only, untrimmed | yes / — |
+
+GStreamer cannot write subtitles as a stream at all: its muxers take plain
+UTF-8 while its subtitle parsers produce Pango markup. mpv re-encodes what it
+plays, so it can copy nothing. Where one backend cannot do a job the next one is
+asked, and `MpvTranscoder.CommandLine` and `GStreamerTranscoder.Describe` print
+the equivalent `mpv` and `gst-launch-1.0` command for any plan.
+
+`IMediaProber` reads what a file holds — streams, languages, flags, tags and
+chapters — and numbers streams the same way on every backend, so an index from
+one works with another. `FFmpegMediaReader` is the frame-level counterpart, in
+the manner of FFMediaToolkit: open a file, then read decoded frames in order or
+at a time, converted to the format asked for:
+
+```csharp
+using var reader = FFmpegMediaReader.Open("clip.mp4",
+    new MediaReaderOptions { VideoPixelFormat = PixelFormat.Bgra32, VideoWidth = 640, VideoHeight = 360 });
+
+reader.Video!.TryReadAt(TimeSpan.FromSeconds(12), (in VideoFrame frame) => Save(frame));
+foreach (var cue in reader.SubtitleStreams[0].ReadAll())
+{
+    Console.WriteLine($"{cue.Start} {cue.Text}");
+}
+```
+
 Sample commands: `backends`, `devices [audio|video|all|dshow]`, `probe`, `play`,
 `decode`, `rec-audio`, `rec-video`, `rec-file`, `rec-audio-file`, `encoders`,
 `ds-filters`, `ds-graph`, `ds-grab`, `av-filters`, `av-filter`, `gst-elements`,
-`gst-run`.
+`gst-run`, `transcode`, `read`, `mpv-args`, `gst-args`.
 
 ## Tests
 
@@ -192,12 +268,20 @@ AbiLayoutTests.CodecContextPixFmtIsWhereParametersToContextWritesIt [FAIL]
   Expected value to be 4 because pix_fmt was read at 140, but found -1.
 ```
 
+The transcoding tests run each backend's output back through the FFmpeg prober
+and reader, so no backend checks its own work; the GStreamer ones need Linux as
+well as FFmpeg, and the mpv ones libmpv.
+
 They skip themselves where FFmpeg is not loadable. Point them at a particular
 build to test a series the machine does not have on its path:
 
 ```bash
 MEDIATOOLKITNET_FFMPEG_DIR=/opt/ffmpeg-9/lib dotnet test
 ```
+
+libmpv is found the way any native library is — beside the test assembly or on
+the system search path — so on Windows put the folder holding `libmpv-2.dll` on
+`PATH` to run the mpv tests.
 
 ## Packages
 
@@ -206,11 +290,11 @@ MEDIATOOLKITNET_FFMPEG_DIR=/opt/ffmpeg-9/lib dotnet test
 | `MediaToolkitNet.All` | Facade: pulls in every backend and picks one at runtime |
 | `MediaToolkitNet.Abstractions` | Abstractions only; no native code, no dependencies |
 | `MediaToolkitNet.Interop` | Native loading, UTF-8 marshalling, COM vtable access |
-| `MediaToolkitNet.FFmpeg` | FFmpeg 7.x, 8.x or 9.x backend |
-| `MediaToolkitNet.Mpv` | libmpv backend |
+| `MediaToolkitNet.FFmpeg` | FFmpeg 7.x, 8.x or 9.x: demux, decode, encode, mux, filter graphs, probing, transcoding, frame reader |
+| `MediaToolkitNet.Mpv` | libmpv: playback, filter chains, probing, transcoding |
 | `MediaToolkitNet.Windows` | Media Foundation, WASAPI, DirectShow |
 | `MediaToolkitNet.Linux` | V4L2, ALSA, PulseAudio |
-| `MediaToolkitNet.GStreamer` | GStreamer 1.x pipelines on Linux |
+| `MediaToolkitNet.GStreamer` | GStreamer 1.x on Linux: pipelines, probing, transcoding |
 | `MediaToolkitNet.MacOS` | AVFoundation, CoreAudio |
 
 ```bash
@@ -233,9 +317,16 @@ package is `MediaToolkitNet.Abstractions`: plain `MediaToolkitNet` collides with
 consumer code is unaffected. `MediaToolkit.NET` remains the name of the product
 and of this repository.
 
-No native binary ships inside any package. FFmpeg and libmpv have to be installed
-separately; the platform backends only call libraries that are already part of
-the operating system.
+No native binary ships inside any package. FFmpeg, libmpv and GStreamer have to
+be installed separately; the platform backends only call libraries that are
+already part of the operating system. Native libraries are looked for in the
+directories given to `NativeSearchPaths.Prepend`, then beside the application,
+in its `native` and `runtimes/<rid>/native` folders, and then where the
+operating system looks.
+
+The package page shows `docs/package/README.md`, which is written for someone
+who has just installed a package, and the release notes of the version, from
+`docs/release-notes/v<version>.nuget.txt`.
 
 ## Key decisions
 
@@ -267,11 +358,23 @@ which depends on struct layout. The layout of a bare channel count comes from
 `av_channel_layout_default` rather than from a table of our own, because four
 channels are quad and not 3.1.
 
-**Vtable slots are verified.** The Windows backend calls COM by slot number, and
-the numbering counts every method of every base interface (`IMFAttributes`
-occupies slots 3–32, so `IMFSample` starts at 33). A wrong number raises no
-exception — it quietly calls the neighbouring method — so the chains were
-validated by running them against real hardware.
+**Vtable slots and GUIDs are verified.** The Windows backend calls COM by slot
+number, and the numbering counts every method of every base interface
+(`IMFAttributes` occupies slots 3–32, so `IMFSample` starts at 33). A wrong
+number raises no exception — it quietly calls the neighbouring method — so the
+chains were validated by running them against real hardware. GUIDs fail just as
+quietly: two Media Foundation GUIDs written from memory kept video recording
+broken until 0.3.0, so every GUID in the source is now checked against the
+Windows SDK headers.
+
+**One request, three transcoders.** FFmpeg, GStreamer and mpv share nothing in
+how they transcode, so what is shared is the request and the plan resolved from
+it. Each backend then refuses, before writing anything, whatever it cannot do,
+and says why. Their quiet failures are handled where they arise: mpv writes a
+file without the stream whose encoder it lacks and reports success, so the mpv
+transcoder checks its output; a GStreamer muxer does not survive the flush of a
+seek, so the GStreamer transcoder holds each branch back until the seek has
+flushed it.
 
 ## Limitations
 
@@ -280,12 +383,22 @@ validated by running them against real hardware.
   reports that as `MF_E_INVALIDMEDIATYPE` on the input type.
   `MediaFoundationRecorder` recognises the case and reports it plainly; check a
   machine with the `encoders` command.
+- Subtitle burn-in is text only on FFmpeg and GStreamer, and PGS has no FFmpeg
+  encoder, so it can be copied but not produced.
+- mpv's encoding mode copies nothing, writes one video and one audio track and
+  no chapters, and in MP4 writes the audio stream first.
 - `MacOSBackend` cannot write files (`AVAssetWriter` is not wrapped) — use FFmpeg.
 - `FFmpegPlayer` only decodes: it has no renderer and no audio output.
 - Only the mpv client API is wrapped; the render API (embedding into a host
   OpenGL context) is not covered.
 - The GStreamer backend implements no capture or playback interface: what it
   offers is the pipeline, which covers those roles in GStreamer's own terms.
+  Of the shared roles it takes probing and transcoding.
+- GStreamer 1.26's `matroskamux` writes tag values that contain spaces
+  serialised (`"a\ b"`), and it writes the input's chapters whatever the request
+  says and with their original times. The transcoder warns about both.
+- The mpv transcoder needs libmpv built with encoding support (`--o`); a player
+  build without it is refused with that reason.
 - `libavfilter` is optional. When it is missing beside the other FFmpeg
   libraries, `FFmpegFilterGraph.IsAvailable` is false and nothing else changes.
 - The GStreamer backend binds the Linux library names, so it reports itself

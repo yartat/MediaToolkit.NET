@@ -1,4 +1,9 @@
-﻿using System.Diagnostics;
+﻿#region Copyright
+// Copyright (c) 2026 Yaroslav V Tatarenko.
+// Licensed under the MIT License. See LICENSE in the repository root for details.
+#endregion
+
+using System.Diagnostics;
 using MediaToolkitNet;
 using MediaToolkitNet.Abstractions;
 using MediaToolkitNet.Abstractions.Capture;
@@ -21,7 +26,7 @@ static int Usage()
           backends                     list backends and their availability
           devices [audio|video|all]    list devices
           devices dshow                list devices through DirectShow (Windows only)
-          probe <file|URL>             inspect a container with FFmpeg
+          probe <file|URL> [backend]   read streams, tags and chapters (any probing backend)
           play <file|URL> [seconds]    play with the best available backend
           decode <file> [seconds]      decode with FFmpeg and report frame stats
           rec-audio <seconds>          capture audio from the default device
@@ -37,6 +42,8 @@ static int Usage()
           gst-elements [text]          list the GStreamer element factories (Linux only)
           gst-run <pipeline> [seconds] run a gst-launch pipeline (Linux only)
         """);
+    Console.Write(TranscodeCommand.Usage);
+    Console.Write(ReadCommand.Usage);
     return 1;
 }
 
@@ -48,7 +55,11 @@ static int Run(string[] args)
         {
             "backends" => ShowBackends(),
             "devices" => ShowDevices(args.Length > 1 ? args[1] : "all"),
-            "probe" => Probe(Argument(args, 1, "file path")),
+            "probe" => Probe(Argument(args, 1, "file path"), args.Length > 2 ? args[2] : null),
+            "transcode" => TranscodeCommand.RunAsync(args).GetAwaiter().GetResult(),
+            "read" => ReadCommand.Run(args),
+            "mpv-args" => TranscodeCommand.PrintMpvCommandLine(args),
+            "gst-args" => TranscodeCommand.PrintGstPipeline(args),
             "play" => Play(Argument(args, 1, "file path"), Seconds(args, 2, 10)),
             "decode" => Decode(Argument(args, 1, "file path"), Seconds(args, 2, 5)),
             "rec-audio" => RecordAudio(Seconds(args, 1, 3)),
@@ -155,23 +166,50 @@ static int ShowDirectShowDevices()
     return 0;
 }
 
-static int Probe(string path)
+static int Probe(string path, string? backendName)
 {
-    using var demuxer = FFmpegDemuxer.Open(path);
+    var info = backendName is null
+        ? MediaToolkitNetBackends.Probe(path)
+        : (MediaToolkitNetBackends.Find(backendName)
+           ?? throw new ArgumentException($"No backend is named {backendName}.")).CreateProber().Probe(path);
 
-    Console.WriteLine($"Source: {path}");
-    Console.WriteLine($"Duration: {demuxer.Duration:hh\\:mm\\:ss\\.fff}");
-    Console.WriteLine($"Streams: {demuxer.Streams.Count}");
-
-    foreach (var stream in demuxer.Streams)
+    Console.WriteLine($"Source:    {info.Uri}");
+    Console.WriteLine($"Backend:   {info.Backend}");
+    Console.WriteLine($"Container: {info.ContainerName}{(info.Container is { } c ? $" ({c})" : string.Empty)}");
+    Console.WriteLine($"Duration:  {Clock(info.Duration)}");
+    foreach (var (key, value) in info.Metadata)
     {
-        Console.WriteLine($"  #{stream.Index} {stream.MediaType,-10} {stream.CodecName,-12} " +
-                          $"time base {stream.TimeBase}, {stream.AverageFrameRate.Value:0.###} fps, " +
-                          $"duration {stream.Duration:hh\\:mm\\:ss\\.fff}");
+        Console.WriteLine($"  tag {key} = {value}");
+    }
+
+    Console.WriteLine($"Streams:   {info.Streams.Count}");
+    foreach (var stream in info.Streams)
+    {
+        var flags = string.Join(",", new[]
+        {
+            stream.IsDefault ? "default" : null,
+            stream.IsForced ? "forced" : null,
+            stream.IsAttachedPicture ? "cover" : null,
+            stream.Kind == MediaToolkitNet.Abstractions.Transcoding.MediaStreamKind.Subtitle
+                ? (stream.IsTextSubtitle ? "text" : "bitmap")
+                : null,
+        }.Where(f => f is not null));
+
+        Console.WriteLine($"  {stream}{(stream.Title is null ? string.Empty : $" \"{stream.Title}\"")}" +
+                          $"{(flags.Length == 0 ? string.Empty : $" [{flags}]")}" +
+                          $"{(stream.BitRate > 0 ? $" {stream.BitRate / 1000} kb/s" : string.Empty)}");
+    }
+
+    Console.WriteLine($"Chapters:  {info.Chapters.Count}");
+    foreach (var chapter in info.Chapters)
+    {
+        Console.WriteLine($"  {Clock(chapter.Start)} - {Clock(chapter.End)} {chapter.Title}");
     }
 
     return 0;
 }
+
+static string Clock(TimeSpan time) => time.ToString(@"hh\:mm\:ss\.fff");
 
 static int Play(string path, int seconds)
 {
@@ -702,11 +740,15 @@ static string DescribeMissingFilters() =>
 
 static int ListGStreamerElements(string? contains)
 {
-    if (!OperatingSystem.IsLinux() || !MediaToolkitNet.GStreamer.GStreamerBackend.Instance.IsAvailable)
+    if (!OperatingSystem.IsLinux())
     {
-        Console.Error.WriteLine("GStreamer is not available on this machine.");
+        Console.Error.WriteLine("The GStreamer backend binds the Linux library names; run this on Linux.");
         return 2;
     }
+
+    // Throws with the actual reason, which is worth more than a yes or no.
+    MediaToolkitNet.GStreamer.Native.Gst.EnsureLoaded();
+    MediaToolkitNet.GStreamer.Native.GstLayout.Require();
 
     var elements = MediaToolkitNet.GStreamer.GStreamerElements.All();
     var shown = 0;
@@ -721,17 +763,21 @@ static int ListGStreamerElements(string? contains)
         shown++;
     }
 
-    Console.WriteLine($"{shown} of {elements.Count} elements, GStreamer {MediaToolkitNet.GStreamer.GStreamerBackend.Version}.");
+    Console.WriteLine($"{shown} of {elements.Count} elements, {MediaToolkitNet.GStreamer.GStreamerBackend.Version}.");
     return 0;
 }
 
 static int RunGStreamerPipeline(string pipeline, int seconds)
 {
-    if (!OperatingSystem.IsLinux() || !MediaToolkitNet.GStreamer.GStreamerBackend.Instance.IsAvailable)
+    if (!OperatingSystem.IsLinux())
     {
-        Console.Error.WriteLine("GStreamer is not available on this machine.");
+        Console.Error.WriteLine("The GStreamer backend binds the Linux library names; run this on Linux.");
         return 2;
     }
+
+    // Throws with the actual reason, which is worth more than a yes or no.
+    MediaToolkitNet.GStreamer.Native.Gst.EnsureLoaded();
+    MediaToolkitNet.GStreamer.Native.GstLayout.Require();
 
     using var graph = MediaToolkitNet.GStreamer.GStreamerPipeline.Parse(pipeline);
     graph.Pause();
@@ -753,19 +799,20 @@ static int RunGStreamerPipeline(string pipeline, int seconds)
     {
         while (DateTime.UtcNow < deadline && !sink.IsEndOfStream)
         {
-            var pulled = sink.TryPullVideo(TimeSpan.FromMilliseconds(500),
+            var pulled = sink.TryPull(
+                TimeSpan.FromMilliseconds(500),
                 (in MediaToolkitNet.Abstractions.Frames.VideoFrame frame) =>
+                {
+                    checksum += Sum(frame.GetPlane(0));
+                    frames++;
+                },
+                (in MediaToolkitNet.Abstractions.Frames.AudioFrame frame) =>
                 {
                     checksum += Sum(frame.GetPlane(0));
                     frames++;
                 });
 
-            if (!pulled && !sink.TryPullAudio(TimeSpan.FromMilliseconds(0),
-                (in MediaToolkitNet.Abstractions.Frames.AudioFrame frame) =>
-                {
-                    checksum += Sum(frame.GetPlane(0));
-                    frames++;
-                }))
+            if (!pulled)
             {
                 break;
             }

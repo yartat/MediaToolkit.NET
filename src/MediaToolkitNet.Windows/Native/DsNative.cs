@@ -1,4 +1,9 @@
-﻿using System.Runtime.InteropServices;
+﻿#region Copyright
+// Copyright (c) 2026 Yaroslav V Tatarenko.
+// Licensed under the MIT License. See LICENSE in the repository root for details.
+#endregion
+
+using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using MediaToolkitNet.Interop.Com;
 

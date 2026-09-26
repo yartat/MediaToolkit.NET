@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <Description>Backend-agnostic media abstractions for MediaToolkit.NET: devices, formats, borrowed audio and video frames, players, capture sources and recorders. Pure managed code with no dependencies and no native calls.</Description>
+    <Description>Backend-agnostic media abstractions for MediaToolkit.NET: devices, formats, borrowed audio and video frames, players, capture sources, recorders, probing and transcoding requests. Pure managed code with no dependencies and no native calls.</Description>
     <PackageTags>media;abstractions;audio;video;frames;dotnet</PackageTags>
   </PropertyGroup>
 

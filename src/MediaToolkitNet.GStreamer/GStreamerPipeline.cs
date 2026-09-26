@@ -1,4 +1,9 @@
-﻿using System.Runtime.Versioning;
+﻿#region Copyright
+// Copyright (c) 2026 Yaroslav V Tatarenko.
+// Licensed under the MIT License. See LICENSE in the repository root for details.
+#endregion
+
+using System.Runtime.Versioning;
 using MediaToolkitNet.Abstractions;
 using MediaToolkitNet.GStreamer.Native;
 using MediaToolkitNet.Interop;
@@ -55,7 +60,14 @@ public sealed unsafe class GStreamerPipeline : IDisposable
     /// The description could not be parsed, usually because a plugin providing
     /// one of the elements is not installed. GStreamer names the element.
     /// </exception>
-    public static GStreamerPipeline Parse(string description)
+    public static GStreamerPipeline Parse(string description) => Parse(description, strict: false);
+
+    /// <summary>
+    /// Builds a pipeline, optionally refusing one the parser could only build in
+    /// part. Without <paramref name="strict"/> a link that fails is reported and
+    /// dropped, and the pipeline comes back without it.
+    /// </summary>
+    internal static GStreamerPipeline Parse(string description, bool strict)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(description);
         Gst.EnsureLoaded();
@@ -65,7 +77,9 @@ public sealed unsafe class GStreamerPipeline : IDisposable
         using var utf8 = new Utf8Scoped(description, scratch);
 
         void* error = null;
-        var pipeline = Gst.gst_parse_launch(utf8.Pointer, &error);
+        var pipeline = strict
+            ? Gst.gst_parse_launch_full(utf8.Pointer, null, GstTypes.ParseFatalErrors, &error)
+            : Gst.gst_parse_launch(utf8.Pointer, &error);
         if (pipeline is null)
         {
             throw new MediaToolkitNetException(

@@ -1,5 +1,11 @@
+#region Copyright
+// Copyright (c) 2026 Yaroslav V Tatarenko.
+// Licensed under the MIT License. See LICENSE in the repository root for details.
+#endregion
+
 using System.Runtime.Versioning;
 using MediaToolkitNet.GStreamer.Native;
+using MediaToolkitNet.Interop;
 
 namespace MediaToolkitNet.GStreamer;
 
@@ -51,6 +57,38 @@ public sealed unsafe class GStreamerElement : IDisposable
         ArgumentNullException.ThrowIfNull(value);
         EnsureAlive();
         Gst.SetProperty(_element, property, value);
+    }
+
+    /// <summary>
+    /// True when the element has a property of that name. <see cref="Set"/>
+    /// on a missing property only logs a GLib warning, so this is how a caller
+    /// finds out beforehand.
+    /// </summary>
+    public bool HasProperty(string property)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(property);
+        EnsureAlive();
+        GstLayout.Require();
+
+        Span<byte> scratch = stackalloc byte[Utf8Scoped.StackThreshold];
+        using var utf8 = new Utf8Scoped(property, scratch);
+        return Gst.g_object_class_find_property(GstLayout.ClassOf(_element), utf8.Pointer) is not null;
+    }
+
+    /// <summary>A static pad of the element, as a reference the caller owns, or null.</summary>
+    internal void* GetStaticPad(string name)
+    {
+        EnsureAlive();
+        Span<byte> scratch = stackalloc byte[Utf8Scoped.StackThreshold];
+        using var utf8 = new Utf8Scoped(name, scratch);
+        return Gst.gst_element_get_static_pad(_element, utf8.Pointer);
+    }
+
+    /// <summary>True when the element is an instance of a GType, an interface included.</summary>
+    internal bool Is(nuint type)
+    {
+        EnsureAlive();
+        return Gst.g_type_check_instance_is_a(_element, type) != 0;
     }
 
     /// <inheritdoc />
