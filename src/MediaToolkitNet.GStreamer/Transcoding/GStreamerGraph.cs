@@ -319,14 +319,24 @@ internal sealed class GStreamerGraph
 
         if (settings.ChannelMask is { } mask)
         {
-            caps.Add($"channel-mask=(bitmask)0x{mask:x}");
+            caps.Add($"channel-mask=(bitmask)0x{GStreamerChannelMask(mask):x}");
         }
 
-        var format = settings.SampleFormat ?? GStreamerCodecs.RawFormatOf(settings.Codec);
-        if (format is { } sample)
+        var encoder = GStreamerCodecs.AudioEncoder(settings);
+
+        // Raw PCM takes the width its codec names. An encoder takes the width
+        // asked for, in the layout it wants: libav's elements and matroskamux
+        // are interleaved only, so a planar request pins the width alone.
+        var format = encoder is null
+            ? GStreamerCodecs.RawFormatOf(settings.Codec)
+            : settings.SampleFormat is { } sample ? SampleFormatName(sample, encoder) : null;
+        if (format is not null)
         {
-            caps.Add($"format={SampleFormatName(sample)}");
-            caps.Add($"layout={(IsPlanar(sample) ? "non-interleaved" : "interleaved")}");
+            caps.Add($"format={format}");
+            if (encoder is null)
+            {
+                caps.Add("layout=interleaved");
+            }
         }
 
         if (caps.Count > 0)
@@ -335,7 +345,7 @@ internal sealed class GStreamerGraph
         }
 
         // Raw PCM needs no encoder: the caps above are the encoding.
-        if (GStreamerCodecs.AudioEncoder(settings) is not { } encoder)
+        if (encoder is null)
         {
             return;
         }
@@ -345,6 +355,13 @@ internal sealed class GStreamerGraph
         foreach (var (name, value) in GStreamerCodecs.AudioEncoderProperties(encoder, settings, _issues))
         {
             Properties.Add((element.Name, name, value));
+        }
+
+        // lame drops to a lower rate at low bit rates unless the rate downstream
+        // is pinned, which it reads back from the caps that follow it.
+        if (encoder == "lamemp3enc" && settings.SampleRate is { } mp3Rate)
+        {
+            chain.Add(new Text($"audio/mpeg,rate={mp3Rate}"));
         }
 
         if (GStreamerCodecs.EncodedParser(encoder) is { } parser)
@@ -519,19 +536,52 @@ internal sealed class GStreamerGraph
         _ => throw new ArgumentOutOfRangeException(nameof(format), format, "The pixel format has no GStreamer name."),
     };
 
-    private static string SampleFormatName(SampleFormat format) => format switch
+    /// <summary>
+    /// The GStreamer name of a sample format. flacenc takes no 32-bit samples:
+    /// 32 bits is how libavcodec carries 24-bit FLAC, which flacenc calls S24_32LE.
+    /// </summary>
+    private static string SampleFormatName(SampleFormat format, string? encoder) => format switch
     {
         SampleFormat.U8 or SampleFormat.U8Planar => "U8",
         SampleFormat.S16 or SampleFormat.S16Planar => "S16LE",
+        SampleFormat.S32 or SampleFormat.S32Planar when encoder == "flacenc" => "S24_32LE",
         SampleFormat.S32 or SampleFormat.S32Planar => "S32LE",
         SampleFormat.F32 or SampleFormat.F32Planar => "F32LE",
         SampleFormat.F64 or SampleFormat.F64Planar => "F64LE",
         _ => throw new ArgumentOutOfRangeException(nameof(format), format, "The sample format has no GStreamer name."),
     };
 
-    private static bool IsPlanar(SampleFormat format) =>
-        format is SampleFormat.U8Planar or SampleFormat.S16Planar or SampleFormat.S32Planar
-            or SampleFormat.F32Planar or SampleFormat.F64Planar;
+    /// <summary>
+    /// FFmpeg's speaker bit (the index) against GStreamer's channel position.
+    /// The two agree up to the back centre and part ways from the side speakers on.
+    /// </summary>
+    private static readonly (int FFmpeg, int GStreamer)[] SpeakerPositions =
+    [
+        (0, 0), (1, 1), (2, 2), (3, 3), (4, 4), (5, 5), (6, 6), (7, 7), (8, 8),
+        (9, 10), (10, 11), (11, 15), (12, 12), (13, 14), (14, 13), (15, 16), (16, 20), (17, 17),
+        (31, 24), (32, 25), (35, 9), (36, 18), (37, 19), (38, 21), (39, 22), (40, 23),
+    ];
+
+    /// <summary>A channel mask in FFmpeg's speaker bits, as GStreamer's channel-mask.</summary>
+    private ulong GStreamerChannelMask(ulong mask)
+    {
+        ulong result = 0;
+        foreach (var (ffmpeg, gstreamer) in SpeakerPositions)
+        {
+            if ((mask & (1UL << ffmpeg)) != 0)
+            {
+                result |= 1UL << gstreamer;
+                mask &= ~(1UL << ffmpeg);
+            }
+        }
+
+        if (mask != 0)
+        {
+            _issues.Add(new TranscodeIssue(TranscodeIssueSeverity.Error, $"the speakers 0x{mask:x} of the channel layout have no GStreamer position"));
+        }
+
+        return result;
+    }
 
     private static string Parser(int input) => $"p{input}";
 

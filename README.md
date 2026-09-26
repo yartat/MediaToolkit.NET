@@ -386,7 +386,13 @@ flushed it.
 - Subtitle burn-in is text only on FFmpeg and GStreamer, and PGS has no FFmpeg
   encoder, so it can be copied but not produced.
 - mpv's encoding mode copies nothing, writes one video and one audio track and
-  no chapters, and in MP4 writes the audio stream first.
+  no chapters, and in MP4 writes the audio stream first. It pads uncompressed
+  audio to a block of 16384 samples, so PCM output runs a little long (the
+  transcoder warns), and its TrueHD and MLP run 20% long in Matroska, so those
+  are refused there.
+- GStreamer cannot write TrueHD: `avenc_truehd` encodes it but no muxer takes
+  it. Its AAC encoder ignores a variable quality, since gst-libav does not
+  expose libavcodec's `qscale` flag; the transcoder warns.
 - `MacOSBackend` cannot write files (`AVAssetWriter` is not wrapped) — use FFmpeg.
 - `FFmpegPlayer` only decodes: it has no renderer and no audio output.
 - Only the mpv client API is wrapped; the render API (embedding into a host

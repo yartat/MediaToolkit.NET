@@ -135,7 +135,11 @@ public sealed unsafe class GStreamerTranscoder : IMediaTranscoder
 
             if (stream.AudioSettings is { } audio)
             {
-                if (GStreamerCodecs.AudioEncoder(audio) is null && GStreamerCodecs.RawFormatOf(audio.Codec) is null)
+                if (audio.Codec == MediaCodec.TrueHd && audio.EncoderName is null)
+                {
+                    issues.Add(Error("avenc_truehd encodes TrueHD, but no GStreamer muxer takes it; use the FFmpeg backend"));
+                }
+                else if (GStreamerCodecs.AudioEncoder(audio) is null && GStreamerCodecs.RawFormatOf(audio.Codec) is null)
                 {
                     issues.Add(Error($"no GStreamer element encodes {audio.Codec}; tried {Tried(GStreamerCodecs.AudioCandidates(audio.Codec))}"));
                 }

@@ -45,19 +45,24 @@ internal static class GStreamerCodecs
         MediaCodec.Mp3 => ["lamemp3enc"],
         MediaCodec.Vorbis => ["vorbisenc"],
         MediaCodec.Ac3 => ["avenc_ac3"],
-        MediaCodec.Mp2 => ["twolamemp2enc", "avenc_mp2"],
+        // twolame refuses the bit rates Layer II forbids for a channel mode, such
+        // as 320 kbit/s mono, where libavcodec's encoder carries on as FFmpeg does.
+        MediaCodec.Mp2 => ["avenc_mp2", "twolamemp2enc"],
+        MediaCodec.Dts => ["avenc_dca"],
+        MediaCodec.RealAudio => ["avenc_real_144"],
         _ => [],
     };
 
     /// <summary>
-    /// The sample format that stands for a PCM codec. PCM needs no encoder:
-    /// a caps filter with this format is the whole encoding.
+    /// The GStreamer sample format that stands for a PCM codec. PCM needs no
+    /// encoder: a caps filter with this format is the whole encoding.
     /// </summary>
-    public static SampleFormat? RawFormatOf(MediaCodec codec) => codec switch
+    public static string? RawFormatOf(MediaCodec codec) => codec switch
     {
-        MediaCodec.Pcm or MediaCodec.PcmS16 => SampleFormat.S16,
-        MediaCodec.PcmU8 => SampleFormat.U8,
-        MediaCodec.PcmS32 => SampleFormat.S32,
+        MediaCodec.Pcm or MediaCodec.PcmS16 => "S16LE",
+        MediaCodec.PcmU8 => "U8",
+        MediaCodec.PcmS24 => "S24LE",
+        MediaCodec.PcmS32 => "S32LE",
         _ => null,
     };
 
@@ -82,6 +87,7 @@ internal static class GStreamerCodecs
         "avenc_aac" or "fdkaacenc" or "voaacenc" => "aacparse",
         "lamemp3enc" or "twolamemp2enc" or "avenc_mp2" => "mpegaudioparse",
         "avenc_ac3" => "ac3parse",
+        "avenc_dca" => "dcaparse",
         _ => null,
     };
 
@@ -192,6 +198,17 @@ internal static class GStreamerCodecs
             case "avenc_mp2":
                 AddIf(result, "bitrate", settings.BitrateBitsPerSecond);
                 Unmapped(encoder, settings.Quality is not null, "a variable-quality setting", issues);
+                break;
+
+            case "avenc_dca":
+                // libavcodec still calls its DCA encoder experimental.
+                result.Add(("strict", "experimental"));
+                AddIf(result, "bitrate", settings.BitrateBitsPerSecond);
+                Unmapped(encoder, settings.Quality is not null, "a variable-quality setting", issues);
+                break;
+
+            case "avenc_real_144":
+                Unmapped(encoder, settings.Quality is not null || settings.BitrateBitsPerSecond > 0, "a bit rate or quality, RealAudio 1.0 having one", issues);
                 break;
 
             case "twolamemp2enc":

@@ -163,6 +163,32 @@ public sealed unsafe class MpvTranscoder : IMediaTranscoder
             }
         }
 
+        // A TrueHD or MLP frame lasts 1/1200 s, shorter than Matroska's millisecond
+        // tick. mpv stamps every packet a whole tick after the last, so the samples
+        // are all there but the timeline runs a fifth long: four seconds are
+        // written as 4.8. The same stream in a raw .thd file is exact, so this is
+        // mpv's timestamps, not the encoder.
+        if (audio.FirstOrDefault()?.AudioSettings is { } lossless
+            && (lossless.EncoderName ?? FFmpegFormatMap.EncoderNames(lossless.Codec).FirstOrDefault()) is "truehd" or "mlp"
+            && plan.Container is MediaContainer.Matroska or MediaContainer.WebM)
+        {
+            issues.Add(Error(
+                "mpv stamps TrueHD and MLP frames a millisecond apart in Matroska, where each lasts 1/1200 s, " +
+                "so the output would run 20% long; use the FFmpeg backend for these"));
+        }
+
+        // A PCM encoder takes any number of samples at a time, and mpv then feeds it
+        // blocks of 16384 and pads the last with silence. The frame_size option does
+        // not change that, so the output runs long by up to 16384 samples: two
+        // seconds at 8 kHz, a third of one at 48 kHz.
+        if (audio.FirstOrDefault()?.AudioSettings is { } pcm
+            && (pcm.EncoderName ?? FFmpegFormatMap.EncoderNames(pcm.Codec).FirstOrDefault())?.StartsWith("pcm_", StringComparison.Ordinal) == true)
+        {
+            issues.Add(Warning(
+                "mpv writes uncompressed audio in blocks of 16384 samples and pads the last with silence, " +
+                "so the output runs up to 16384 samples past the end of the input or the trim"));
+        }
+
         if (video.Count == 1 && audio.Count == 1)
         {
             issues.Add(Warning("mpv writes its streams in the order its encoders start, so audio may come before video in the output"));
@@ -326,6 +352,27 @@ public sealed unsafe class MpvTranscoder : IMediaTranscoder
             {
                 options.Add(new("af", MpvFilterChain.Lavfi(chain)));
             }
+
+            // The filter above is not the last word. mpv converts what leaves the
+            // filter chain to its own output format, which in encoding mode is two
+            // channels unless told otherwise, so without these a request for 5.1
+            // came out stereo with no error. They are mpv's options for the format it
+            // hands the encoder, and the encoder is opened with what they say.
+            if (settings.Channels is not null || settings.ChannelMask is not null)
+            {
+                var channels = settings.Channels ?? System.Numerics.BitOperations.PopCount(settings.ChannelMask!.Value);
+                options.Add(new("audio-channels", MpvChannelLayout(channels, settings.ChannelMask)));
+            }
+
+            if (settings.SampleRate is { } outputRate)
+            {
+                options.Add(new("audio-samplerate", outputRate.ToString(CultureInfo.InvariantCulture)));
+            }
+
+            if (settings.SampleFormat is { } outputFormat)
+            {
+                options.Add(new("audio-format", MpvSampleFormatName(outputFormat)));
+            }
         }
         else
         {
@@ -477,9 +524,17 @@ public sealed unsafe class MpvTranscoder : IMediaTranscoder
     /// fails to open does not stop mpv: it writes the other stream, ends the
     /// file normally and reports nothing, so this is the only place it shows.
     /// </summary>
+    /// <remarks>
+    /// mpv writes through libavformat but reads Matroska with a demuxer of its
+    /// own, and the two do not agree on everything: RealAudio 1.0 written into
+    /// Matroska is a stream mpv cannot load back, so asking mpv whether it wrote
+    /// one says no when it did. libavformat reads whatever it wrote, so it is
+    /// asked when it is there, and mpv only when it is not.
+    /// </remarks>
     private void VerifyOutput(TranscodePlan plan)
     {
-        var written = new MpvProber().Probe(plan.Request.Output);
+        IMediaProber prober = FFmpeg.Native.FFmpegLibraries.IsAvailable ? new FFmpegProber() : new MpvProber();
+        var written = prober.Probe(plan.Request.Output);
         foreach (var (action, kind) in new[] { (PlannedAction.EncodeVideo, MediaStreamKind.Video), (PlannedAction.EncodeAudio, MediaStreamKind.Audio) })
         {
             if (plan.With(action).FirstOrDefault() is { } stream && !written.OfKind(kind).Any())
@@ -662,6 +717,60 @@ public sealed unsafe class MpvTranscoder : IMediaTranscoder
         Abstractions.Formats.SampleFormat.F64Planar => "dblp",
         _ => throw new ArgumentOutOfRangeException(nameof(format), format, "The sample format has no libavfilter name."),
     };
+
+    /// <summary>The name mpv's <c>--audio-format</c> takes, which is not libavfilter's for the floating point ones.</summary>
+    internal static string MpvSampleFormatName(Abstractions.Formats.SampleFormat format) => format switch
+    {
+        Abstractions.Formats.SampleFormat.U8 => "u8",
+        Abstractions.Formats.SampleFormat.S16 => "s16",
+        Abstractions.Formats.SampleFormat.S32 => "s32",
+        Abstractions.Formats.SampleFormat.F32 => "float",
+        Abstractions.Formats.SampleFormat.F64 => "double",
+        Abstractions.Formats.SampleFormat.U8Planar => "u8p",
+        Abstractions.Formats.SampleFormat.S16Planar => "s16p",
+        Abstractions.Formats.SampleFormat.S32Planar => "s32p",
+        Abstractions.Formats.SampleFormat.F32Planar => "floatp",
+        Abstractions.Formats.SampleFormat.F64Planar => "doublep",
+        _ => throw new ArgumentOutOfRangeException(nameof(format), format, "The sample format has no mpv name."),
+    };
+
+    /// <summary>mpv's speaker names, in the bit order of a channel mask, which mpv shares with libavutil.</summary>
+    private static readonly string[] MpvSpeakers =
+    [
+        "fl", "fr", "fc", "lfe", "bl", "br", "flc", "frc", "bc", "sl", "sr",
+        "tc", "tfl", "tfc", "tfr", "tbl", "tbc", "tbr",
+    ];
+
+    /// <summary>
+    /// What <c>--audio-channels</c> takes for a layout: the speakers by name, joined
+    /// with dashes, or the bare count when no mask is known.
+    /// </summary>
+    /// <remarks>
+    /// mpv does not read a hexadecimal mask, and a bare count gives mpv's own idea
+    /// of that many channels, which for four is not quad. Naming the speakers
+    /// leaves nothing to interpret.
+    /// </remarks>
+    internal static string MpvChannelLayout(int channels, ulong? mask)
+    {
+        if (mask is not { } bits || bits == 0)
+        {
+            return channels.ToString(CultureInfo.InvariantCulture);
+        }
+
+        var speakers = new List<string>();
+        for (var bit = 0; bit < MpvSpeakers.Length; bit++)
+        {
+            if ((bits & (1UL << bit)) != 0)
+            {
+                speakers.Add(MpvSpeakers[bit]);
+            }
+        }
+
+        // A mask with speakers mpv has no name for falls back to the count.
+        return System.Numerics.BitOperations.PopCount(bits) == speakers.Count
+            ? string.Join('-', speakers)
+            : channels.ToString(CultureInfo.InvariantCulture);
+    }
 
     private static string Seconds(TimeSpan time) => time.TotalSeconds.ToString("0.######", CultureInfo.InvariantCulture);
 

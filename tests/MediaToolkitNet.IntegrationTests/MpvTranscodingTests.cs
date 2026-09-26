@@ -156,6 +156,45 @@ public class MpvTranscodingTests
     }
 
     [MpvFact]
+    public async Task TheLayoutRateAndWidthAskedForAreWritten()
+    {
+        // mpv's encoder follows its audio output, which keeps the input's
+        // channels and rate unless told otherwise.
+        using var media = new TestMedia();
+        var input = media.WriteMovie("movie.mkv");
+        var mka = media.PathTo("layout.mka");
+
+        await new MpvTranscoder().RunAsync(new TranscodeRequest(mka)
+        {
+            Inputs = [input],
+            Streams = [OutputStream.Audio(StreamSource.First(MediaStreamKind.Audio), new AudioOutputSettings(MediaCodec.Flac)
+            {
+                SampleRate = 44100,
+                ChannelMask = ChannelLayout.FivePoint1Back,
+                SampleFormat = SampleFormat.S32,
+            })],
+        });
+
+        var audio = new FFmpegProber().Probe(mka).OfKind(MediaStreamKind.Audio).Single().Audio!.Value;
+        (audio.SampleRate, audio.Channels, audio.EffectiveChannelMask).Should().Be((44100, 6, ChannelLayout.FivePoint1Back));
+    }
+
+    [MpvFact]
+    public void TrueHdInMatroskaIsRefused()
+    {
+        using var media = new TestMedia();
+        var input = media.WriteMovie("movie.mkv");
+
+        var issues = new MpvTranscoder().Validate(new TranscodeRequest(media.PathTo("out.mka"))
+        {
+            Inputs = [input],
+            Streams = [OutputStream.Audio(StreamSource.First(MediaStreamKind.Audio), new AudioOutputSettings(MediaCodec.TrueHd))],
+        });
+
+        issues.Should().Contain(i => i.Severity == TranscodeIssueSeverity.Error && i.Message.Contains("20% long"));
+    }
+
+    [MpvFact]
     public void CopyingIsRefusedWithTheReason()
     {
         using var media = new TestMedia();

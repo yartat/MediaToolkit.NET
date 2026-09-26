@@ -80,6 +80,92 @@ public class GStreamerTranscodingTests
     }
 
     [GStreamerFact]
+    public async Task SideSpeakersLandWhereFFmpegPutsThem()
+    {
+        // FFmpeg's side-speaker bits sit one below GStreamer's positions, so a
+        // mask passed through unchanged asks flacenc for a layout it refuses.
+        using var media = new TestMedia();
+        var input = media.WriteMovie("movie.mkv");
+        var mka = media.PathTo("side.mka");
+
+        await new GStreamerTranscoder().RunAsync(new TranscodeRequest(mka)
+        {
+            Inputs = [input],
+            Streams = [OutputStream.Audio(StreamSource.First(MediaStreamKind.Audio), new AudioOutputSettings(MediaCodec.Flac)
+            {
+                ChannelMask = ChannelLayout.SevenPoint1,
+                SampleFormat = SampleFormat.S32,
+            })],
+        });
+
+        var audio = new FFmpegProber().Probe(mka).OfKind(MediaStreamKind.Audio).Single().Audio!.Value;
+        (audio.Channels, audio.EffectiveChannelMask).Should().Be((8, ChannelLayout.SevenPoint1));
+    }
+
+    [GStreamerTheory]
+    [InlineData(MediaCodec.Dts, 6, ChannelLayout.FivePoint1Side)]
+    [InlineData(MediaCodec.PcmS24, 2, ChannelLayout.Stereo)]
+    [InlineData(MediaCodec.RealAudio, 1, ChannelLayout.Mono)]
+    public async Task TheLibavAndRawCodecsAreWritten(MediaCodec codec, int channels, ulong layout)
+    {
+        using var media = new TestMedia();
+        var input = media.WriteMovie("movie.mkv");
+        var mka = media.PathTo("out.mka");
+
+        await new GStreamerTranscoder().RunAsync(new TranscodeRequest(mka)
+        {
+            Inputs = [input],
+            Streams = [OutputStream.Audio(StreamSource.First(MediaStreamKind.Audio), new AudioOutputSettings(codec)
+            {
+                SampleRate = codec == MediaCodec.RealAudio ? 8000 : 48000,
+                ChannelMask = layout,
+            })],
+        });
+
+        var stream = new FFmpegProber().Probe(mka).OfKind(MediaStreamKind.Audio).Single();
+        using var _ = new AssertionScope();
+        stream.Codec.Should().Be(codec);
+        stream.Audio!.Value.Channels.Should().Be(channels);
+    }
+
+    [GStreamerFact]
+    public async Task LameKeepsTheRateAtALowBitRate()
+    {
+        using var media = new TestMedia();
+        var input = media.WriteMovie("movie.mkv");
+        var mka = media.PathTo("low.mka");
+
+        // Left to itself, lame halves 48 kHz at 64 kbit/s of stereo.
+        await new GStreamerTranscoder().RunAsync(new TranscodeRequest(mka)
+        {
+            Inputs = [input],
+            Streams = [OutputStream.Audio(StreamSource.First(MediaStreamKind.Audio), new AudioOutputSettings(MediaCodec.Mp3)
+            {
+                SampleRate = 48000,
+                Channels = 2,
+                BitrateBitsPerSecond = 64000,
+            })],
+        });
+
+        new FFmpegProber().Probe(mka).OfKind(MediaStreamKind.Audio).Single().Audio!.Value.SampleRate.Should().Be(48000);
+    }
+
+    [GStreamerFact]
+    public void TrueHdIsRefusedForWantOfAMuxer()
+    {
+        using var media = new TestMedia();
+        var input = media.WriteMovie("movie.mkv");
+
+        var issues = new GStreamerTranscoder().Validate(new TranscodeRequest(media.PathTo("out.mka"))
+        {
+            Inputs = [input],
+            Streams = [OutputStream.Audio(StreamSource.First(MediaStreamKind.Audio), new AudioOutputSettings(MediaCodec.TrueHd))],
+        });
+
+        issues.Should().Contain(i => i.Severity == TranscodeIssueSeverity.Error && i.Message.Contains("no GStreamer muxer"));
+    }
+
+    [GStreamerFact]
     public async Task ATrimSeeksToTheStartAndStopsAtTheEnd()
     {
         using var media = new TestMedia();
@@ -253,5 +339,15 @@ public sealed class GStreamerFactAttribute : FactAttribute
         Skip = !OperatingSystem.IsLinux() ? "The GStreamer backend runs on Linux only."
             : !GStreamerBackend.Instance.IsAvailable ? "GStreamer is not usable here."
             : FFmpegEnvironment.SkipReason;
+    }
+}
+
+/// <summary>A theory that is skipped unless GStreamer and FFmpeg are both usable.</summary>
+public sealed class GStreamerTheoryAttribute : TheoryAttribute
+{
+    /// <summary>Initializes a new instance of the <see cref="GStreamerTheoryAttribute"/> class.</summary>
+    public GStreamerTheoryAttribute()
+    {
+        Skip = new GStreamerFactAttribute().Skip;
     }
 }
