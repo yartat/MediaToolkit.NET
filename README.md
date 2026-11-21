@@ -321,6 +321,14 @@ The transcoding tests run each backend's output back through the FFmpeg prober
 and reader, so no backend checks its own work; the GStreamer ones need Linux as
 well as FFmpeg, and the mpv ones libmpv.
 
+The `Audit*` tests are the regression tests for the findings of the 1.0.0 audit
+(`AUDIT.md` names the test for each). Some of them look for failures that end the
+process: an access violation, an unhandled exception on a worker thread. Those
+run their scenario in a child process, `tests/MediaToolkitNet.CrashProbe`, and
+read its verdict, so a regression fails one test instead of killing the test host.
+A few make their media with the `ffmpeg` program, which they look for in
+`MEDIATOOLKITNET_FFMPEG_DIR` and then on `PATH`.
+
 They skip themselves where FFmpeg is not loadable. Point them at a particular
 build to test a series the machine does not have on its path:
 
@@ -416,6 +424,21 @@ quietly: two Media Foundation GUIDs written from memory kept video recording
 broken until 0.3.0, so every GUID in the source is now checked against the
 Windows SDK headers.
 
+**Input is untrusted until the caller says otherwise.** A path or URL handed to
+the library often comes from a user. The FFmpeg backend therefore opens local
+files and pipes only, refuses playlists, and reads the network only when asked
+(see *Files, URLs and untrusted input*); the native library search does not walk
+into folders other users may write to; and a custom filter is documented as what
+it is, code that runs as written. Frames are checked against the buffer they came
+from before they reach a handler (`FrameBounds.FitsIn`), because a producer that
+trusts its caps reads past the end of a short buffer.
+
+**An output is never opened for writing in place.** A transcoder writes a partial
+file beside the output and renames it over the output when the job has finished
+(`PartialOutput`). The rename replaces the directory entry, so a link to an input
+is replaced rather than followed, and a failed, refused or cancelled job leaves
+whatever was at the output path exactly as it was.
+
 **One request, three transcoders.** FFmpeg, GStreamer and mpv share nothing in
 how they transcode, so what is shared is the request and the plan resolved from
 it. Each backend then refuses, before writing anything, whatever it cannot do,
@@ -443,6 +466,16 @@ flushed it.
   it. Its AAC encoder ignores a variable quality, since gst-libav does not
   expose libavcodec's `qscale` flag; the transcoder warns.
 - `MacOSBackend` cannot write files (`AVAssetWriter` is not wrapped) — use FFmpeg.
+  It has never been run on a Mac.
+- WASAPI, Media Foundation, V4L2, ALSA and PulseAudio capture stop their worker
+  with a two-second join and then free the native objects, so a frame handler
+  that takes longer than that, or a device that stops answering, can still have
+  them freed under it; and a capture whose loop failed reports `IsRunning` until
+  `Stop` is called. `FFmpegPlayer` and `MpvPlayer` close their media from the
+  worker instead. `AUDIT.md` lists every open finding.
+- Only `FFmpegPlayer` can interrupt a read that is waiting on the network. A
+  connect already in progress inside `FFmpegDemuxer.Open` cannot be interrupted;
+  give it `rw_timeout` through `DemuxerOptions`.
 - `FFmpegPlayer` only decodes: it has no renderer and no audio output.
 - Only the mpv client API is wrapped; the render API (embedding into a host
   OpenGL context) is not covered.

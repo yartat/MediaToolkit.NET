@@ -246,7 +246,8 @@ throwing, so probing is always safe.
 
 ## Status
 
-This is an early release and the public API may still change.
+From 1.0.0 the public API follows semantic versioning. The release notes of each
+version say what changed and what can break.
 
 Exercised against real hardware:
 
