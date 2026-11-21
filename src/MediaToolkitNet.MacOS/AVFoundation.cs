@@ -298,8 +298,8 @@ public sealed unsafe class AVFoundationVideoCapture : IVideoCapture
         }
         catch (Exception ex)
         {
-            capture.Failed?.Invoke(
-                capture, ex as MediaToolkitNetException ?? new MediaToolkitNetException("AVFoundation capture error.", ex));
+            SafeEvents.RaiseFailed(
+                capture.Failed, capture, ex as MediaToolkitNetException ?? new MediaToolkitNetException("AVFoundation capture error.", ex));
         }
     }
 
@@ -317,7 +317,11 @@ public sealed unsafe class AVFoundationVideoCapture : IVideoCapture
             return;
         }
 
-        AVFoundationNative.CVPixelBufferLockBaseAddress(pixelBuffer, AVFoundationNative.LockReadOnly);
+        if (AVFoundationNative.CVPixelBufferLockBaseAddress(pixelBuffer, AVFoundationNative.LockReadOnly) != 0)
+        {
+            return;
+        }
+
         try
         {
             var width = (int)AVFoundationNative.CVPixelBufferGetWidth(pixelBuffer);
@@ -346,6 +350,15 @@ public sealed unsafe class AVFoundationVideoCapture : IVideoCapture
                 {
                     planes[i] = AVFoundationNative.CVPixelBufferGetBaseAddressOfPlane(pixelBuffer, (nuint)i);
                     strides[i] = (int)AVFoundationNative.CVPixelBufferGetBytesPerRowOfPlane(pixelBuffer, (nuint)i);
+                }
+            }
+
+            // A buffer whose lock failed has no address to read.
+            for (var i = 0; i < planeCount; i++)
+            {
+                if (planes[i] == 0)
+                {
+                    return;
                 }
             }
 

@@ -49,7 +49,14 @@ internal sealed class GStreamerGraph
     private readonly List<TranscodeIssue> _issues = [];
     private bool _trimmed;
 
-    private GStreamerGraph(TranscodePlan plan) => Plan = plan;
+    private GStreamerGraph(TranscodePlan plan, string output)
+    {
+        Plan = plan;
+        Output = output;
+    }
+
+    /// <summary>Where the <c>filesink</c> writes; the request's output unless the caller wrote elsewhere first.</summary>
+    public string Output { get; }
 
     /// <summary>The plan this graph carries out.</summary>
     public TranscodePlan Plan { get; }
@@ -83,9 +90,9 @@ internal sealed class GStreamerGraph
     public IReadOnlyList<TranscodeIssue> Issues => _issues;
 
     /// <summary>Builds the graph for a plan that has passed <see cref="GStreamerTranscoder.Check"/>.</summary>
-    public static GStreamerGraph Build(TranscodePlan plan)
+    public static GStreamerGraph Build(TranscodePlan plan, string? output = null)
     {
-        var graph = new GStreamerGraph(plan);
+        var graph = new GStreamerGraph(plan, output ?? plan.Request.Output);
         graph.BuildAll();
         return graph;
     }
@@ -150,7 +157,7 @@ internal sealed class GStreamerGraph
             }
 
             var sink = Element("filesink", "out");
-            Properties.Add(("out", "location", request.Output));
+            Properties.Add(("out", "location", Output));
             _chains.Add([mux, sink]);
         }
 
@@ -182,7 +189,7 @@ internal sealed class GStreamerGraph
             if (Muxer is null)
             {
                 chain.Add(Element("filesink", "out"));
-                Properties.Add(("out", "location", request.Output));
+                Properties.Add(("out", "location", Output));
             }
             else
             {

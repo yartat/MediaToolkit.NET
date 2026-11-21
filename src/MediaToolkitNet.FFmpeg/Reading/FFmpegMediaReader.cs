@@ -291,6 +291,9 @@ public abstract unsafe class FrameStreamReader : MediaStreamReader
     private AVFrameHead* _converted;
     private AVFrameHead* _pending;
     private AVFrameHead* _candidate;
+    private AVFrameHead* _held;
+    private bool _hasHeld;
+    private string? _formatKey;
     private bool _hasPending;
     private bool _decoderDrained;
     private bool _graphBuilt;
@@ -344,7 +347,7 @@ public abstract unsafe class FrameStreamReader : MediaStreamReader
         var ahead = Position is { } position ? time - position : TimeSpan.MinValue;
         if (ahead < TimeSpan.Zero || ahead > Options.SeekThreshold)
         {
-            SeekTo(time);
+            SeekToFrameAtOrBefore(time);
         }
 
         // The candidate is the best frame so far; a frame that starts after the
@@ -392,6 +395,43 @@ public abstract unsafe class FrameStreamReader : MediaStreamReader
         return true;
     }
 
+    /// <summary>
+    /// Seeks so that the first frame read starts at or before <paramref name="time"/>.
+    /// Some demuxers, MPEG-TS among them, land on the first key frame after the
+    /// target; the seek is then repeated from further back.
+    /// </summary>
+    private void SeekToFrameAtOrBefore(TimeSpan time)
+    {
+        var step = TimeSpan.FromSeconds(1);
+        var target = time;
+        SeekTo(target);
+        for (var attempt = 0; attempt < 6 && target > TimeSpan.Zero; attempt++)
+        {
+            if (!NextFrame())
+            {
+                return;
+            }
+
+            if (TimeOf(_converted->Pts, FrameTimeBase) <= time)
+            {
+                AV.av_frame_move_ref(_pending, _converted);
+                _hasPending = true;
+                return;
+            }
+
+            AV.av_frame_unref(_converted);
+            target = target > step ? target - step : TimeSpan.Zero;
+            step *= 2;
+            SeekTo(target);
+        }
+    }
+
+    /// <summary>
+    /// Describes the format of a decoded frame; two frames with the same key can
+    /// go through the same graph. A stream that changes mid-way changes it.
+    /// </summary>
+    private protected abstract string FormatKey(AVFrameHead* frame);
+
     /// <summary>The filter chain the options ask for, or null when frames go out as decoded.</summary>
     private protected abstract string? ConversionChain(AVFrameHead* first);
 
@@ -405,6 +445,7 @@ public abstract unsafe class FrameStreamReader : MediaStreamReader
         _converted = (AVFrameHead*)FFmpegError.CheckAlloc(AV.av_frame_alloc(), "av_frame_alloc");
         _pending = (AVFrameHead*)FFmpegError.CheckAlloc(AV.av_frame_alloc(), "av_frame_alloc");
         _candidate = (AVFrameHead*)FFmpegError.CheckAlloc(AV.av_frame_alloc(), "av_frame_alloc");
+        _held = (AVFrameHead*)FFmpegError.CheckAlloc(AV.av_frame_alloc(), "av_frame_alloc");
     }
 
     private protected override void Close()
@@ -417,6 +458,7 @@ public abstract unsafe class FrameStreamReader : MediaStreamReader
         FreeFrame(ref _converted);
         FreeFrame(ref _pending);
         FreeFrame(ref _candidate);
+        FreeFrame(ref _held);
     }
 
     private protected override void Discard()
@@ -424,6 +466,13 @@ public abstract unsafe class FrameStreamReader : MediaStreamReader
         _decoder?.Flush();
         _decoderDrained = false;
         _hasPending = false;
+        _hasHeld = false;
+        _formatKey = null;
+        if (_held is not null)
+        {
+            AV.av_frame_unref(_held);
+        }
+
         if (_pending is not null)
         {
             AV.av_frame_unref(_pending);
@@ -469,7 +518,17 @@ public abstract unsafe class FrameStreamReader : MediaStreamReader
                 return false;
             }
 
-            if (!Decode())
+            if (_hasHeld)
+            {
+                // The old graph has given back everything it held: the frame that
+                // changed the format starts a new one.
+                _graph?.Dispose();
+                _graph = null;
+                _graphBuilt = false;
+                _hasHeld = false;
+                AV.av_frame_move_ref(_decoded, _held);
+            }
+            else if (!Decode())
             {
                 // The decoder is empty: flush the graph once, then take what it had.
                 _decoderDrained = true;
@@ -481,10 +540,20 @@ public abstract unsafe class FrameStreamReader : MediaStreamReader
 
                 return false;
             }
+            else if (_graphBuilt && FormatKey(_decoded) != _formatKey)
+            {
+                // The stream changed format part way through. What the old graph
+                // holds is delivered first, so the frame waits.
+                AV.av_frame_move_ref(_held, _decoded);
+                _hasHeld = true;
+                _graph?.TryPush(null);
+                continue;
+            }
 
             if (!_graphBuilt)
             {
                 _graphBuilt = true;
+                _formatKey = FormatKey(_decoded);
                 if (ConversionChain(_decoded) is { } chain)
                 {
                     _graph = BuildGraph(_decoded, chain);
@@ -550,6 +619,8 @@ public sealed unsafe class VideoStreamReader : FrameStreamReader
         ArgumentNullException.ThrowIfNull(handler);
         return ReadAt(time, EndOf, frame => Deliver((AVFrameHead*)frame, handler));
     }
+
+    private protected override string FormatKey(AVFrameHead* frame) => $"{frame->Width}x{frame->Height}/{frame->Format}";
 
     private protected override string? ConversionChain(AVFrameHead* first)
     {
@@ -661,8 +732,18 @@ public sealed unsafe class AudioStreamReader : FrameStreamReader
         _decoded = new AudioFormat(rate, channels, SampleFormat.Unknown, mask);
     }
 
+    private protected override string FormatKey(AVFrameHead* frame)
+    {
+        var format = AbiLayout.AudioFormatOf(frame, _decoded);
+        return $"{format.SampleRate}/{format.Channels}/{frame->Format}";
+    }
+
     private protected override string? ConversionChain(AVFrameHead* first)
     {
+        // What the first frame says is the truth: the decoder's open-time values
+        // can be missing (a stream whose audio starts after the file was opened).
+        _decoded = AbiLayout.AudioFormatOf(first, _decoded);
+
         var wantedFormat = Options.AudioSampleFormat is { } pinned
             ? FFmpegFormatMap.ToAV(pinned)
             : FFmpegFormatMap.FromAV((AVSampleFormat)first->Format) == SampleFormat.Unknown

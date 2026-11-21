@@ -182,6 +182,7 @@ public sealed unsafe class DirectShowFilter : IDisposable
         }
 
         _disposed = true;
+        _owner?.Untrack(this);
         _filter.Dispose();
     }
 }

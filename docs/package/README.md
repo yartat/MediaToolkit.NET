@@ -138,6 +138,39 @@ foreach (var cue in reader.SubtitleStreams[0].ReadAll())
 }
 ```
 
+### Files, URLs and untrusted input
+
+The FFmpeg backend opens local files and pipes only, so a path taken from
+somebody else cannot make your process connect to a host of their choosing or read
+other files through a playlist. Network URLs (`http://`, `https://`, `rtsp://`,
+`tcp://`, `udp://`...) and playlists (HLS, DASH, `concat`) are refused by
+`FFmpegProber`, `FFmpegMediaReader` and `FFmpegTranscoder`, with
+`avformat_open_input(...): Invalid argument` and without connecting.
+`FFmpegPlayer` and capture devices are not restricted.
+
+If your application opens URLs on purpose, allow them once at start-up:
+
+```csharp
+FFmpegDemuxer.AllowNetworkByDefault = true;
+
+var info = new FFmpegProber().Probe("https://example.com/clip.mp4");
+```
+
+or for a single reader, with just the protocols it needs:
+
+```csharp
+using var reader = FFmpegMediaReader.Open("https://example.com/clip.mp4",
+    new MediaReaderOptions
+    {
+        DemuxerOptions = new Dictionary<string, string>
+        {
+            ["protocol_whitelist"] = "file,http,https,tcp,tls,crypto",
+        },
+    });
+```
+
+The GStreamer and mpv backends accept URLs as before.
+
 ## Processing graphs
 
 Each stack is wrapped in its own terms, because the shapes are genuinely
@@ -213,7 +246,8 @@ throwing, so probing is always safe.
 
 ## Status
 
-This is an early release and the public API may still change.
+From 1.0.0 the public API follows semantic versioning. The release notes of each
+version say what changed and what can break.
 
 Exercised against real hardware:
 

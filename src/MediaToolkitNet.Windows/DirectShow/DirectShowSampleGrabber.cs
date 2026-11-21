@@ -211,7 +211,7 @@ public sealed unsafe class DirectShowSampleGrabber : IDisposable
         var timestamp = TimeSpan.FromSeconds(sampleTime);
         if (video is not null && _video is { } layout)
         {
-            DeliverVideo(video, layout, data, timestamp);
+            DeliverVideo(video, layout, data, length, timestamp);
         }
         else if (audio is not null && _audio is { } format)
         {
@@ -220,7 +220,7 @@ public sealed unsafe class DirectShowSampleGrabber : IDisposable
     }
 
     private static void DeliverVideo(
-        VideoFrameHandler handler, in VideoLayout layout, byte* data, TimeSpan timestamp)
+        VideoFrameHandler handler, in VideoLayout layout, byte* data, int length, TimeSpan timestamp)
     {
         var format = layout.Format;
         Span<nint> planes = stackalloc nint[MediaPlanes.MaxPlanes];
@@ -244,6 +244,12 @@ public sealed unsafe class DirectShowSampleGrabber : IDisposable
                 : (nint)data;
             strides[0] = layout.BottomUp ? -layout.Stride : layout.Stride;
             planeCount = 1;
+        }
+
+        // The type says how big a frame is; the sample says how big this one is.
+        if (!FrameBounds.FitsIn(format, planes, strides, planeCount, (nint)data, length))
+        {
+            return;
         }
 
         var frame = new VideoFrame(format, timestamp, planes, strides, planeCount);

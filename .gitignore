@@ -66,3 +66,6 @@ src/FFMpeg/**/*.so
 src/FFMpeg/**/*.so.*
 src/FFMpeg/**/*.dylib
 CLAUDE.md
+.codegraph/
+graphify-out/
+.claude/

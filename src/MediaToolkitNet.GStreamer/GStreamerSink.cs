@@ -4,6 +4,7 @@
 #endregion
 
 using System.Runtime.Versioning;
+using MediaToolkitNet.Abstractions;
 using MediaToolkitNet.Abstractions.Formats;
 using MediaToolkitNet.Abstractions.Frames;
 using MediaToolkitNet.GStreamer.Native;
@@ -194,6 +195,17 @@ public sealed unsafe class GStreamerSink : IDisposable
                 {
                     Span<int> strides = stackalloc int[MediaPlanes.MaxPlanes];
                     var planeCount = BuildPlanes(videoFormat, data, planes, strides);
+
+                    // The planes come from the caps alone; a buffer that is shorter
+                    // than they describe would be read past its end.
+                    if (!FrameBounds.FitsIn(videoFormat, planes, strides, planeCount, (nint)data, length))
+                    {
+                        throw new MediaToolkitNetException(
+                            GstConstants.BackendName,
+                            $"the buffer holds {length} bytes, which is less than its caps ({format.Caps}) describe",
+                            0);
+                    }
+
                     var frame = new VideoFrame(videoFormat, timestamp, planes, strides, planeCount);
                     video!(in frame);
                     return true;

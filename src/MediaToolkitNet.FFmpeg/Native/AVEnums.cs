@@ -221,6 +221,9 @@ public static class AVConstants
     /// <summary>AVFMT_NOFILE.</summary>
     public const int FormatNoFile = 0x0001;
 
+    /// <summary>AVIO_FLAG_READ.</summary>
+    public const int AvioFlagRead = 1;
+
     /// <summary>AVIO_FLAG_WRITE.</summary>
     public const int AvioFlagWrite = 2;
 

@@ -74,7 +74,10 @@ internal sealed unsafe class MpvClient : IDisposable
     /// <summary>Runs a command, for example <c>loadfile</c>.</summary>
     public void Command(params string[] arguments)
     {
-        var native = stackalloc byte*[arguments.Length + 1];
+        // Sized by the caller's arguments, so not stackalloc; zeroed, so a failure part
+        // way through the loop leaves only entries that were set to free.
+        var native = (byte**)System.Runtime.InteropServices.NativeMemory.AllocZeroed(
+            (nuint)(arguments.Length + 1), (nuint)sizeof(byte*));
         try
         {
             for (var i = 0; i < arguments.Length; i++)
@@ -91,6 +94,8 @@ internal sealed unsafe class MpvClient : IDisposable
             {
                 Utf8.Free(native[i]);
             }
+
+            System.Runtime.InteropServices.NativeMemory.Free(native);
         }
     }
 

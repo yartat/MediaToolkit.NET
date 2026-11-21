@@ -42,6 +42,8 @@ public sealed unsafe class FFmpegPlayer : IMediaPlayer
     private TimeSpan? _pendingSeek;
     private double _volume = 1.0;
     private bool _disposed;
+    private bool _workerActive;
+    private bool _closeOnWorkerExit;
 
     /// <inheritdoc />
     public string Backend => FFmpegLibraries.BackendName;
@@ -108,7 +110,8 @@ public sealed unsafe class FFmpegPlayer : IMediaPlayer
         Stop();
         CloseMedia();
 
-        var demuxer = FFmpegDemuxer.Open(uri);
+        // A player is given URLs on purpose.
+        var demuxer = FFmpegDemuxer.Open(uri, allowNetwork: true);
         try
         {
             var video = demuxer.FindStream(AVMediaType.Video);
@@ -162,8 +165,11 @@ public sealed unsafe class FFmpegPlayer : IMediaPlayer
 
             if (_worker is null || !_worker.IsAlive)
             {
+                _cancellation?.Dispose();
                 _cancellation = new CancellationTokenSource();
-                _worker = new Thread(() => DecodeLoop(_cancellation.Token))
+                var token = _cancellation.Token;
+                _workerActive = true;
+                _worker = new Thread(() => DecodeLoop(token))
                 {
                     IsBackground = true,
                     Name = "MediaToolkitNet.FFmpeg decode",
@@ -189,7 +195,10 @@ public sealed unsafe class FFmpegPlayer : IMediaPlayer
     }
 
     /// <inheritdoc />
-    public void Stop()
+    public void Stop() => StopWorker();
+
+    /// <summary>Stops the worker; false when it is still running (it was not reached in time, or it is the caller).</summary>
+    private bool StopWorker()
     {
         Thread? worker;
         lock (_gate)
@@ -200,7 +209,20 @@ public sealed unsafe class FFmpegPlayer : IMediaPlayer
         }
 
         _resume.Set();
-        worker?.Join(TimeSpan.FromSeconds(2));
+        var finished = true;
+        if (worker is not null)
+        {
+            // A read waiting on the network would otherwise hold the join for its
+            // whole timeout; interrupted, it returns at once.
+            _demuxer?.Interrupt();
+
+            // A handler that stops the player runs on the worker, which cannot wait for itself.
+            finished = worker != Thread.CurrentThread && worker.Join(TimeSpan.FromSeconds(2));
+            if (finished)
+            {
+                _demuxer?.ClearInterrupt();
+            }
+        }
 
         lock (_gate)
         {
@@ -216,6 +238,8 @@ public sealed unsafe class FFmpegPlayer : IMediaPlayer
             _pendingSeek = TimeSpan.Zero;
             TransitionTo(PlaybackState.Stopped);
         }
+
+        return finished;
     }
 
     /// <inheritdoc />
@@ -230,14 +254,17 @@ public sealed unsafe class FFmpegPlayer : IMediaPlayer
         lock (_gate)
         {
             _pendingSeek = position < TimeSpan.Zero ? TimeSpan.Zero : position;
+
+            // The contexts belong to the worker while it exists, paused or not; it
+            // applies the seek when it next looks. With no worker, nothing else
+            // can touch them, so the seek is applied here.
+            if (!_workerActive)
+            {
+                ApplyPendingSeek();
+            }
         }
 
-        if (State is PlaybackState.Stopped or PlaybackState.Paused or PlaybackState.Ended)
-        {
-            // Nothing is running, so apply the seek straight away.
-            ApplyPendingSeek();
-            Interlocked.Exchange(ref _positionTicks, position.Ticks);
-        }
+        Interlocked.Exchange(ref _positionTicks, position.Ticks);
     }
 
     private void DecodeLoop(CancellationToken token)
@@ -258,6 +285,7 @@ public sealed unsafe class FFmpegPlayer : IMediaPlayer
                 if (!_resume.Wait(50, token))
                 {
                     clockValid = false;
+                    ApplyPendingSeek();
                     continue;
                 }
 
@@ -312,6 +340,10 @@ public sealed unsafe class FFmpegPlayer : IMediaPlayer
 
                         Dispatch(decoder, frame);
                         AV.av_frame_unref(frame);
+                        if (token.IsCancellationRequested)
+                        {
+                            return;
+                        }
                     }
                 }
                 finally
@@ -324,12 +356,16 @@ public sealed unsafe class FFmpegPlayer : IMediaPlayer
         {
             // Stop() was called; nothing to report.
         }
+        catch (Exception) when (token.IsCancellationRequested)
+        {
+            // Stopped while reading: the interrupted read is the stop, not a failure.
+        }
         catch (Exception ex)
         {
             var error = ex as MediaToolkitNetException
                         ?? new MediaToolkitNetException("FFmpeg decoding error.", ex);
             TransitionTo(PlaybackState.Faulted);
-            Failed?.Invoke(this, error);
+            SafeEvents.RaiseFailed(Failed, this, error);
         }
         finally
         {
@@ -343,6 +379,19 @@ public sealed unsafe class FFmpegPlayer : IMediaPlayer
             {
                 var localPacket = packet;
                 AV.av_packet_free(&localPacket);
+            }
+
+            // A Dispose that could not wait for this thread left the media to it.
+            bool close;
+            lock (_gate)
+            {
+                _workerActive = false;
+                close = _closeOnWorkerExit;
+            }
+
+            if (close)
+            {
+                FinishDispose();
             }
         }
     }
@@ -488,7 +537,24 @@ public sealed unsafe class FFmpegPlayer : IMediaPlayer
         }
 
         _disposed = true;
-        Stop();
+        var stopped = StopWorker();
+
+        // Disposed from a handler, or the worker did not stop in time: it is still
+        // using the media, so it closes it when it leaves.
+        lock (_gate)
+        {
+            if (!stopped && _workerActive)
+            {
+                _closeOnWorkerExit = true;
+                return;
+            }
+        }
+
+        FinishDispose();
+    }
+
+    private void FinishDispose()
+    {
         CloseMedia();
         _resume.Dispose();
         TransitionTo(PlaybackState.Closed);

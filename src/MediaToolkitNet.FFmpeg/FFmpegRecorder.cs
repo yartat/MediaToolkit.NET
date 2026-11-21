@@ -61,7 +61,12 @@ public sealed unsafe class FFmpegRecorder : ISubtitleRecorder
         _output = output;
 
         _packet = AV.av_packet_alloc();
-        FFmpegError.CheckAlloc(_packet, "av_packet_alloc");
+        if (_packet is null)
+        {
+            AV.avformat_free_context(_output);
+            _output = null;
+            FFmpegError.CheckAlloc(_packet, "av_packet_alloc");
+        }
     }
 
     /// <inheritdoc />
@@ -136,17 +141,35 @@ public sealed unsafe class FFmpegRecorder : ISubtitleRecorder
                 Backend, $"could not open the video encoder {encoderName} for {settings.Codec}", AVConstants.ErrorInvalid);
         }
 
-        var stream = CreateStream(context, new AVRationalNative(frameRate.Denominator, frameRate.Numerator));
-        var entry = new EncoderStream(context, stream, AVMediaType.Video)
+        EncoderStream? entry = null;
+        try
         {
-            EncoderTimeBase = new AVRationalNative(frameRate.Denominator, frameRate.Numerator),
-            VideoFormat = new VideoFormat(settings.Format.Width, settings.Format.Height, FFmpegFormatMap.FromAV(chosen), frameRate),
-            EncoderPixelFormat = chosen,
-        };
+            var stream = CreateStream(context, new AVRationalNative(frameRate.Denominator, frameRate.Numerator));
+            entry = new EncoderStream(context, stream, AVMediaType.Video)
+            {
+                EncoderTimeBase = new AVRationalNative(frameRate.Denominator, frameRate.Numerator),
+                VideoFormat = new VideoFormat(settings.Format.Width, settings.Format.Height, FFmpegFormatMap.FromAV(chosen), frameRate),
+                EncoderPixelFormat = chosen,
+            };
 
-        entry.AllocateVideoFrame();
-        _streams.Add(entry);
-        return _streams.Count - 1;
+            entry.AllocateVideoFrame();
+            _streams.Add(entry);
+            return _streams.Count - 1;
+        }
+        catch
+        {
+            // The encoder is open and not yet owned by the recorder: whoever has it frees it.
+            if (entry is not null)
+            {
+                entry.Dispose();
+            }
+            else
+            {
+                AV.avcodec_free_context(&context);
+            }
+
+            throw;
+        }
     }
 
     /// <inheritdoc />
@@ -255,7 +278,17 @@ public sealed unsafe class FFmpegRecorder : ISubtitleRecorder
                 AVConstants.ErrorInvalid);
         }
 
-        var stream = CreateStream(context, timeBase);
+        void* stream;
+        try
+        {
+            stream = CreateStream(context, timeBase);
+        }
+        catch
+        {
+            AV.avcodec_free_context(&context);
+            throw;
+        }
+
 
         // Most encoders demand a fixed number of samples per call; those that do
         // not report 0, in which case a round buffer size keeps the FIFO simple.
@@ -273,9 +306,17 @@ public sealed unsafe class FFmpegRecorder : ISubtitleRecorder
             FrameSize = frameSize,
         };
 
-        entry.AllocateAudioFrame();
-        _streams.Add(entry);
-        return _streams.Count - 1;
+        try
+        {
+            entry.AllocateAudioFrame();
+            _streams.Add(entry);
+            return _streams.Count - 1;
+        }
+        catch
+        {
+            entry.Dispose();
+            throw;
+        }
     }
 
     /// <inheritdoc />

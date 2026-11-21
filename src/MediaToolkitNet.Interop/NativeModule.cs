@@ -70,7 +70,30 @@ public sealed class NativeModule
                 }
             }
 
-            // Then let the OS resolve it through its own search rules.
+            // Then the system. On Windows the default search order includes the
+            // current directory, so PATH is walked here, absolute entries only,
+            // and the loader is told to look in the system folders alone.
+            if (OperatingSystem.IsWindows())
+            {
+                foreach (var directory in NativeSearchPaths.PathEntries(Environment.GetEnvironmentVariable("PATH")))
+                {
+                    var full = Path.Combine(directory, candidate);
+                    if (File.Exists(full) && NativeLibrary.TryLoad(full, out var onPath))
+                    {
+                        module = new NativeModule(full, onPath);
+                        return true;
+                    }
+                }
+
+                if (NativeLibrary.TryLoad(candidate, typeof(NativeModule).Assembly, DllImportSearchPath.System32, out var system))
+                {
+                    module = new NativeModule(candidate, system);
+                    return true;
+                }
+
+                continue;
+            }
+
             if (NativeLibrary.TryLoad(candidate, out var systemHandle))
             {
                 module = new NativeModule(candidate, systemHandle);

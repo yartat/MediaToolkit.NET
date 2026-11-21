@@ -1,0 +1,90 @@
+MediaToolkit.NET 1.0.0 - the first stable release.
+
+Follows an audit of 0.3.1 for bugs, resource leaks and vulnerabilities. Every
+fix was written test first, and the findings were reproduced on Windows 11 and
+Debian 13 before they were fixed. The public API follows semantic versioning
+from here. Four behaviours changed, and each can break a caller that worked
+before.
+
+CHANGES THAT CAN BREAK EXISTING CODE
+
+- FFmpeg inputs are local files and pipes by default. FFmpegProber,
+  FFmpegMediaReader and FFmpegTranscoder refuse network URLs (http://, https://,
+  rtsp://, tcp://, udp://...) and playlists (HLS, DASH, concat), so a path that
+  came from somebody else cannot make the process connect anywhere or read other
+  files. To open URLs on purpose, set FFmpegDemuxer.AllowNetworkByDefault = true
+  once at start-up, or give one reader
+  MediaReaderOptions.DemuxerOptions["protocol_whitelist"]. FFmpegPlayer and
+  capture devices are not restricted; GStreamer and mpv accept URLs as before.
+  The README has examples.
+- All three transcoders write a partial file beside the output and rename it when
+  the job has finished. An output that is a link to an input no longer overwrites
+  the input, and a failed or refused job no longer deletes a file that was
+  already at the output path. The output directory must allow creating a file.
+- Native library search is narrower: the walk up to src/FFMpeg/<platform> needs a
+  folder holding MediaToolkit.NET.slnx, relative and empty PATH entries are not
+  used, and on Windows the default search order (current directory included) is
+  no longer the fallback.
+- MpvPlayer sets ytdl=no and load-scripts=no by default (put them back through
+  Options); MpvFilterChain.Lavfi returns lavfi=graph=%N%... instead of
+  lavfi=[...]; planar audio with more than 8 channels pushed to a filter graph
+  throws ArgumentException; Ole32.Initialize returns true for S_FALSE.
+
+FIXED
+
+- GStreamer video read past a buffer shorter than its caps and aborted the
+  process. FrameBounds.FitsIn now checks every frame in the GStreamer,
+  DirectShow, Media Foundation, V4L2 and AVFoundation producers.
+- MpvPlayer: access violation when Stop, Pause or Volume ran while another
+  thread disposed it.
+- FFmpegPlayer: Seek while paused used the decoder from two threads; Dispose from
+  inside a frame handler freed the media under the worker; a read blocked on the
+  network held Dispose for the whole timeout (the input is now interruptible:
+  FFmpegDemuxer.Interrupt and ClearInterrupt).
+- A subscriber that throws from Failed no longer ends the process, on any
+  backend (SafeEvents.RaiseFailed).
+- FFmpeg audio frames described themselves with the format known at open; they
+  now carry their own, and FFmpegMediaReader follows a stream that changes rate,
+  channels or size part way through.
+- TryReadAt on MPEG-TS returned the key frame after the requested time.
+- Transcoding audio from MP2 failed; a timestamp that jumps back is repaired; a
+  video that changes size is rebuilt; encoder options nobody recognised are
+  reported as warnings (FFmpeg and mpv).
+- WasapiRenderer.Write no longer waits for ever on a stopped endpoint.
+- Leaks: FFmpegDemuxer.Open, FFmpegRecorder and the DirectShowGraph constructor
+  on failure; wrappers the DirectShow graph kept until disposal; V4L2 mappings
+  (and the descriptor is now close-on-exec); a variant in the DirectShow
+  property reader; unbalanced COM initialisation on the capture threads; mpv's
+  argument vector.
+
+NEW PUBLIC API
+
+PartialOutput, FrameBounds.FitsIn and SafeEvents.RaiseFailed (Abstractions);
+FFmpegDemuxer.AllowNetworkByDefault, Open(..., allowPlaylists, allowNetwork),
+Interrupt() and ClearInterrupt().
+
+NOT COVERED
+
+- WASAPI, Media Foundation, V4L2, ALSA and PulseAudio still join their worker
+  with a two-second timeout and then free native objects, and a capture whose
+  loop failed still reports IsRunning until Stop. FFmpegPlayer and MpvPlayer no
+  longer have this.
+- The macOS backend changed (frame checks, Failed handling) and has never been
+  run. A callback in flight during Dispose and a restart after Stop are open.
+- A connect already in progress inside FFmpegDemuxer.Open cannot be interrupted;
+  pass rw_timeout through DemuxerOptions. Only FFmpegPlayer interrupts reads.
+- The Media Foundation recorder does not check a frame against its stream's
+  format.
+
+VERIFIED BY RUNNING
+
+- Debian 13, FFmpeg 7.1.5, GStreamer 1.26.2, libmpv 2.5: 213 unit and 124
+  integration tests pass.
+- Windows 11: 213 unit and 107 integration tests pass, 15 skip (GStreamer is
+  Linux-only); DirectShow, WASAPI, Media Foundation and camera capture were also
+  run by hand.
+- Not run: FFmpeg 8 and 9 transcoding, mpv playback, the macOS backend, the V4L2,
+  ALSA and PulseAudio paths.
+
+Full notes: https://github.com/yartat/MediaToolkit.NET/releases/tag/v1.0.0
+Issues: https://github.com/yartat/MediaToolkit.NET/issues

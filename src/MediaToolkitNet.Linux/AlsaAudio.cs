@@ -446,7 +446,7 @@ public sealed unsafe class AlsaCapture : AlsaPcm, IAudioCapture
         }
         catch (Exception ex)
         {
-            Failed?.Invoke(this, ex as MediaToolkitNetException ?? new MediaToolkitNetException("ALSA audio capture error.", ex));
+            SafeEvents.RaiseFailed(Failed, this, ex as MediaToolkitNetException ?? new MediaToolkitNetException("ALSA audio capture error.", ex));
         }
     }
 

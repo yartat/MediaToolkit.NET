@@ -4,6 +4,7 @@
 #endregion
 
 using MediaToolkitNet.Abstractions;
+using MediaToolkitNet.Abstractions.Formats;
 using MediaToolkitNet.Interop;
 
 namespace MediaToolkitNet.FFmpeg.Native;
@@ -107,6 +108,37 @@ public static unsafe class AbiLayout
     /// refused when this is false.
     /// </summary>
     public static bool AudioFrameLayoutVerified { get; private set; }
+
+    /// <summary>
+    /// The format a decoded audio frame says it has: its own rate, channel count
+    /// and layout, which can differ from what the decoder reported when it was
+    /// opened (a stream that changes mid-way, or one whose parameters are only
+    /// known once data has been read).
+    /// </summary>
+    /// <param name="frame">A decoded audio frame.</param>
+    /// <param name="fallback">Used for any value the frame does not carry.</param>
+    public static AudioFormat AudioFormatOf(AVFrameHead* frame, AudioFormat fallback)
+    {
+        var format = fallback with { SampleFormat = FFmpegFormatMap.FromAV((AVSampleFormat)frame->Format) };
+        if (!AudioFrameLayoutVerified)
+        {
+            return format;
+        }
+
+        var rate = *(int*)((byte*)frame + FrameSampleRate);
+        var layout = (AVChannelLayoutNative*)((byte*)frame + FrameChannelLayout);
+        if (rate <= 0 || layout->NbChannels <= 0)
+        {
+            return format;
+        }
+
+        return format with
+        {
+            SampleRate = rate,
+            Channels = layout->NbChannels,
+            ChannelMask = layout->Order == 1 ? layout->Mask : ChannelLayout.Unspecified,
+        };
+    }
 
     /// <summary>Offset of <c>AVCodecContext::codec_type</c>. Read only by <see cref="Validate"/>.</summary>
     public const int CodecContextCodecType = 12;

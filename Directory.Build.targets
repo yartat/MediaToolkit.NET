@@ -29,4 +29,10 @@
              Text="No release notes found for version $(Version). Expected docs/release-notes/v$(Version).nuget.txt; the package will only carry a link." />
   </Target>
 
+  <PropertyGroup>
+    <FluentAssertions>7.2.2</FluentAssertions>
+    <xunit>2.9.3</xunit>
+    <xunitRunner>4.0.1</xunitRunner>
+  </PropertyGroup>
+
 </Project>

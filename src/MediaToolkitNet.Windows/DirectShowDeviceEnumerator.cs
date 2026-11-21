@@ -152,6 +152,8 @@ public sealed unsafe partial class DirectShowDeviceEnumerator : IMediaDeviceEnum
             const ushort vtBstr = 8;
             if (*(ushort*)variant != vtBstr)
             {
+                // Whatever the property held, and whatever it owns, goes back.
+                VariantClear(variant);
                 return null;
             }
 
@@ -197,4 +199,7 @@ public sealed unsafe partial class DirectShowDeviceEnumerator : IMediaDeviceEnum
 
     [System.Runtime.InteropServices.LibraryImport("oleaut32.dll")]
     private static partial void SysFreeString(char* bstr);
+
+    [System.Runtime.InteropServices.LibraryImport("oleaut32.dll")]
+    private static partial int VariantClear(byte* variant);
 }

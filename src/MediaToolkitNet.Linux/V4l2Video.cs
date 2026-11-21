@@ -69,7 +69,7 @@ public sealed unsafe class V4l2DeviceEnumerator : IMediaDeviceEnumerator
         var result = new List<MediaDevice>();
         foreach (var path in Directory.EnumerateFiles("/dev", "video*").OrderBy(p => p, StringComparer.Ordinal))
         {
-            var fd = V4l2.Open(path, V4l2.ReadWrite);
+            var fd = V4l2.Open(path, V4l2.ReadWrite | V4l2.CloseOnExec);
             if (fd < 0)
             {
                 continue;
@@ -135,7 +135,7 @@ public sealed unsafe class V4l2VideoCapture : IVideoCapture
     public V4l2VideoCapture(VideoCaptureSettings settings)
     {
         var path = settings.Device?.Id ?? FirstDevice();
-        _fd = V4l2.Open(path, V4l2.ReadWrite);
+        _fd = V4l2.Open(path, V4l2.ReadWrite | V4l2.CloseOnExec);
         if (_fd < 0)
         {
             throw new MediaToolkitNetException(
@@ -314,7 +314,9 @@ public sealed unsafe class V4l2VideoCapture : IVideoCapture
 
         Check(V4l2.IoctlRetry(_fd, V4l2.RequestBuffers, &request), "VIDIOC_REQBUFS");
 
+        // Kept as they are made, so a failure part way still has Dispose unmap the rest.
         var buffers = new MappedBuffer[request.Count];
+        _buffers = buffers;
         for (var i = 0u; i < request.Count; i++)
         {
             var descriptor = new V4l2Buffer
@@ -337,8 +339,6 @@ public sealed unsafe class V4l2VideoCapture : IVideoCapture
 
             buffers[i] = new MappedBuffer((nint)address, descriptor.Length);
         }
-
-        _buffers = buffers;
     }
 
     private void QueueBuffer(uint index)
@@ -394,7 +394,7 @@ public sealed unsafe class V4l2VideoCapture : IVideoCapture
         }
         catch (Exception ex)
         {
-            Failed?.Invoke(this, ex as MediaToolkitNetException ?? new MediaToolkitNetException("V4L2 capture error.", ex));
+            SafeEvents.RaiseFailed(Failed, this, ex as MediaToolkitNetException ?? new MediaToolkitNetException("V4L2 capture error.", ex));
         }
     }
 
@@ -402,6 +402,12 @@ public sealed unsafe class V4l2VideoCapture : IVideoCapture
     {
         var handler = FrameCaptured;
         if (handler is null || descriptor.Index >= _buffers.Length)
+        {
+            return;
+        }
+
+        // The driver flags a frame it could not fill completely.
+        if ((descriptor.Flags & V4l2.BufferFlagError) != 0)
         {
             return;
         }
@@ -414,6 +420,11 @@ public sealed unsafe class V4l2VideoCapture : IVideoCapture
         Span<int> strides = stackalloc int[MediaPlanes.MaxPlanes];
         var stride = _bytesPerLine != 0 ? _bytesPerLine : Format.PixelFormat.MinimumStride(Format.Width);
         var planeCount = BuildPlanes(Format, buffer.Address, stride, planes, strides);
+
+        if (!FrameBounds.FitsIn(Format, planes, strides, planeCount, buffer.Address, buffer.Length))
+        {
+            return;
+        }
 
         var frame = new VideoFrame(Format, timestamp, planes, strides, planeCount);
         handler(in frame);
@@ -478,7 +489,10 @@ public sealed unsafe class V4l2VideoCapture : IVideoCapture
 
         foreach (var buffer in _buffers)
         {
-            V4l2.Munmap((void*)buffer.Address, buffer.Length);
+            if (buffer.Address != 0)
+            {
+                V4l2.Munmap((void*)buffer.Address, buffer.Length);
+            }
         }
 
         _buffers = [];

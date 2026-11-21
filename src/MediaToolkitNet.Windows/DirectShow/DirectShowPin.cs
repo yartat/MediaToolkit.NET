@@ -20,12 +20,14 @@ namespace MediaToolkitNet.Windows.DirectShow;
 [SupportedOSPlatform("windows")]
 public sealed unsafe class DirectShowPin : IDisposable
 {
+    private readonly DirectShowGraph? _owner;
     private ComPtr _pin;
     private bool _disposed;
 
     internal DirectShowPin(void* pin, DirectShowGraph? owner)
     {
         _pin = new ComPtr(pin);
+        _owner = owner;
         owner?.Track(this);
 
         Direction = DsNative.QueryDirection(pin, out var direction) == HResult.Ok
@@ -163,6 +165,7 @@ public sealed unsafe class DirectShowPin : IDisposable
         }
 
         _disposed = true;
+        _owner?.Untrack(this);
         _pin.Dispose();
     }
 }

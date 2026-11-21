@@ -164,7 +164,14 @@ public sealed unsafe class AudioQueueRenderer : IAudioRenderer
             renderer._available.Enqueue((nint)buffer);
         }
 
-        renderer._free.Release();
+        try
+        {
+            renderer._free.Release();
+        }
+        catch (ObjectDisposedException)
+        {
+            // Disposed while the queue was still handing buffers back.
+        }
     }
 
     /// <inheritdoc />
@@ -302,8 +309,8 @@ public sealed unsafe class AudioQueueCapture : IAudioCapture
         }
         catch (Exception ex)
         {
-            capture.Failed?.Invoke(
-                capture, ex as MediaToolkitNetException ?? new MediaToolkitNetException("AudioQueue capture error.", ex));
+            SafeEvents.RaiseFailed(
+                capture.Failed, capture, ex as MediaToolkitNetException ?? new MediaToolkitNetException("AudioQueue capture error.", ex));
         }
         finally
         {

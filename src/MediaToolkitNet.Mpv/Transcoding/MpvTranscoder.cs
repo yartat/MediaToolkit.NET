@@ -207,13 +207,13 @@ public sealed unsafe class MpvTranscoder : IMediaTranscoder
     /// command line takes the same options with <c>--</c> in front, which is what
     /// <see cref="CommandLine"/> writes.
     /// </summary>
-    public static IReadOnlyList<KeyValuePair<string, string>> OptionsFor(TranscodePlan plan)
+    public static IReadOnlyList<KeyValuePair<string, string>> OptionsFor(TranscodePlan plan, string? output = null)
     {
         ArgumentNullException.ThrowIfNull(plan);
         var request = plan.Request;
         var options = new List<KeyValuePair<string, string>>
         {
-            new("o", request.Output),
+            new("o", output ?? request.Output),
             new("terminal", "no"),
             new("idle", "no"),
             new("load-scripts", "no"),
@@ -426,98 +426,115 @@ public sealed unsafe class MpvTranscoder : IMediaTranscoder
             throw new TranscodeRejectedException(Backend, issues);
         }
 
-        var finished = false;
+        using var partial = PartialOutput.Begin(request.Output);
         var position = TimeSpan.Zero;
-        try
+        using (var client = MpvClient.Create(OptionsFor(plan, partial.Path)))
         {
-            using (var client = MpvClient.Create(OptionsFor(plan)))
+            client.RequestLogMessages("error");
+            client.Command("loadfile", request.Inputs[0]);
+            var lastReport = -ProgressInterval;
+            var lastMove = clock.Elapsed;
+            var errors = new List<string>();
+            var unknownOptions = new List<string>();
+            while (true)
             {
-                client.RequestLogMessages("error");
-                client.Command("loadfile", request.Inputs[0]);
-                var lastReport = -ProgressInterval;
-                var lastMove = clock.Elapsed;
-                var errors = new List<string>();
-                while (true)
+                if (cancellation.IsCancellationRequested)
                 {
-                    if (cancellation.IsCancellationRequested)
+                    client.Command("quit");
+                    cancellation.ThrowIfCancellationRequested();
+                }
+
+                var evt = client.WaitEvent(TimeSpan.FromMilliseconds(100));
+                if (evt is not null && evt->EventId == MpvEventId.EndFile)
+                {
+                    var reason = evt->Data is null ? 0 : ((int*)evt->Data)[0];
+                    var error = evt->Data is null ? 0 : ((int*)evt->Data)[1];
+                    if (reason == EndFileReasonError)
                     {
-                        client.Command("quit");
-                        cancellation.ThrowIfCancellationRequested();
+                        var said = errors.Count > 0 ? $" ({string.Join("; ", errors.Distinct().TakeLast(3))})" : string.Empty;
+                        throw new MediaToolkitNetException(Backend, $"mpv stopped encoding: {Native.Mpv.Describe(error)}{said}", error);
                     }
 
-                    var evt = client.WaitEvent(TimeSpan.FromMilliseconds(100));
-                    if (evt is not null && evt->EventId == MpvEventId.EndFile)
+                    break;
+                }
+
+                if (evt is not null && evt->EventId == MpvEventId.Shutdown)
+                {
+                    break;
+                }
+
+                if (evt is not null && evt->EventId == MpvEventId.LogMessage)
+                {
+                    var text = MpvClient.TextOfLogMessage(evt);
+
+                    // An option the encoder does not know is logged as an error, but the
+                    // job goes on without it: it is reported, not treated as the cause of a failure.
+                    if (UnknownOption(text) is { } option)
                     {
-                        var reason = evt->Data is null ? 0 : ((int*)evt->Data)[0];
-                        var error = evt->Data is null ? 0 : ((int*)evt->Data)[1];
-                        if (reason == EndFileReasonError)
+                        if (!unknownOptions.Contains(option))
                         {
-                            var said = errors.Count > 0 ? $" ({string.Join("; ", errors.Distinct().TakeLast(3))})" : string.Empty;
-                            throw new MediaToolkitNetException(Backend, $"mpv stopped encoding: {Native.Mpv.Describe(error)}{said}", error);
+                            unknownOptions.Add(option);
+                            issues.Add(new TranscodeIssue(
+                                TranscodeIssueSeverity.Warning,
+                                $"the encoder did not recognise the option {option}, so it has no effect"));
                         }
-
-                        break;
                     }
-
-                    if (evt is not null && evt->EventId == MpvEventId.Shutdown)
+                    else
                     {
-                        break;
-                    }
-
-                    if (evt is not null && evt->EventId == MpvEventId.LogMessage)
-                    {
-                        errors.Add(MpvClient.TextOfLogMessage(evt));
-                    }
-
-                    if (client.GetNumber("time-pos") is { } seconds && TimeSpan.FromSeconds(seconds) - plan.Start > position)
-                    {
-                        position = TimeSpan.FromSeconds(seconds) - plan.Start;
-                        lastMove = clock.Elapsed;
-                    }
-                    else if (clock.Elapsed - lastMove > (errors.Count > 0 ? StallTimeoutAfterError : StallTimeout))
-                    {
-                        client.Command("quit");
-                        var said = errors.Count > 0 ? $": {string.Join("; ", errors.Distinct().TakeLast(3))}" : string.Empty;
-                        throw new MediaToolkitNetException(
-                            Backend, $"mpv stopped making progress at {position}{said}", 0);
-                    }
-
-                    if (progress is not null && clock.Elapsed - lastReport >= ProgressInterval)
-                    {
-                        lastReport = clock.Elapsed;
-                        progress.Report(new TranscodeProgress(position, plan.ExpectedDuration, clock.Elapsed));
+                        errors.Add(text);
                     }
                 }
-            }
 
-            // Disposing the client is what wrote the trailer, so only now is the file done.
-            VerifyOutput(plan);
-            finished = true;
-            var written = plan.ExpectedDuration > TimeSpan.Zero ? plan.ExpectedDuration : position;
-            progress?.Report(new TranscodeProgress(written, plan.ExpectedDuration, clock.Elapsed));
-            return new TranscodeResult(
-                request.Output,
-                written,
-                clock.Elapsed,
-                [.. issues.Where(i => i.Severity == TranscodeIssueSeverity.Warning)]);
-        }
-        finally
-        {
-            if (!finished && File.Exists(request.Output))
-            {
-                try
+                if (client.GetNumber("time-pos") is { } seconds && TimeSpan.FromSeconds(seconds) - plan.Start > position)
                 {
-                    File.Delete(request.Output);
+                    position = TimeSpan.FromSeconds(seconds) - plan.Start;
+                    lastMove = clock.Elapsed;
                 }
-                catch (IOException)
+                else if (clock.Elapsed - lastMove > (errors.Count > 0 ? StallTimeoutAfterError : StallTimeout))
                 {
-                    // The job's own error matters more.
+                    client.Command("quit");
+                    var said = errors.Count > 0 ? $": {string.Join("; ", errors.Distinct().TakeLast(3))}" : string.Empty;
+                    throw new MediaToolkitNetException(
+                        Backend, $"mpv stopped making progress at {position}{said}", 0);
+                }
+
+                if (progress is not null && clock.Elapsed - lastReport >= ProgressInterval)
+                {
+                    lastReport = clock.Elapsed;
+                    progress.Report(new TranscodeProgress(position, plan.ExpectedDuration, clock.Elapsed));
                 }
             }
         }
+
+        // Disposing the client is what wrote the trailer, so only now is the file done.
+        VerifyOutput(plan, partial.Path);
+        partial.Commit();
+        var written = plan.ExpectedDuration > TimeSpan.Zero ? plan.ExpectedDuration : position;
+        progress?.Report(new TranscodeProgress(written, plan.ExpectedDuration, clock.Elapsed));
+        return new TranscodeResult(
+            request.Output,
+            written,
+            clock.Elapsed,
+            [.. issues.Where(i => i.Severity == TranscodeIssueSeverity.Warning)]);
     }
 
     private const int EndFileReasonError = 4;
+
+    /// <summary>The option a log line says libavcodec did not recognise (<c>AVOption 'x' not found.</c>), or null.</summary>
+    private static string? UnknownOption(string logText)
+    {
+        const string start = "AVOption '";
+        const string end = "' not found";
+        var from = logText.IndexOf(start, StringComparison.Ordinal);
+        if (from < 0)
+        {
+            return null;
+        }
+
+        from += start.Length;
+        var to = logText.IndexOf(end, from, StringComparison.Ordinal);
+        return to < 0 ? null : logText[from..to];
+    }
 
     /// <summary>
     /// Confirms the output holds the streams the plan encodes. An encoder that
@@ -531,10 +548,10 @@ public sealed unsafe class MpvTranscoder : IMediaTranscoder
     /// one says no when it did. libavformat reads whatever it wrote, so it is
     /// asked when it is there, and mpv only when it is not.
     /// </remarks>
-    private void VerifyOutput(TranscodePlan plan)
+    private void VerifyOutput(TranscodePlan plan, string path)
     {
         IMediaProber prober = FFmpeg.Native.FFmpegLibraries.IsAvailable ? new FFmpegProber() : new MpvProber();
-        var written = prober.Probe(plan.Request.Output);
+        var written = prober.Probe(path);
         foreach (var (action, kind) in new[] { (PlannedAction.EncodeVideo, MediaStreamKind.Video), (PlannedAction.EncodeAudio, MediaStreamKind.Audio) })
         {
             if (plan.With(action).FirstOrDefault() is { } stream && !written.OfKind(kind).Any())
@@ -603,7 +620,7 @@ public sealed unsafe class MpvTranscoder : IMediaTranscoder
     /// <summary>The encoder names mpv's <c>encoder-list</c> property holds.</summary>
     private static HashSet<string> AvailableEncoders()
     {
-        using var client = MpvClient.Create([new("idle", "yes"), new("terminal", "no"), new("vo", "null"), new("ao", "null")]);
+        using var client = MpvClient.Create([new("idle", "yes"), new("terminal", "no"), new("vo", "null"), new("ao", "null"), new("load-scripts", "no"), new("ytdl", "no")]);
         var names = new HashSet<string>(StringComparer.Ordinal);
         var count = (int)(client.GetNumber("encoder-list/count") ?? 0);
         for (var i = 0; i < count; i++)

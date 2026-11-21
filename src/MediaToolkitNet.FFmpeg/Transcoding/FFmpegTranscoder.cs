@@ -97,7 +97,7 @@ public sealed unsafe class FFmpegTranscoder : IMediaTranscoder
         var inputs = new List<FFmpegDemuxer>();
         var pipelines = new List<StreamPipeline>();
         FFmpegMuxer? muxer = null;
-        var finished = false;
+        PartialOutput? partial = null;
 
         try
         {
@@ -121,12 +121,22 @@ public sealed unsafe class FFmpegTranscoder : IMediaTranscoder
                 .Select(d => new TimeWindow(TimeSpan.FromTicks(AbiLayout.StartTimeOfInput(d.Handle) * 10), plan.Start, request.End))
                 .ToList();
 
-            muxer = FFmpegMuxer.Create(request.Output, FFmpegFormatMap.MuxerName(plan.Container));
+            partial = PartialOutput.Begin(request.Output);
+            muxer = FFmpegMuxer.Create(partial.Path, FFmpegFormatMap.MuxerName(plan.Container));
             foreach (var stream in plan.Streams)
             {
                 var pipeline = Create(plan, stream, inputs[stream.Input], windows[stream.Input]);
                 pipelines.Add(pipeline);
                 pipeline.Open(muxer);
+                if (pipeline is EncodePipeline encoding)
+                {
+                    foreach (var option in encoding.UnusedEncoderOptions)
+                    {
+                        issues.Add(new TranscodeIssue(
+                            TranscodeIssueSeverity.Warning,
+                            $"the {encoding.EncoderName} encoder did not recognise the option {option}, so it has no effect"));
+                    }
+                }
             }
 
             WriteTags(plan, muxer);
@@ -145,7 +155,8 @@ public sealed unsafe class FFmpegTranscoder : IMediaTranscoder
             Pump(plan, inputs, windows, pipelines, progress, clock, cancellation);
             pipelines.ForEach(p => p.Flush());
             muxer.Finish();
-            finished = true;
+            muxer.Dispose();
+            partial.Commit();
 
             var written = pipelines.Count == 0 ? TimeSpan.Zero : pipelines.Max(p => p.Written);
             progress?.Report(new TranscodeProgress(written, plan.ExpectedDuration, clock.Elapsed));
@@ -162,10 +173,7 @@ public sealed unsafe class FFmpegTranscoder : IMediaTranscoder
             inputs.ForEach(d => d.Dispose());
 
             // A half-written file is worse than none: it looks like a result.
-            if (!finished && muxer is not null)
-            {
-                TryDelete(request.Output);
-            }
+            partial?.Dispose();
         }
     }
 
@@ -523,24 +531,6 @@ public sealed unsafe class FFmpegTranscoder : IMediaTranscoder
         MediaContainer.WebM => "WebVtt",
         _ => "a text format the container takes",
     };
-
-    private static void TryDelete(string path)
-    {
-        try
-        {
-            if (File.Exists(path))
-            {
-                File.Delete(path);
-            }
-        }
-        catch (IOException)
-        {
-            // Nothing more can be done about it, and the job's own error matters more.
-        }
-        catch (UnauthorizedAccessException)
-        {
-        }
-    }
 
     private static TranscodeIssue Error(string message) => new(TranscodeIssueSeverity.Error, message);
 

@@ -249,9 +249,9 @@ public sealed unsafe class MediaFoundationVideoCapture : IVideoCapture
 
     private void CaptureLoop(CancellationToken token)
     {
-        // The source reader objects outlive this thread, so the apartment is
-        // initialised but never torn back down here.
-        Ole32.Initialize();
+        // The source reader was created on a thread that keeps the multithreaded
+        // apartment up, so this thread's own reference can go when it ends.
+        var comInitialised = Ole32.Initialize();
 
         try
         {
@@ -290,7 +290,14 @@ public sealed unsafe class MediaFoundationVideoCapture : IVideoCapture
         }
         catch (Exception ex)
         {
-            Failed?.Invoke(this, ex as MediaToolkitNetException ?? new MediaToolkitNetException("Video capture error.", ex));
+            SafeEvents.RaiseFailed(Failed, this, ex as MediaToolkitNetException ?? new MediaToolkitNetException("Video capture error.", ex));
+        }
+        finally
+        {
+            if (comInitialised)
+            {
+                Ole32.Uninitialize();
+            }
         }
     }
 
@@ -305,7 +312,7 @@ public sealed unsafe class MediaFoundationVideoCapture : IVideoCapture
         HResult.ThrowIfFailed(Mf.ConvertToContiguousBuffer(sample, out var buffer), "IMFSample::ConvertToContiguousBuffer");
         try
         {
-            HResult.ThrowIfFailed(Mf.LockBuffer(buffer, out var data, out _, out _), "IMFMediaBuffer::Lock");
+            HResult.ThrowIfFailed(Mf.LockBuffer(buffer, out var data, out _, out var currentLength), "IMFMediaBuffer::Lock");
             try
             {
                 var format = Format;
@@ -314,6 +321,17 @@ public sealed unsafe class MediaFoundationVideoCapture : IVideoCapture
                 Span<nint> planes = stackalloc nint[MediaPlanes.MaxPlanes];
                 Span<int> strides = stackalloc int[MediaPlanes.MaxPlanes];
                 var planeCount = BuildPlanes(format, (nint)data, stride, planes, strides);
+
+                // A bottom-up picture has a negative stride, and its first row is the last in memory.
+                if (stride < 0 && planeCount == 1)
+                {
+                    planes[0] = (nint)data + (-stride * (format.Height - 1));
+                }
+
+                if (!FrameBounds.FitsIn(format, planes, strides, planeCount, (nint)data, currentLength))
+                {
+                    return;
+                }
 
                 // Media Foundation timestamps are in 100-nanosecond units, which
                 // is exactly one TimeSpan tick.
