@@ -218,6 +218,12 @@ public static unsafe class AV
     /// <summary><c>int avio_closep(AVIOContext **)</c></summary>
     public static delegate* unmanaged[Cdecl]<void**, int> avio_closep;
 
+    /// <summary>
+    /// <c>int avio_open2(AVIOContext **, const char *url, int flags, const AVIOInterruptCB *, AVDictionary **)</c>.
+    /// The callback is copied, and is asked whenever a read or a connect may block.
+    /// </summary>
+    public static delegate* unmanaged[Cdecl]<void**, byte*, int, void*, void**, int> avio_open2;
+
     // -------------------------------------------------------------- avdevice
 
     /// <summary><c>void avdevice_register_all(void)</c></summary>
@@ -426,6 +432,7 @@ public static unsafe class AV
         avformat_free_context = (delegate* unmanaged[Cdecl]<void*, void>)format.GetExport(nameof(avformat_free_context));
         avio_open = (delegate* unmanaged[Cdecl]<void**, byte*, int, int>)format.GetExport(nameof(avio_open));
         avio_closep = (delegate* unmanaged[Cdecl]<void**, int>)format.GetExport(nameof(avio_closep));
+        avio_open2 = (delegate* unmanaged[Cdecl]<void**, byte*, int, void*, void**, int>)format.GetExport(nameof(avio_open2));
 
         sws_getContext = (delegate* unmanaged[Cdecl]<int, int, int, int, int, int, int, void*, void*, double*, void*>)scale.GetExport(nameof(sws_getContext));
         sws_scale = (delegate* unmanaged[Cdecl]<void*, byte**, int*, int, int, byte**, int*, int>)scale.GetExport(nameof(sws_scale));

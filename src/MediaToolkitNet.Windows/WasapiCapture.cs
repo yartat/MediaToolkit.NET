@@ -192,7 +192,7 @@ public sealed unsafe class WasapiCapture : IAudioCapture
 
     private void CaptureLoop(CancellationToken token)
     {
-        Ole32.Initialize();
+        var comInitialised = Ole32.Initialize();
         var position = TimeSpan.Zero;
 
         try
@@ -241,7 +241,15 @@ public sealed unsafe class WasapiCapture : IAudioCapture
         }
         catch (Exception ex)
         {
-            Failed?.Invoke(this, ex as MediaToolkitNetException ?? new MediaToolkitNetException("Audio capture error.", ex));
+            SafeEvents.RaiseFailed(Failed, this, ex as MediaToolkitNetException ?? new MediaToolkitNetException("Audio capture error.", ex));
+        }
+        finally
+        {
+            // The endpoint objects belong to the apartment the opening thread keeps up.
+            if (comInitialised)
+            {
+                Ole32.Uninitialize();
+            }
         }
     }
 

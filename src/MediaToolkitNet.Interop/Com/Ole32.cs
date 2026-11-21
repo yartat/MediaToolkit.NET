@@ -58,17 +58,25 @@ public static unsafe partial class Ole32
     /// Initialises COM on the calling thread.
     /// </summary>
     /// <returns>
-    /// <see langword="true"/> when this call performed the initialisation and the
-    /// caller owns the matching <see cref="Uninitialize"/>; <see langword="false"/>
-    /// when COM was already initialised on the thread.
+    /// <see langword="true"/> when the call succeeded and the caller owns the
+    /// matching <see cref="Uninitialize"/>, which includes <c>S_FALSE</c>, COM
+    /// already being initialised on the thread: that call is counted too;
+    /// <see langword="false"/> when the thread is already in another apartment
+    /// model, where nothing was added and nothing may be balanced.
     /// </returns>
     public static bool Initialize(ComApartment apartment = ComApartment.MultiThreaded)
     {
         var hr = CoInitializeEx(null, (uint)apartment);
-        if (hr == HResult.ChangedMode || hr == HResult.False)
+        if (hr == HResult.ChangedMode)
         {
-            // Already initialised, possibly with a different apartment model.
+            // Already initialised with a different apartment model; this call did nothing.
             return false;
+        }
+
+        if (hr == HResult.False)
+        {
+            // Already initialised on this thread; the call still added a reference.
+            return true;
         }
 
         HResult.ThrowIfFailed(hr, "CoInitializeEx");

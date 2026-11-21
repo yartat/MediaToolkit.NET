@@ -53,14 +53,24 @@ public sealed unsafe class DirectShowGraph : IDisposable
             "IFilterGraph::QueryInterface(IMediaControl)");
         _control = new ComPtr(control);
 
-        HResult.ThrowIfFailed(
-            Com.QueryInterface(graph, DsGuids.IMediaEvent, out var mediaEvent),
-            "IFilterGraph::QueryInterface(IMediaEvent)");
-        _mediaEvent = new ComPtr(mediaEvent);
-
-        if (HResult.Succeeded(Com.QueryInterface(graph, DsGuids.IMediaSeeking, out var seeking)))
+        try
         {
-            _seeking = new ComPtr(seeking);
+            HResult.ThrowIfFailed(
+                Com.QueryInterface(graph, DsGuids.IMediaEvent, out var mediaEvent),
+                "IFilterGraph::QueryInterface(IMediaEvent)");
+            _mediaEvent = new ComPtr(mediaEvent);
+
+            if (HResult.Succeeded(Com.QueryInterface(graph, DsGuids.IMediaSeeking, out var seeking)))
+            {
+                _seeking = new ComPtr(seeking);
+            }
+        }
+        catch
+        {
+            // The caller releases the graph itself; what was taken from it here is released now.
+            _control.Dispose();
+            _mediaEvent.Dispose();
+            throw;
         }
     }
 
@@ -94,6 +104,9 @@ public sealed unsafe class DirectShowGraph : IDisposable
     public bool CanSeek => !_seeking.IsNull;
 
     internal void Track(IDisposable item) => _tracked.Add(item);
+
+    /// <summary>Forgets a wrapper that was disposed on its own, so the list does not grow with every query.</summary>
+    internal void Untrack(IDisposable item) => _tracked.Remove(item);
 
     // ------------------------------------------------------------- building
 
@@ -426,34 +439,56 @@ public sealed unsafe class DirectShowGraph : IDisposable
         EnsureAlive();
 
         var text = new StringBuilder();
-        foreach (var filter in Filters)
+        var filters = Filters;
+        try
         {
-            text.Append(filter.Name);
-            if (filter.Known is { } known)
+            foreach (var filter in filters)
             {
-                text.Append(" [").Append(known).Append(']');
-            }
-
-            text.AppendLine();
-
-            foreach (var pin in filter.Pins)
-            {
-                text.Append("    ").Append(pin.Direction == PinDirection.Output ? "out " : "in  ").Append(pin.Name);
-
-                var peer = pin.ConnectedTo(this);
-                if (peer is null)
+                text.Append(filter.Name);
+                if (filter.Known is { } known)
                 {
-                    text.AppendLine("  (not connected)");
-                    continue;
-                }
-
-                text.Append("  -> ").Append(peer.Name);
-                if (pin.ConnectionMediaType is { } type)
-                {
-                    text.Append("  [").Append(type).Append(']');
+                    text.Append(" [").Append(known).Append(']');
                 }
 
                 text.AppendLine();
+
+                var pins = filter.Pins;
+                try
+                {
+                    foreach (var pin in pins)
+                    {
+                        text.Append("    ").Append(pin.Direction == PinDirection.Output ? "out " : "in  ").Append(pin.Name);
+
+                        using var peer = pin.ConnectedTo(this);
+                        if (peer is null)
+                        {
+                            text.AppendLine("  (not connected)");
+                            continue;
+                        }
+
+                        text.Append("  -> ").Append(peer.Name);
+                        if (pin.ConnectionMediaType is { } type)
+                        {
+                            text.Append("  [").Append(type).Append(']');
+                        }
+
+                        text.AppendLine();
+                    }
+                }
+                finally
+                {
+                    foreach (var pin in pins)
+                    {
+                        pin.Dispose();
+                    }
+                }
+            }
+        }
+        finally
+        {
+            foreach (var filter in filters)
+            {
+                filter.Dispose();
             }
         }
 
@@ -478,7 +513,8 @@ public sealed unsafe class DirectShowGraph : IDisposable
             DsNative.Stop(_control.Pointer);
         }
 
-        foreach (var tracked in _tracked)
+        // Each wrapper removes itself from the list as it is disposed.
+        foreach (var tracked in _tracked.ToArray())
         {
             tracked.Dispose();
         }

@@ -181,6 +181,13 @@ public sealed unsafe class WasapiRenderer : IAudioRenderer
             var free = FreeFrames();
             if (free == 0)
             {
+                // Nothing drains a stopped endpoint, so waiting would never end;
+                // the caller gets the count written and decides what to do.
+                if (!_running)
+                {
+                    break;
+                }
+
                 _bufferReady.WaitOne(100);
                 continue;
             }

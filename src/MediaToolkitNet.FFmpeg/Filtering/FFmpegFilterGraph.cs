@@ -426,6 +426,13 @@ public sealed unsafe class FFmpegFilterGraph : IDisposable
             throw new InvalidOperationException("This is a video graph.");
         }
 
+        if (frame.Format.SampleFormat.IsPlanar() && frame.Format.Channels != frame.PlaneCount)
+        {
+            throw new ArgumentException(
+                $"a planar frame of {frame.Format.Channels} channels needs {frame.Format.Channels} planes, and a frame view holds at most {MediaPlanes.MaxPlanes}; push such audio interleaved",
+                nameof(frame));
+        }
+
         AV.av_frame_unref(_input);
         AbiLayout.PrepareAudioFrame(
             _input,

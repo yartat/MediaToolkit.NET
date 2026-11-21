@@ -40,6 +40,7 @@ public sealed unsafe class MpvPlayer : IMediaPlayer
     private double _volume = 1.0;
     private bool _seekable;
     private bool _disposed;
+    private readonly ReaderWriterLockSlim _life = new();
     private MpvFilterChain? _videoFilters;
     private MpvFilterChain? _audioFilters;
 
@@ -55,6 +56,9 @@ public sealed unsafe class MpvPlayer : IMediaPlayer
         ["input-vo-keyboard"] = "no",
         ["osc"] = "no",
         ["idle"] = "yes",
+        // mpv would otherwise run yt-dlp for a URL and load user scripts.
+        ["ytdl"] = "no",
+        ["load-scripts"] = "no",
     };
 
     /// <summary>
@@ -96,8 +100,15 @@ public sealed unsafe class MpvPlayer : IMediaPlayer
             _volume = Math.Clamp(value, 0d, 1d);
             if (_handle is not null)
             {
-                // mpv expresses volume as a percentage.
-                SetProperty("volume", _volume * 100d);
+                try
+                {
+                    // mpv expresses volume as a percentage.
+                    SetProperty("volume", _volume * 100d);
+                }
+                catch (ObjectDisposedException)
+                {
+                    // Disposed while this was being set; nothing left to set it on.
+                }
             }
         }
     }
@@ -141,7 +152,8 @@ public sealed unsafe class MpvPlayer : IMediaPlayer
         EnsureHandle();
         Span<byte> scratch = stackalloc byte[64];
         using var level = new Utf8Scoped(minimumLevel, scratch);
-        Native.Mpv.Check(Native.Mpv.mpv_request_log_messages(_handle, level.Pointer), "mpv_request_log_messages");
+        using var guard = EnterHandle();
+        Native.Mpv.Check(Native.Mpv.mpv_request_log_messages(guard.Handle, level.Pointer), "mpv_request_log_messages");
     }
 
     /// <inheritdoc />
@@ -160,7 +172,15 @@ public sealed unsafe class MpvPlayer : IMediaPlayer
             return;
         }
 
-        SetProperty("pause", true);
+        try
+        {
+            SetProperty("pause", true);
+        }
+        catch (ObjectDisposedException)
+        {
+            return;
+        }
+
         TransitionTo(PlaybackState.Paused);
     }
 
@@ -172,7 +192,15 @@ public sealed unsafe class MpvPlayer : IMediaPlayer
             return;
         }
 
-        Command("stop");
+        try
+        {
+            Command("stop");
+        }
+        catch (ObjectDisposedException)
+        {
+            return;
+        }
+
         Interlocked.Exchange(ref _positionTicks, 0);
         TransitionTo(PlaybackState.Stopped);
     }
@@ -199,8 +227,9 @@ public sealed unsafe class MpvPlayer : IMediaPlayer
         Span<byte> valueScratch = stackalloc byte[Utf8Scoped.StackThreshold];
         using var nameUtf8 = new Utf8Scoped(name, nameScratch);
         using var valueUtf8 = new Utf8Scoped(value, valueScratch);
+        using var guard = EnterHandle();
         Native.Mpv.Check(
-            Native.Mpv.mpv_set_property_string(_handle, nameUtf8.Pointer, valueUtf8.Pointer), $"mpv_set_property({name})");
+            Native.Mpv.mpv_set_property_string(guard.Handle, nameUtf8.Pointer, valueUtf8.Pointer), $"mpv_set_property({name})");
     }
 
     /// <summary>Sets a boolean property.</summary>
@@ -210,8 +239,9 @@ public sealed unsafe class MpvPlayer : IMediaPlayer
         var flag = value ? 1 : 0;
         Span<byte> scratch = stackalloc byte[Utf8Scoped.StackThreshold];
         using var nameUtf8 = new Utf8Scoped(name, scratch);
+        using var guard = EnterHandle();
         Native.Mpv.Check(
-            Native.Mpv.mpv_set_property(_handle, nameUtf8.Pointer, (int)MpvFormat.Flag, &flag), $"mpv_set_property({name})");
+            Native.Mpv.mpv_set_property(guard.Handle, nameUtf8.Pointer, (int)MpvFormat.Flag, &flag), $"mpv_set_property({name})");
     }
 
     /// <summary>Sets a floating point property.</summary>
@@ -220,8 +250,9 @@ public sealed unsafe class MpvPlayer : IMediaPlayer
         EnsureHandle();
         Span<byte> scratch = stackalloc byte[Utf8Scoped.StackThreshold];
         using var nameUtf8 = new Utf8Scoped(name, scratch);
+        using var guard = EnterHandle();
         Native.Mpv.Check(
-            Native.Mpv.mpv_set_property(_handle, nameUtf8.Pointer, (int)MpvFormat.Double, &value), $"mpv_set_property({name})");
+            Native.Mpv.mpv_set_property(guard.Handle, nameUtf8.Pointer, (int)MpvFormat.Double, &value), $"mpv_set_property({name})");
     }
 
     /// <summary>Reads a property as a string, or <see langword="null"/> when it is unavailable.</summary>
@@ -230,7 +261,8 @@ public sealed unsafe class MpvPlayer : IMediaPlayer
         EnsureHandle();
         Span<byte> scratch = stackalloc byte[Utf8Scoped.StackThreshold];
         using var nameUtf8 = new Utf8Scoped(name, scratch);
-        var raw = Native.Mpv.mpv_get_property_string(_handle, nameUtf8.Pointer);
+        using var guard = EnterHandle();
+        var raw = Native.Mpv.mpv_get_property_string(guard.Handle, nameUtf8.Pointer);
         if (raw is null)
         {
             return null;
@@ -253,7 +285,8 @@ public sealed unsafe class MpvPlayer : IMediaPlayer
         Span<byte> scratch = stackalloc byte[Utf8Scoped.StackThreshold];
         using var nameUtf8 = new Utf8Scoped(name, scratch);
         double value;
-        return Native.Mpv.mpv_get_property(_handle, nameUtf8.Pointer, (int)MpvFormat.Double, &value) < 0
+        using var guard = EnterHandle();
+        return Native.Mpv.mpv_get_property(guard.Handle, nameUtf8.Pointer, (int)MpvFormat.Double, &value) < 0
             ? fallback
             : value;
     }
@@ -264,7 +297,10 @@ public sealed unsafe class MpvPlayer : IMediaPlayer
         EnsureHandle();
         ArgumentOutOfRangeException.ThrowIfZero(arguments.Length);
 
-        var native = stackalloc byte*[arguments.Length + 1];
+        // Sized by the caller's arguments, so not stackalloc; zeroed, so a failure part
+        // way through the loop leaves only entries that were set to free.
+        var native = (byte**)System.Runtime.InteropServices.NativeMemory.AllocZeroed(
+            (nuint)(arguments.Length + 1), (nuint)sizeof(byte*));
         try
         {
             for (var i = 0; i < arguments.Length; i++)
@@ -273,7 +309,8 @@ public sealed unsafe class MpvPlayer : IMediaPlayer
             }
 
             native[arguments.Length] = null;
-            Native.Mpv.Check(Native.Mpv.mpv_command(_handle, native), $"mpv_command({arguments[0]})");
+            using var guard = EnterHandle();
+            Native.Mpv.Check(Native.Mpv.mpv_command(guard.Handle, native), $"mpv_command({arguments[0]})");
         }
         finally
         {
@@ -281,10 +318,36 @@ public sealed unsafe class MpvPlayer : IMediaPlayer
             {
                 Utf8.Free(native[i]);
             }
+
+            System.Runtime.InteropServices.NativeMemory.Free(native);
         }
     }
 
     // ------------------------------------------------------------- event loop
+
+    /// <summary>
+    /// Holds the native handle alive for one call: <see cref="Dispose"/> destroys it
+    /// only once every call in flight has returned.
+    /// </summary>
+    private ReadGuard EnterHandle()
+    {
+        _life.EnterReadLock();
+        var handle = _handle;
+        if (_disposed || handle is null)
+        {
+            _life.ExitReadLock();
+            throw new ObjectDisposedException(nameof(MpvPlayer));
+        }
+
+        return new ReadGuard(_life, handle);
+    }
+
+    private readonly struct ReadGuard(ReaderWriterLockSlim life, void* handle) : IDisposable
+    {
+        public void* Handle { get; } = handle;
+
+        public void Dispose() => life.ExitReadLock();
+    }
 
     private void EnsureHandle()
     {
@@ -402,7 +465,7 @@ public sealed unsafe class MpvPlayer : IMediaPlayer
         {
             var error = ex as MediaToolkitNetException ?? new MediaToolkitNetException("mpv event loop error.", ex);
             TransitionTo(PlaybackState.Faulted);
-            Failed?.Invoke(this, error);
+            SafeEvents.RaiseFailed(Failed, this, error);
         }
     }
 
@@ -502,7 +565,16 @@ public sealed unsafe class MpvPlayer : IMediaPlayer
 
         if (handle is not null)
         {
-            Native.Mpv.mpv_terminate_destroy(handle);
+            // Calls already inside mpv finish first; later ones find the player disposed.
+            _life.EnterWriteLock();
+            try
+            {
+                Native.Mpv.mpv_terminate_destroy(handle);
+            }
+            finally
+            {
+                _life.ExitWriteLock();
+            }
         }
 
         lock (_gate)

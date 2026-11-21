@@ -233,6 +233,9 @@ public static unsafe partial class V4l2
     /// <summary>O_RDWR.</summary>
     public const int ReadWrite = 0x0002;
 
+    /// <summary><c>O_CLOEXEC</c> on Linux: the descriptor is not inherited by a child process.</summary>
+    public const int CloseOnExec = 0x80000;
+
     /// <summary>O_NONBLOCK.</summary>
     public const int NonBlock = 0x0800;
 
@@ -265,6 +268,9 @@ public static unsafe partial class V4l2
 
     /// <summary>EAGAIN, returned by a non-blocking dequeue with no buffer ready.</summary>
     public const int Again = 11;
+
+    /// <summary><c>V4L2_BUF_FLAG_ERROR</c>: the driver could not fill the buffer completely.</summary>
+    public const uint BufferFlagError = 0x40;
 
     private const uint IocNone = 0;
     private const uint IocWrite = 1;

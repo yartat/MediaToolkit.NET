@@ -77,6 +77,7 @@ internal static unsafe class EncoderFactory
     /// <param name="extraFlags">Bits to add to the codec flags.</param>
     /// <param name="commonOptions">Options for every stream of the output, applied first.</param>
     /// <param name="streamOptions">Options for this stream, applied last, so they win.</param>
+    /// <param name="unusedOptions">Receives the keys of the options the encoder did not recognise.</param>
     /// <returns>Returns the open context, or <see langword="null"/>.</returns>
     public static void* TryOpen(
         void* codec,
@@ -90,8 +91,10 @@ internal static unsafe class EncoderFactory
         Action<nint> configure,
         int extraFlags = 0,
         IReadOnlyDictionary<string, string>? commonOptions = null,
-        IReadOnlyDictionary<string, string>? streamOptions = null)
+        IReadOnlyDictionary<string, string>? streamOptions = null,
+        List<string>? unusedOptions = null)
     {
+        unusedOptions?.Clear();
         var context = AV.avcodec_alloc_context3(codec);
         if (context is null)
         {
@@ -158,7 +161,26 @@ internal static unsafe class EncoderFactory
                 }
             }
 
-            return AV.avcodec_open2(context, codec, &options) < 0 ? Fail(context) : context;
+            if (AV.avcodec_open2(context, codec, &options) < 0)
+            {
+                return Fail(context);
+            }
+
+            // avcodec_open2 leaves in the dictionary whatever it did not consume.
+            if (unusedOptions is not null)
+            {
+                Span<byte> empty = stackalloc byte[1];
+                void* entry = null;
+                fixed (byte* none = empty)
+                {
+                    while ((entry = AV.av_dict_get(options, none, entry, AVConstants.DictIgnoreSuffix)) is not null)
+                    {
+                        unusedOptions.Add(Utf8.ToManagedOrEmpty(*(byte**)entry));
+                    }
+                }
+            }
+
+            return context;
         }
         finally
         {

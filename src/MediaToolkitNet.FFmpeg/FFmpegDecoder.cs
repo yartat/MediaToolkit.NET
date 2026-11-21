@@ -178,8 +178,7 @@ public sealed unsafe class FFmpegDecoder : IDisposable
         new(frame->Width, frame->Height, FFmpegFormatMap.FromAV((AVPixelFormat)frame->Format), frameRate);
 
     /// <summary>Builds an <see cref="AudioFormat"/> from a decoded frame.</summary>
-    public AudioFormat DescribeAudio(AVFrameHead* frame) =>
-        AudioFormat with { SampleFormat = FFmpegFormatMap.FromAV((AVSampleFormat)frame->Format) };
+    public AudioFormat DescribeAudio(AVFrameHead* frame) => AbiLayout.AudioFormatOf(frame, AudioFormat);
 
     /// <summary>Converts a frame timestamp into wall-clock time using the stream time base.</summary>
     public TimeSpan TimestampOf(AVFrameHead* frame)

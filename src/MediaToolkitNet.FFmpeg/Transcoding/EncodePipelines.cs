@@ -146,6 +146,16 @@ internal abstract unsafe class EncodePipeline : StreamPipeline
         }
     }
 
+    /// <summary>The keys of encoder options the encoder did not recognise; empty when it took all.</summary>
+    public List<string> UnusedEncoderOptions { get; } = [];
+
+    /// <summary>Tells the graph no more frames are coming and encodes what it was holding.</summary>
+    protected void FlushGraph()
+    {
+        Graph.TryPush(null);
+        DrainGraph();
+    }
+
     private void DrainGraph()
     {
         while (Graph.TryReceive(Filtered))
@@ -213,6 +223,11 @@ internal sealed unsafe class VideoPipeline : EncodePipeline
     private int _format;
     private long _lastPts = long.MinValue;
     private AVRationalNative _sinkTimeBase;
+    private string _graphChain = string.Empty;
+    private AVRationalNative _frameRate;
+    private AVRationalNative _aspect;
+    private int? _space;
+    private int? _range;
 
     public VideoPipeline(
         PlannedStream plan,
@@ -355,15 +370,18 @@ internal sealed unsafe class VideoPipeline : EncodePipeline
                     }
                 },
                 extraFlags: qscale ? AVConstants.CodecFlagQScale : 0,
-                streamOptions: options);
+                streamOptions: options,
+                unusedOptions: UnusedEncoderOptions);
 
             if (Encoder is not null)
             {
+                _graphChain = FilterChains.Join([chain, $"format=pix_fmts={Utf8.ToManagedOrEmpty(AV.av_get_pix_fmt_name(candidate))}"]);
+                _frameRate = frameRate;
+                _aspect = aspect;
+                _space = space;
+                _range = range;
                 Graph = FFmpegFilterGraph.ForVideo(
-                    _width, _height, _format, InputTimeBase, frameRate, aspect,
-                    FilterChains.Join([chain, $"format=pix_fmts={Utf8.ToManagedOrEmpty(AV.av_get_pix_fmt_name(candidate))}"]),
-                    space,
-                    range);
+                    _width, _height, _format, InputTimeBase, frameRate, aspect, _graphChain, space, range);
                 _sinkTimeBase = Graph.OutputTimeBase;
                 AllocateBuffers();
                 return muxer.AddEncodedStream(Encoder, EncoderTimeBase);
@@ -379,14 +397,34 @@ internal sealed unsafe class VideoPipeline : EncodePipeline
 
     protected override void Check(AVFrameHead* frame)
     {
-        if (frame->Width != _width || frame->Height != _height || frame->Format != _format)
+        if (frame->Width == _width && frame->Height == _height && frame->Format == _format)
         {
+            return;
+        }
+
+        // Broadcast captures change size at programme boundaries. What the old
+        // graph holds goes out first; a new graph for the new size takes over.
+        var encoderWidth = Graph.OutputVideoFormat.Width;
+        var encoderHeight = Graph.OutputVideoFormat.Height;
+        FlushGraph();
+        var rebuilt = FFmpegFilterGraph.ForVideo(
+            frame->Width, frame->Height, frame->Format, InputTimeBase, _frameRate, _aspect, _graphChain, _space, _range);
+        if (rebuilt.OutputVideoFormat.Width != encoderWidth || rebuilt.OutputVideoFormat.Height != encoderHeight)
+        {
+            rebuilt.Dispose();
             throw new MediaToolkitNetException(
                 FFmpegLibraries.BackendName,
-                $"input stream #{SourceIndex} changes from {_width}x{_height} to {frame->Width}x{frame->Height} " +
-                "part way through, which the transcoder does not follow",
+                $"input stream #{SourceIndex} changes from {_width}x{_height} to {frame->Width}x{frame->Height} part way through, " +
+                $"and the output would no longer be {encoderWidth}x{encoderHeight}; ask for a fixed output size",
                 AVConstants.ErrorInvalid);
         }
+
+        Graph.Dispose();
+        Graph = rebuilt;
+        _sinkTimeBase = Graph.OutputTimeBase;
+        _width = frame->Width;
+        _height = frame->Height;
+        _format = frame->Format;
     }
 
     protected override bool Retime(AVFrameHead* frame)
@@ -455,6 +493,9 @@ internal sealed unsafe class AudioPipeline : EncodePipeline
     private int _channels;
     private AVRationalNative _sinkTimeBase;
     private long _lastPts = long.MinValue;
+    private long _nextPts = long.MinValue;
+    private string _graphChain = string.Empty;
+    private int _frameSize;
 
     public AudioPipeline(PlannedStream plan, FFmpegDemuxer demuxer, TimeWindow window, int threads)
         : base(plan, demuxer, window, threads) =>
@@ -547,7 +588,8 @@ internal sealed unsafe class AudioPipeline : EncodePipeline
                     }
                 },
                 extraFlags: quality is null ? 0 : AVConstants.CodecFlagQScale,
-                streamOptions: _settings.Options);
+                streamOptions: _settings.Options,
+                unusedOptions: UnusedEncoderOptions);
 
             if (Encoder is null)
             {
@@ -555,20 +597,19 @@ internal sealed unsafe class AudioPipeline : EncodePipeline
             }
 
             var formatName = Utf8.ToManagedOrEmpty(AV.av_get_sample_fmt_name(candidate));
-            Graph = FFmpegFilterGraph.ForAudio(
-                _sampleRate, _format, inputLayoutName, InputTimeBase,
-                FilterChains.Join(
-                [
-                    chain,
-                    $"aformat=sample_fmts={formatName}:sample_rates={targetRate}:channel_layouts={targetLayoutName}",
-                ]));
+            _graphChain = FilterChains.Join(
+            [
+                chain,
+                $"aformat=sample_fmts={formatName}:sample_rates={targetRate}:channel_layouts={targetLayoutName}",
+            ]);
+            Graph = FFmpegFilterGraph.ForAudio(_sampleRate, _format, inputLayoutName, InputTimeBase, _graphChain);
 
             // Most encoders take a fixed number of samples per frame; the sink
             // cuts them to size, and those that take any report zero.
-            var frameSize = (int)AV.GetOption(Encoder, "frame_size");
-            if (frameSize > 0)
+            _frameSize = (int)AV.GetOption(Encoder, "frame_size");
+            if (_frameSize > 0)
             {
-                Graph.SetOutputFrameSize(frameSize);
+                Graph.SetOutputFrameSize(_frameSize);
             }
 
             _sinkTimeBase = Graph.OutputTimeBase;
@@ -585,21 +626,49 @@ internal sealed unsafe class AudioPipeline : EncodePipeline
 
     protected override void Check(AVFrameHead* frame)
     {
-        if (frame->Format != _format)
+        // What the frame says is the truth: the container's parameters can name a
+        // sample format the decoder does not output (MP2 does), and a broadcast
+        // can change rate or channels part way through.
+        var actual = AbiLayout.AudioFormatOf(frame, new AudioFormat(_sampleRate, _channels, SampleFormat.Unknown));
+        if (frame->Format == _format && actual.SampleRate == _sampleRate && actual.Channels == _channels)
         {
-            throw new MediaToolkitNetException(
-                FFmpegLibraries.BackendName,
-                $"input stream #{SourceIndex} changes its sample format part way through, which the transcoder does not follow",
-                AVConstants.ErrorInvalid);
+            return;
         }
+
+        FlushGraph();
+        var layout = AVChannelLayoutNative.Of(actual.Channels, actual.ChannelMask);
+        var rebuilt = FFmpegFilterGraph.ForAudio(
+            actual.SampleRate, frame->Format, FFmpegFilterGraph.DescribeLayout(&layout), InputTimeBase, _graphChain);
+        if (_frameSize > 0)
+        {
+            rebuilt.SetOutputFrameSize(_frameSize);
+        }
+
+        Graph.Dispose();
+        Graph = rebuilt;
+        _sinkTimeBase = Graph.OutputTimeBase;
+        _sampleRate = actual.SampleRate;
+        _channels = actual.Channels;
+        _format = frame->Format;
     }
 
     protected override bool Retime(AVFrameHead* frame)
     {
-        frame->Pts = frame->Pts == AVConstants.NoPtsValue
-            ? (_lastPts == long.MinValue ? 0 : _lastPts + 1)
+        var pts = frame->Pts == AVConstants.NoPtsValue
+            ? (_nextPts == long.MinValue ? 0 : _nextPts)
             : AV.av_rescale_q(frame->Pts, _sinkTimeBase, EncoderTimeBase);
-        _lastPts = frame->Pts;
+
+        // A timestamp that does not advance (a discontinuity in the input) would
+        // be refused by the muxer; the audio carries on from where the last ended.
+        if (_lastPts != long.MinValue && pts <= _lastPts)
+        {
+            pts = _nextPts;
+        }
+
+        frame->Pts = pts;
+        _lastPts = pts;
+        var rate = Graph.OutputAudioFormat.SampleRate;
+        _nextPts = pts + (rate > 0 ? AV.av_rescale_q(frame->NbSamples, new AVRationalNative(1, rate), EncoderTimeBase) : frame->NbSamples);
         return true;
     }
 

@@ -17,6 +17,8 @@ namespace MediaToolkitNet.Interop;
 /// </remarks>
 public static class NativeSearchPaths
 {
+    private const string RepositoryMarker = "MediaToolkit.NET.slnx";
+
     private static readonly List<string> Extra = [];
 
     /// <summary>
@@ -48,7 +50,9 @@ public static class NativeSearchPaths
     }
 
     /// <summary>Returns the probe order: user directories first, then the built-in defaults.</summary>
-    public static IReadOnlyList<string> Resolve()
+    public static IReadOnlyList<string> Resolve() => Resolve(AppContext.BaseDirectory);
+
+    internal static IReadOnlyList<string> Resolve(string baseDir)
     {
         var result = new List<string>();
         lock (Extra)
@@ -56,7 +60,6 @@ public static class NativeSearchPaths
             result.AddRange(Extra);
         }
 
-        var baseDir = AppContext.BaseDirectory;
         var platform = PlatformFolder;
 
         result.Add(baseDir);
@@ -65,12 +68,15 @@ public static class NativeSearchPaths
         result.Add(Path.Combine(baseDir, "runtimes", RuntimeInformation.RuntimeIdentifier, "native"));
 
         // Development convenience: when running straight out of bin/, walk up to
-        // the repository root and pick up the checked-in native folders.
+        // the repository root and pick up the checked-in native folders. Only a
+        // folder that is this repository counts: an installed application sits
+        // under directories other users may write to, and a library planted in
+        // <ancestor>/src/FFMpeg would be loaded into it.
         var probe = new DirectoryInfo(baseDir);
         for (var depth = 0; probe is not null && depth < 8; depth++, probe = probe.Parent)
         {
             var ffmpeg = Path.Combine(probe.FullName, "src", "FFMpeg", platform);
-            if (Directory.Exists(ffmpeg))
+            if (File.Exists(Path.Combine(probe.FullName, RepositoryMarker)) && Directory.Exists(ffmpeg))
             {
                 result.Add(ffmpeg);
                 break;
@@ -79,4 +85,9 @@ public static class NativeSearchPaths
 
         return result;
     }
+
+    /// <summary>The entries of a <c>PATH</c>-style variable that can be loaded from.</summary>
+    /// <remarks>Empty and relative entries mean the current directory, which is not trusted.</remarks>
+    internal static IReadOnlyList<string> PathEntries(string? pathVariable) =>
+        [.. (pathVariable?.Split(Path.PathSeparator) ?? []).Where(Path.IsPathFullyQualified)];
 }

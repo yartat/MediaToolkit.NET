@@ -33,13 +33,66 @@ public readonly record struct FFmpegStreamInfo(
 public sealed unsafe class FFmpegDemuxer : IDisposable
 {
     private void* _context;
+    private void* _pb;
+    private InterruptState? _interrupt;
+    private System.Runtime.InteropServices.GCHandle _interruptHandle;
     private FFmpegStreamInfo[] _streams = [];
     private bool _disposed;
 
-    private FFmpegDemuxer(void* context)
+    private FFmpegDemuxer(void* context, void* pb, InterruptState? interrupt, System.Runtime.InteropServices.GCHandle interruptHandle)
     {
         _context = context;
+        _pb = pb;
+        _interrupt = interrupt;
+        _interruptHandle = interruptHandle;
     }
+
+    /// <summary>What the native side asks, from any thread, whether to give up waiting.</summary>
+    private sealed class InterruptState
+    {
+        public volatile bool Requested;
+    }
+
+    /// <summary>
+    /// Makes a read or connect that is waiting on the network return with an
+    /// error, so the thread blocked in it can be stopped. Until
+    /// <see cref="ClearInterrupt"/> every network read fails. Inputs that are
+    /// files cannot block and are not affected.
+    /// </summary>
+    public void Interrupt()
+    {
+        if (_interrupt is not null)
+        {
+            _interrupt.Requested = true;
+        }
+    }
+
+    /// <summary>Lets reads wait again after an <see cref="Interrupt"/> has done its work.</summary>
+    public void ClearInterrupt()
+    {
+        if (_interrupt is not null)
+        {
+            _interrupt.Requested = false;
+        }
+    }
+
+    [System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = [typeof(System.Runtime.CompilerServices.CallConvCdecl)])]
+    private static int InterruptCallback(void* opaque)
+    {
+        try
+        {
+            var handle = System.Runtime.InteropServices.GCHandle.FromIntPtr((nint)opaque);
+            return handle.Target is InterruptState { Requested: true } ? 1 : 0;
+        }
+        catch (Exception)
+        {
+            return 0; // nothing may be thrown into libavformat
+        }
+    }
+
+    /// <summary>True for an input that goes over the network, which is where a read can block.</summary>
+    private static bool IsNetworkUrl(string url) =>
+        url.Contains("://", StringComparison.Ordinal) && !url.StartsWith("file:", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Streams found in the container.</summary>
     public IReadOnlyList<FFmpegStreamInfo> Streams => _streams;
@@ -56,10 +109,23 @@ public sealed unsafe class FFmpegDemuxer : IDisposable
     /// Requires libavdevice for the device demuxers.
     /// </param>
     /// <param name="options">Demuxer options, passed through as an AVDictionary.</param>
+    /// <param name="allowNetwork">
+    /// Whether the input may be a URL on the network. By default only files and
+    /// pipes are opened, so a path someone else supplied cannot make this process
+    /// connect to a host of their choosing; <see cref="AllowNetworkByDefault"/>
+    /// changes the default for the whole process. Devices are not affected.
+    /// </param>
+    /// <param name="allowPlaylists">
+    /// Playlist demuxers (HLS, DASH, concat) read other files and URLs named by
+    /// the input, so a file someone else supplied can make this process read
+    /// anything it can reach. They are refused unless the caller trusts the input.
+    /// </param>
     public static FFmpegDemuxer Open(
         string url,
         string? inputFormat = null,
-        IReadOnlyDictionary<string, string>? options = null)
+        IReadOnlyDictionary<string, string>? options = null,
+        bool allowPlaylists = false,
+        bool? allowNetwork = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(url);
         FFmpegLibraries.EnsureLoaded();
@@ -86,19 +152,110 @@ public sealed unsafe class FFmpegDemuxer : IDisposable
             }
         }
 
+        // A device name is not a protocol, and a caller's own whitelist wins.
+        if (string.IsNullOrEmpty(inputFormat)
+            && !(allowNetwork ?? AllowNetworkByDefault)
+            && options?.ContainsKey("protocol_whitelist") != true)
+        {
+            AV.DictionarySet(&dictionary, "protocol_whitelist", "file,pipe,crypto,data");
+        }
+
         void* context = null;
+        void* pb = null;
+        InterruptState? interrupt = null;
+        var interruptHandle = default(System.Runtime.InteropServices.GCHandle);
+        var owned = false;
         try
         {
             Span<byte> urlScratch = stackalloc byte[Utf8Scoped.StackThreshold];
             using var urlUtf8 = new Utf8Scoped(url, urlScratch);
+
+            if (string.IsNullOrEmpty(inputFormat) && IsNetworkUrl(url))
+            {
+                // The input is opened here, with a callback the demuxer can be
+                // interrupted through, and handed to libavformat ready-made.
+                interrupt = new InterruptState();
+                interruptHandle = System.Runtime.InteropServices.GCHandle.Alloc(interrupt);
+                var callback = stackalloc nint[2];
+                callback[0] = (nint)(delegate* unmanaged[Cdecl]<void*, int>)&InterruptCallback;
+                callback[1] = System.Runtime.InteropServices.GCHandle.ToIntPtr(interruptHandle);
+
+                void* ioOptions = null;
+                try
+                {
+                    if (options is not null)
+                    {
+                        foreach (var (key, value) in options)
+                        {
+                            AV.DictionarySet(&ioOptions, key, value);
+                        }
+                    }
+
+                    if (!(allowNetwork ?? AllowNetworkByDefault) && options?.ContainsKey("protocol_whitelist") != true)
+                    {
+                        AV.DictionarySet(&ioOptions, "protocol_whitelist", "file,pipe,crypto,data");
+                    }
+
+                    FFmpegError.Check(
+                        AV.avio_open2(&pb, urlUtf8.Pointer, AVConstants.AvioFlagRead, callback, &ioOptions),
+                        $"avformat_open_input({url})");
+                }
+                finally
+                {
+                    if (ioOptions is not null)
+                    {
+                        AV.av_dict_free(&ioOptions);
+                    }
+                }
+
+                context = AV.avformat_alloc_context();
+                if (context is null)
+                {
+                    throw new Abstractions.MediaToolkitNetException(
+                        FFmpegLibraries.BackendName, "avformat_alloc_context returned null", AVConstants.ErrorInvalid);
+                }
+
+                AbiLayout.SetPb(context, pb);
+            }
+
             FFmpegError.Check(AV.avformat_open_input(&context, urlUtf8.Pointer, format, &dictionary), $"avformat_open_input({url})");
+            if (!allowPlaylists && string.IsNullOrEmpty(inputFormat) && IsPlaylistFormat(AbiLayout.NameOfFormat(AbiLayout.InputFormatOf(context))))
+            {
+                throw new Abstractions.MediaToolkitNetException(
+                    FFmpegLibraries.BackendName,
+                    $"{url} is a playlist ({AbiLayout.NameOfFormat(AbiLayout.InputFormatOf(context))}), which names other files to read; " +
+                    "open the media it lists, or allow playlists for input you trust",
+                    AVConstants.ErrorInvalid);
+            }
+
             FFmpegError.Check(AV.avformat_find_stream_info(context, null), "avformat_find_stream_info");
+            AbiLayout.ValidateOpenInput(context, url);
+
+            var opened = new FFmpegDemuxer(context, pb, interrupt, interruptHandle);
+            owned = true;
+            opened.ReadStreamInfo();
+            return opened;
         }
         catch
         {
-            if (context is not null)
+            if (!owned)
             {
-                AV.avformat_close_input(&context);
+                if (context is not null)
+                {
+                    AV.avformat_close_input(&context);
+                }
+
+                // A pre-opened input is not closed by libavformat, whether it
+                // went on to open or not.
+                if (pb is not null)
+                {
+                    AV.avio_closep(&pb);
+                }
+
+                if (interruptHandle.IsAllocated)
+                {
+                    interruptHandle.Free();
+                }
             }
 
             throw;
@@ -110,13 +267,19 @@ public sealed unsafe class FFmpegDemuxer : IDisposable
                 AV.av_dict_free(&dictionary);
             }
         }
-
-        AbiLayout.ValidateOpenInput(context, url);
-
-        var demuxer = new FFmpegDemuxer(context);
-        demuxer.ReadStreamInfo();
-        return demuxer;
     }
+
+    /// <summary>
+    /// Whether inputs may be network URLs when the caller does not say. Off, so
+    /// that a path taken from an untrusted source stays on the local machine;
+    /// an application that handles URLs on purpose turns it on once at start-up.
+    /// </summary>
+    public static bool AllowNetworkByDefault { get; set; }
+
+    private static readonly string[] PlaylistFormats = ["hls", "applehttp", "concat", "dash"];
+
+    private static bool IsPlaylistFormat(string names) =>
+        names.Split(',').Any(n => PlaylistFormats.Contains(n, StringComparer.OrdinalIgnoreCase));
 
     private void ReadStreamInfo()
     {
@@ -237,6 +400,21 @@ public sealed unsafe class FFmpegDemuxer : IDisposable
             {
                 AV.avformat_close_input(context);
             }
+        }
+
+        // A pre-opened input is not closed with the context, and the callback it
+        // holds must stay valid until it is.
+        if (_pb is not null)
+        {
+            fixed (void** pb = &_pb)
+            {
+                AV.avio_closep(pb);
+            }
+        }
+
+        if (_interruptHandle.IsAllocated)
+        {
+            _interruptHandle.Free();
         }
     }
 }

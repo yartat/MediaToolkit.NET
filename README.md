@@ -242,6 +242,55 @@ foreach (var cue in reader.SubtitleStreams[0].ReadAll())
 }
 ```
 
+### Files, URLs and untrusted input
+
+The FFmpeg backend opens **local files and pipes only**. A path that comes from
+somebody else (an upload, a form field, a message) would otherwise let that
+somebody make your process connect to a host of their choosing, or read other
+files through a playlist. So, by default, these inputs are refused:
+
+- **Network URLs**: `http://`, `https://`, `rtsp://`, `tcp://`, `udp://` and any
+  other protocol but `file`, `pipe`, `crypto` and `data`. `FFmpegProber`,
+  `FFmpegMediaReader` and `FFmpegTranscoder` answer
+  `avformat_open_input(...): Invalid argument`, without connecting.
+- **Playlists** (HLS `.m3u8`, DASH, `concat`): they name other files to read, so
+  they are refused with "is a playlist, which names other files to read".
+
+`FFmpegPlayer` is not restricted, since playing a URL is what it is for, and
+neither are capture devices.
+
+If your application opens URLs on purpose, say so. Either once, at start-up, for
+the whole process:
+
+```csharp
+FFmpegDemuxer.AllowNetworkByDefault = true;
+
+var info = new FFmpegProber().Probe("https://example.com/clip.mp4");
+```
+
+or for one reader, with the protocols that input needs and nothing else (`https`
+needs `tls` and `tcp` besides itself):
+
+```csharp
+using var reader = FFmpegMediaReader.Open("https://example.com/clip.mp4",
+    new MediaReaderOptions
+    {
+        DemuxerOptions = new Dictionary<string, string>
+        {
+            ["protocol_whitelist"] = "file,http,https,tcp,tls,crypto",
+        },
+    });
+```
+
+The per-reader form is the better one when only some inputs are URLs: the
+process-wide switch applies to every input, so use it only in an application
+that never opens a path it did not choose itself. Playlists have no such
+switch in the high-level API; open one with
+`FFmpegDemuxer.Open(url, allowPlaylists: true)` when you trust it.
+
+The GStreamer and mpv backends take a URL as they always did. If a job may run on
+either, check the input yourself before handing it over.
+
 Sample commands: `backends`, `devices [audio|video|all|dshow]`, `probe`, `play`,
 `decode`, `rec-audio`, `rec-video`, `rec-file`, `rec-audio-file`, `encoders`,
 `ds-filters`, `ds-graph`, `ds-grab`, `av-filters`, `av-filter`, `gst-elements`,

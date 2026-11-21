@@ -22,6 +22,8 @@
     <ProjectReference Include="..\..\src\MediaToolkitNet.FFmpeg\MediaToolkitNet.FFmpeg.csproj" />
     <ProjectReference Include="..\..\src\MediaToolkitNet.GStreamer\MediaToolkitNet.GStreamer.csproj" />
     <ProjectReference Include="..\..\src\MediaToolkitNet.Mpv\MediaToolkitNet.Mpv.csproj" />
+    <ProjectReference Include="..\MediaToolkitNet.CrashProbe\MediaToolkitNet.CrashProbe.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\samples\MediaToolkitNet.Sample.Cli\MediaToolkitNet.Sample.Cli.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
 </Project>

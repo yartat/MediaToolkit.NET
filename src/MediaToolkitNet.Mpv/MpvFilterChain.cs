@@ -76,11 +76,12 @@ public sealed class MpvFilterChain
     /// takes one.
     /// </summary>
     /// <param name="chain">A chain in FFmpeg syntax, for example <c>scale=640:-1,hflip</c>.</param>
-    /// <returns>Returns the mpv filter string, <c>lavfi=[...]</c>.</returns>
+    /// <returns>Returns the mpv filter string, <c>lavfi=graph=%N%...</c>.</returns>
     public static string Lavfi(string chain)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(chain);
-        return $"lavfi=[{chain}]";
+        // Length-prefixed, so a "]" or a quote inside the chain cannot end it early.
+        return $"lavfi=graph=%{System.Text.Encoding.UTF8.GetByteCount(chain)}%{chain}";
     }
 
     /// <inheritdoc />

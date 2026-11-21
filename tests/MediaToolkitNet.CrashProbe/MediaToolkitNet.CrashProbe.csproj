@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Runs the scenarios that kill the process when the code under test is wrong,
+       so the integration tests can run them in a child process and read the verdict. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+    <EnableTrimAnalyzer>false</EnableTrimAnalyzer>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/MediaToolkitNet.FFmpeg/MediaToolkitNet.FFmpeg.csproj" />
+    <ProjectReference Include="../../src/MediaToolkitNet.Mpv/MediaToolkitNet.Mpv.csproj" />
+    <ProjectReference Include="../../src/MediaToolkitNet.Windows/MediaToolkitNet.Windows.csproj" />
+  </ItemGroup>
+
+</Project>

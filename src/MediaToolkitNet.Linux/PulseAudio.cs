@@ -262,8 +262,8 @@ public sealed unsafe class PulseCapture : PulseStream, IAudioCapture
         }
         catch (Exception ex)
         {
-            Failed?.Invoke(
-                this, ex as MediaToolkitNetException ?? new MediaToolkitNetException("PulseAudio audio capture error.", ex));
+            SafeEvents.RaiseFailed(
+                Failed, this, ex as MediaToolkitNetException ?? new MediaToolkitNetException("PulseAudio audio capture error.", ex));
         }
     }
 

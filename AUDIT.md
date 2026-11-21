@@ -70,7 +70,7 @@ API use. **Medium** – wrong output, leak, or crash in an uncommon path.
 | [MEM-1](#mem-1) | High | Confirmed | `GStreamerSink` builds planes from caps and never checks the buffer size (AccessViolation) |
 | [MEM-2](#mem-2) | High | Likely | Same unchecked plane geometry in DirectShow, Media Foundation and V4L2 producers |
 | [MEM-3](#mem-3) | High | Confirmed | FFmpeg audio frames are described with the format known at open, not the frame's |
-| [MEM-4](#mem-4) | Medium | Certain | `FFmpegFilterGraph.Push(AudioFrame)` with more than 8 planar channels reads wild pointers |
+| [MEM-4](#mem-4) | Low | Refined | `FFmpegFilterGraph.Push(AudioFrame)` with more than 8 planar channels reads wild pointers |
 | [MEM-5](#mem-5) | High | Likely | Stop/Dispose free native state after a 2-second join timeout (use-after-free) — 7 classes |
 | [MEM-6](#mem-6) | High | Certain | Exceptions from `Failed` handlers escape native callbacks / worker threads and end the process |
 | [MEM-7](#mem-7) | High | Likely | `FFmpegPlayer.Seek` while paused runs on the caller's thread concurrently with the worker |
@@ -79,7 +79,7 @@ API use. **Medium** – wrong output, leak, or crash in an uncommon path.
 | [MEM-10](#mem-10) | Medium | Certain | `DirectShowSampleGrabber`: leaks on constructor failure, races on standalone dispose |
 | [MEM-11](#mem-11) | Medium | Likely | `MpvPlayer` reads `_handle` without the lock while `Dispose` destroys it |
 | [BUG-1](#bug-1) | Medium | Confirmed | `TryReadAt` on MPEG-TS returns the next key frame after the requested time |
-| [BUG-2](#bug-2) | Medium | Certain | FFmpeg transcoder aborts on a packet of a stream that appeared after open |
+| [BUG-2](#bug-2) | Medium | Not reproduced | FFmpeg transcoder aborts on a packet of a stream that appeared after open |
 | [BUG-3](#bug-3) | Medium | Certain | Unrecognised encoder options are silently dropped |
 | [BUG-4](#bug-4) | Medium | Certain | Mid-stream format change aborts the whole FFmpeg transcode; audio checks only the sample format |
 | [BUG-5](#bug-5) | Medium | Certain | Audio retiming does not drop non-increasing timestamps |
@@ -114,6 +114,42 @@ Verified **not** to be problems are listed in section 9 so nobody re-opens them.
 6. Everything else.
 
 ---
+
+## 1a. Fix log (TDD)
+
+Every fix below followed red → fix → green; the test is named. Windows run =
+FFmpeg 7.1.5 + libmpv; WSL run = all three backends.
+
+| Issue | Test | State |
+|---|---|---|
+| DL-1, DL-2 | `AuditDataLossTests` (6) | **fixed** — `PartialOutput` (Abstractions) used by all three transcoders |
+| SEC-1 | `AuditFFmpegTests.AnHlsPlaylist…` | **fixed** — playlist demuxers refused unless `allowPlaylists`; protocol whitelist and interrupt callback still open |
+| SEC-2 | `NativeSearchPathsTests` | **fixed** — ancestor must contain `MediaToolkit.NET.slnx` |
+| SEC-3 | `NativeSearchPathsTests` | **fixed** — relative/empty `PATH` entries dropped; Windows fallback no longer uses the default search order |
+| SEC-4 | `AuditMpvQuotingTests` | **fixed** |
+| BUG-12 | `AuditMpvQuotingTests` | **fixed** |
+| MEM-1 | `AuditGStreamerSinkTests` (child process) | **fixed** for video; audio cannot overrun (samples derive from length) |
+| MEM-3 | `AuditFFmpegTests.AudioFrames…` | **fixed** — `AbiLayout.AudioFormatOf`; the reader's conversion graph is still built once per seek |
+| BUG-1 | `AuditFFmpegTests.ReadingAtATime…` | **fixed** — `SeekToFrameAtOrBefore` |
+| BUG-3 | `AuditFFmpegTranscodeTests.AnEncoderOption…` | **fixed** for the FFmpeg transcoder (warning); recorder and mpv still open |
+| BUG-4 | `AuditFFmpegTranscodeTests.AVideoThatChangesSize…` | **fixed for video**; the audio rate/channel check is still open |
+| MEM-4 | `AuditFFmpegTranscodeTests.PlanarAudio…` | **fixed**; it was *not* a wild read: libavfilter refused the frame with an FFmpeg error. Now an `ArgumentException` up front |
+| MEM-6 | `AuditPlayerTests.AThrowingFailedHandler…` (child process, `CrashProbe`) | **fixed** — `SafeEvents.RaiseFailed` used by every backend's worker/callback; macOS code changed without a run |
+| MEM-5 (FFmpeg player, mpv not yet) | `AuditPlayerTests.DisposingFromInside…` | **fixed for `FFmpegPlayer`** — a dispose from the worker, or one that cannot join, leaves the media for the worker to close. Other six classes still open |
+| MEM-7, LEAK-6 | `AuditPlayerTests.SeekingWhilePaused…` | **fixed** — only the worker touches the contexts while it exists; 15 runs in a row green |
+| BUG-5 | `AuditFFmpegTranscodeTests.AudioWhoseTimestampsJumpBack…` | **fixed**; the real first failure was different: the audio check compared the frame with the *container's* sample format, so any MP2 input failed. `Check` now follows the frame and rebuilds the graph (this also completes the audio half of BUG-4) |
+| MEM-2 | `FrameBoundsTests` (4 unit) + `AuditGStreamerSinkTests` | **fixed** — `FrameBounds.FitsIn` used by GStreamer, DirectShow, Media Foundation (also BUG-13 negative stride), V4L2 (also the error flag) and AVFoundation (null planes, lock result). `ds-grab` on WAV and a bottom-up BGR24 H.264 file still delivers every frame. Only the helper and GStreamer have a red test; the other producers need a device |
+| BUG-8 | `AuditPlayerTests.WritingBeforeStart…` (child process, default render endpoint) | **fixed** — red on this machine, green after |
+| LEAK-1, LEAK-2, LEAK-4, LEAK-5, LEAK-7, LEAK-8, HYG-1 | — (no test possible, fixed by review at the user's request) | **fixed**. LEAK-1: `ValidateOpenInput` inside the `try`. LEAK-2: constructor and stream-adding paths free their contexts. LEAK-4: wrappers untrack themselves on dispose, `Describe` disposes what it enumerates, constructor releases on a failed QueryInterface. LEAK-5: V4L2 mappings kept as made (+ `O_CLOEXEC`). LEAK-7: `VariantClear` for non-BSTR values. LEAK-8: `Ole32.Initialize` counts `S_FALSE`; the WASAPI and Media Foundation worker threads balance it. HYG-1: `NativeMemory` for the mpv argument vector (zeroed, which the old `stackalloc` was not). Checked on Windows: `ds-filters`, `ds-grab` (bottom-up H.264), `devices`, `rec-audio-file`, `rec-video` |
+| MEM-11 | `AuditPlayerTests.StoppingWhileAnotherThread…` (child process, 150 rounds) | **fixed** — red was a real `0xC0000005` in `Volume`→`SetProperty`; native calls now run under a read lock, `mpv_terminate_destroy` under the write lock. 3 green runs in a row |
+| SEC-1 (protocols) | `AuditFFmpegTests.ProbingDoesNotOpenAConnection…` | **fixed** — `protocol_whitelist=file,pipe,crypto,data` unless the caller allows network (`allowNetwork`, or `FFmpegDemuxer.AllowNetworkByDefault`); the player allows it. Red: the probe connected and then hung on a silent server. **Still open:** an interrupt callback to cancel a network read that is already running (needs an offset probe in `AbiLayout`) |
+| MEM-3 / BUG-4 (reader) | `AuditFFmpegTests.AudioThatChanges…` (2 red) + `AVideoThatChangesSize…` (2, green both before and after) | **fixed** — `FrameStreamReader` keys every decoded frame by its format; on a change the old graph is flushed and delivered first, then a new graph is built for the new format. Red: with the key held constant the two audio tests fail (the converting one with `av_buffersrc_add_frame_flags: Invalid argument`). The video tests never failed, so FFmpeg 7.1 copes there; they stay as guards. An MP2 decoder may emit one frame with the new channel count and the old rate, which the test tolerates |
+| SEC-1 (interrupt) / MEM-5 for network reads | `AuditPlayerTests.DisposingAPlayerThatIsWaiting…` (child process; HTTP server that sends the start of a file and goes silent) + `AuditNetworkTests` (the normal path) | **fixed** — red: `Dispose` took 2013 ms, the whole join timeout. A network input is now opened with `avio_open2`, which takes the interrupt callback as a parameter, so no `AVFormatContext` offset is needed; `FFmpegDemuxer.Interrupt()` / `ClearInterrupt()`; `FFmpegPlayer.Stop` interrupts before it joins and does not report the interrupted read as `Failed`. Green three runs in a row. Limits: only inputs with `://` are pre-opened (files cannot block), and a connect that is already in progress inside `Open` cannot be interrupted, because the demuxer does not exist yet |
+| BUG-3 (mpv) | `AuditMpvTranscodeTests.AnEncoderOptionNobodyUnderstood…` | **fixed** — red: the job succeeded and `Warnings` was empty. mpv logs `AVOption 'x' not found.` at *error* level and carries on, so the transcoder now reads that line, reports the option once as a warning, and keeps it out of the list of errors that explains a failure |
+| BUG-9 | — | **not an issue**: `Format` already reports the interleaved layout the endpoint was opened with |
+| LEAK-3 | — | **not an issue**: the stream readers open the file lazily, their constructors allocate nothing native (CA2000 is a false positive) |
+| BUG-3 (recorder) | — | **left as is**: the recorder's `EncoderOptions` apply to every stream, so an option one encoder does not know is normal |
+| BUG-2 | `AuditFFmpegTranscodeTests.AStreamThatAppears…` | **not reproduced**: an audio PID added by a later PMT (12 Mbit/s video, 6 MB before it) did not stop the job. Test kept as a guard; the code path may still fail for FLV |
 
 ## 2. Data loss
 

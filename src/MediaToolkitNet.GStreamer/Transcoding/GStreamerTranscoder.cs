@@ -214,7 +214,8 @@ public sealed unsafe class GStreamerTranscoder : IMediaTranscoder
     {
         var clock = Stopwatch.StartNew();
         var issues = new List<TranscodeIssue>();
-        var graph = Prepare(request, issues);
+        using var partial = PartialOutput.Begin(request.Output);
+        var graph = Prepare(request, issues, partial.Path);
         if (graph is null)
         {
             throw new TranscodeRejectedException(Backend, issues);
@@ -222,7 +223,6 @@ public sealed unsafe class GStreamerTranscoder : IMediaTranscoder
 
         var plan = graph.Plan;
         var gates = new List<PipelineGate>();
-        var finished = false;
         var position = TimeSpan.Zero;
         try
         {
@@ -284,7 +284,7 @@ public sealed unsafe class GStreamerTranscoder : IMediaTranscoder
 
             // Disposing the pipeline took it to NULL, which is when the muxer
             // finished the file.
-            finished = true;
+            partial.Commit();
             var written = plan.ExpectedDuration > TimeSpan.Zero ? plan.ExpectedDuration : position;
             progress?.Report(new TranscodeProgress(written, plan.ExpectedDuration, clock.Elapsed));
             return new TranscodeResult(
@@ -300,23 +300,11 @@ public sealed unsafe class GStreamerTranscoder : IMediaTranscoder
             {
                 gate.Dispose();
             }
-
-            if (!finished && File.Exists(request.Output))
-            {
-                try
-                {
-                    File.Delete(request.Output);
-                }
-                catch (IOException)
-                {
-                    // The job's own error matters more.
-                }
-            }
         }
     }
 
     /// <summary>Probes, plans, checks and builds the graph; null when any of it found an error.</summary>
-    private static GStreamerGraph? Prepare(TranscodeRequest request, List<TranscodeIssue> issues)
+    private static GStreamerGraph? Prepare(TranscodeRequest request, List<TranscodeIssue> issues, string? output = null)
     {
         if (!Gst.IsAvailable)
         {
@@ -356,7 +344,7 @@ public sealed unsafe class GStreamerTranscoder : IMediaTranscoder
             return null;
         }
 
-        var graph = GStreamerGraph.Build(plan);
+        var graph = GStreamerGraph.Build(plan, output);
         issues.AddRange(graph.Issues);
         return issues.Any(i => i.Severity == TranscodeIssueSeverity.Error) ? null : graph;
     }
