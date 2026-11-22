@@ -31,6 +31,15 @@ public enum MpvFormat
 
     /// <summary>MPV_FORMAT_NODE.</summary>
     Node = 6,
+
+    /// <summary>MPV_FORMAT_NODE_ARRAY: only inside an <c>mpv_node</c>.</summary>
+    NodeArray = 7,
+
+    /// <summary>MPV_FORMAT_NODE_MAP: only inside an <c>mpv_node</c>.</summary>
+    NodeMap = 8,
+
+    /// <summary>MPV_FORMAT_BYTE_ARRAY: only inside an <c>mpv_node</c>.</summary>
+    ByteArray = 9,
 }
 
 /// <summary>Mirrors <c>mpv_event_id</c>; only the events this backend reacts to are named.</summary>
@@ -83,6 +92,9 @@ public enum MpvEventId
 
     /// <summary>MPV_EVENT_PROPERTY_CHANGE.</summary>
     PropertyChange = 22,
+
+    /// <summary>MPV_EVENT_HOOK.</summary>
+    Hook = 25,
 }
 
 /// <summary>Mirrors <c>mpv_event</c>.</summary>
@@ -188,6 +200,76 @@ public static unsafe class Mpv
     /// <summary><c>void mpv_wakeup(mpv_handle *)</c></summary>
     public static delegate* unmanaged[Cdecl]<void*, void> mpv_wakeup;
 
+    /// <summary><c>int mpv_command_node(mpv_handle *, mpv_node *args, mpv_node *result)</c>; null when libmpv lacks it.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, void*, void*, int> mpv_command_node;
+
+    /// <summary><c>int mpv_hook_add(mpv_handle *, uint64_t reply_userdata, const char *name, int priority)</c>; null when libmpv lacks it.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, ulong, byte*, int, int> mpv_hook_add;
+
+    /// <summary><c>int mpv_hook_continue(mpv_handle *, uint64_t id)</c>; null when libmpv lacks it.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, ulong, int> mpv_hook_continue;
+
+    /// <summary><c>int mpv_command_node_async(mpv_handle *, uint64_t reply_userdata, mpv_node *args)</c>; null when libmpv lacks it.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, ulong, void*, int> mpv_command_node_async;
+
+    /// <summary><c>void mpv_abort_async_command(mpv_handle *, uint64_t reply_userdata)</c>; null when libmpv lacks it.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, ulong, void> mpv_abort_async_command;
+
+    /// <summary>True when libmpv has hooks.</summary>
+    public static bool HasHooks
+    {
+        get
+        {
+            TryInitialise();
+            return _failure is null && mpv_hook_add is not null && mpv_hook_continue is not null;
+        }
+    }
+
+    /// <summary>True when libmpv runs commands asynchronously and can abort them.</summary>
+    public static bool HasAsyncCommands
+    {
+        get
+        {
+            TryInitialise();
+            return _failure is null && mpv_command_node_async is not null && mpv_abort_async_command is not null && mpv_free_node_contents is not null;
+        }
+    }
+
+    /// <summary><c>void mpv_free_node_contents(mpv_node *)</c>; null when libmpv lacks it.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, void> mpv_free_node_contents;
+
+    /// <summary>
+    /// <c>int mpv_stream_cb_add_ro(mpv_handle *, const char *protocol, void *user_data, mpv_stream_cb_open_ro_fn)</c>;
+    /// null when libmpv lacks it. Its open callback is <c>int (void *user_data, char *uri, mpv_stream_cb_info *)</c>.
+    /// </summary>
+    public static delegate* unmanaged[Cdecl]<void*, byte*, void*, delegate* unmanaged[Cdecl]<void*, byte*, nint*, int>, int> mpv_stream_cb_add_ro;
+
+    /// <summary>The client API version of the loaded library as <c>major &lt;&lt; 16 | minor</c>; 0 when none is loaded.</summary>
+    public static uint ApiVersion { get; private set; }
+
+    /// <summary>True when libmpv can read from a stream the host supplies (<c>stream_cb</c>).</summary>
+    public static bool HasStreamCallbacks
+    {
+        get
+        {
+            TryInitialise();
+            return _failure is null && mpv_stream_cb_add_ro is not null;
+        }
+    }
+
+    /// <summary>
+    /// True when libmpv has the node API: structured property values and commands with named arguments or a
+    /// result. Every libmpv of the 1.x and 2.x series that anyone ships does; this is for the ones that do not.
+    /// </summary>
+    public static bool HasNodeApi
+    {
+        get
+        {
+            TryInitialise();
+            return _failure is null && mpv_command_node is not null && mpv_free_node_contents is not null;
+        }
+    }
+
     /// <summary>Client API version of the loaded library, e.g. <c>2.3</c>.</summary>
     public static string? VersionString { get; private set; }
 
@@ -231,6 +313,7 @@ public static unsafe class Mpv
                 Module = NativeModule.Load(BackendName, Candidates());
                 Bind();
                 var version = mpv_client_api_version();
+                ApiVersion = version;
                 VersionString = $"client API {version >> 16}.{version & 0xFFFF}";
             }
             catch (Exception ex)
@@ -263,6 +346,27 @@ public static unsafe class Mpv
         mpv_request_log_messages = (delegate* unmanaged[Cdecl]<void*, byte*, int>)Module.GetExport(nameof(mpv_request_log_messages));
         mpv_wait_event = (delegate* unmanaged[Cdecl]<void*, double, MpvEvent*>)Module.GetExport(nameof(mpv_wait_event));
         mpv_wakeup = (delegate* unmanaged[Cdecl]<void*, void>)Module.GetExport(nameof(mpv_wakeup));
+        mpv_command_node = Module.TryGetExport(nameof(mpv_command_node), out var commandNode)
+            ? (delegate* unmanaged[Cdecl]<void*, void*, void*, int>)commandNode
+            : null;
+        mpv_stream_cb_add_ro = Module.TryGetExport(nameof(mpv_stream_cb_add_ro), out var streamAdd)
+            ? (delegate* unmanaged[Cdecl]<void*, byte*, void*, delegate* unmanaged[Cdecl]<void*, byte*, nint*, int>, int>)streamAdd
+            : null;
+        mpv_hook_add = Module.TryGetExport(nameof(mpv_hook_add), out var hookAdd)
+            ? (delegate* unmanaged[Cdecl]<void*, ulong, byte*, int, int>)hookAdd
+            : null;
+        mpv_hook_continue = Module.TryGetExport(nameof(mpv_hook_continue), out var hookContinue)
+            ? (delegate* unmanaged[Cdecl]<void*, ulong, int>)hookContinue
+            : null;
+        mpv_command_node_async = Module.TryGetExport(nameof(mpv_command_node_async), out var commandAsync)
+            ? (delegate* unmanaged[Cdecl]<void*, ulong, void*, int>)commandAsync
+            : null;
+        mpv_abort_async_command = Module.TryGetExport(nameof(mpv_abort_async_command), out var abortAsync)
+            ? (delegate* unmanaged[Cdecl]<void*, ulong, void>)abortAsync
+            : null;
+        mpv_free_node_contents = Module.TryGetExport(nameof(mpv_free_node_contents), out var freeNode)
+            ? (delegate* unmanaged[Cdecl]<void*, void>)freeNode
+            : null;
     }
 
     private static List<string> Candidates()

@@ -21,7 +21,7 @@ namespace MediaToolkitNet.Mpv;
 /// backend to reach for when you want playback rather than frames.
 /// </para>
 /// <para>
-/// Set <see cref="Options"/> before <see cref="Open"/> to configure mpv, e.g.
+/// Set <see cref="Options"/> before <see cref="Open(string)"/> to configure mpv, e.g.
 /// <c>wid</c> to embed the video into an existing window handle, or <c>vo=null</c>
 /// to play audio only. The full property and option set is reachable through
 /// <see cref="SetProperty(string,string)"/> and <see cref="GetPropertyString"/>.
@@ -43,6 +43,12 @@ public sealed unsafe class MpvPlayer : IMediaPlayer
     private readonly ReaderWriterLockSlim _life = new();
     private MpvFilterChain? _videoFilters;
     private MpvFilterChain? _audioFilters;
+    private readonly List<MpvStreamProtocol> _protocols = [];
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<ulong, MpvHookHandler> _hooks = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<ulong, PendingCommand> _pending = new();
+    private long _nextRequest;
+    private readonly Dictionary<string, (Stream Stream, bool LeaveOpen)> _lent = [];
+    private bool _lendingRegistered;
 
     /// <summary>
     /// Options applied to the mpv instance before it is initialised. The
@@ -63,7 +69,7 @@ public sealed unsafe class MpvPlayer : IMediaPlayer
 
     /// <summary>
     /// mpv's video filter chain. Filters survive a reload, so setting one before
-    /// <see cref="Open"/> applies it to everything played afterwards.
+    /// <see cref="Open(string)"/> applies it to everything played afterwards.
     /// </summary>
     public MpvFilterChain VideoFilters => _videoFilters ??= new MpvFilterChain(this, "vf");
 
@@ -144,6 +150,120 @@ public sealed unsafe class MpvPlayer : IMediaPlayer
         EnsureHandle();
         Command("loadfile", uri, "replace");
         TransitionTo(PlaybackState.Stopped);
+    }
+
+    /// <summary>
+    /// Plays a stream the host holds: a file being downloaded, an archive entry, memory. mpv reads it on its own
+    /// thread, from the start, and seeks it when it is seekable; the stream must not be used elsewhere until the
+    /// player is done with it. A non-seekable stream plays from start to end.
+    /// </summary>
+    /// <param name="stream">A readable stream.</param>
+    /// <param name="leaveOpen">
+    /// Leave <paramref name="stream"/> open when mpv is done with it. By default mpv closes it, which happens when
+    /// something else is loaded or the player is disposed.
+    /// </param>
+    /// <exception cref="NotSupportedException">The libmpv in use has no stream callbacks.</exception>
+    public void Open(Stream stream, bool leaveOpen = false)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        if (!stream.CanRead)
+        {
+            throw new ArgumentException("The stream cannot be read.", nameof(stream));
+        }
+
+        const string protocol = "mtnstream";
+        RequireStreamCallbacks();
+        EnsureHandle();
+
+        var id = Guid.NewGuid().ToString("N");
+        lock (_protocols)
+        {
+            if (!_lendingRegistered)
+            {
+                RegisterProtocol(protocol, uri =>
+                {
+                    lock (_protocols)
+                    {
+                        return _lent.Remove(uri[(protocol.Length + 3)..], out var lent) ? (lent.Stream, !lent.LeaveOpen) : (null, false);
+                    }
+                });
+                _lendingRegistered = true;
+            }
+
+            _lent[id] = (stream, leaveOpen);
+        }
+
+        try
+        {
+            Open($"{protocol}://{id}");
+        }
+        catch
+        {
+            lock (_protocols)
+            {
+                _lent.Remove(id);
+            }
+
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Teaches mpv a protocol of your own: <c>Open("myproto://thing")</c> then calls <paramref name="open"/> with the
+    /// URI, and mpv reads the stream it returns, from any thread it likes, and disposes it when it is done. Register
+    /// before the first <c>Open</c> of that protocol; a protocol stays until the player is disposed.
+    /// </summary>
+    /// <param name="protocol">The scheme, without <c>://</c>: letters, digits, <c>+</c>, <c>-</c> and <c>.</c>.</param>
+    /// <param name="open">Opens the stream a URI names, or returns <see langword="null"/> for none.</param>
+    /// <exception cref="NotSupportedException">The libmpv in use has no stream callbacks.</exception>
+    public void RegisterStreamProtocol(string protocol, MpvStreamOpener open)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(protocol);
+        ArgumentNullException.ThrowIfNull(open);
+        if (!protocol.All(c => char.IsAsciiLetterOrDigit(c) || c is '+' or '-' or '.'))
+        {
+            throw new ArgumentException("A protocol is made of letters, digits, '+', '-' and '.'.", nameof(protocol));
+        }
+
+        RequireStreamCallbacks();
+        EnsureHandle();
+        lock (_protocols)
+        {
+            RegisterProtocol(protocol, uri => (open(uri), true));
+        }
+    }
+
+    private void RegisterProtocol(string protocol, Func<string, (Stream? Stream, bool Own)> open)
+    {
+        var registration = new MpvStreamProtocol(open);
+        registration.Handle = System.Runtime.InteropServices.GCHandle.Alloc(registration);
+        Span<byte> scratch = stackalloc byte[Utf8Scoped.StackThreshold];
+        using var name = new Utf8Scoped(protocol, scratch);
+        int result;
+        using (var guard = EnterHandle())
+        {
+            result = Native.Mpv.mpv_stream_cb_add_ro(
+                guard.Handle,
+                name.Pointer,
+                (void*)System.Runtime.InteropServices.GCHandle.ToIntPtr(registration.Handle),
+                MpvStreamCallbacks.OpenFunction);
+        }
+
+        if (result < 0)
+        {
+            registration.Handle.Free();
+            Native.Mpv.Check(result, $"mpv_stream_cb_add_ro({protocol})");
+        }
+
+        _protocols.Add(registration);
+    }
+
+    private static void RequireStreamCallbacks()
+    {
+        if (!Native.Mpv.HasStreamCallbacks)
+        {
+            throw new NotSupportedException("this libmpv has no stream callbacks (mpv_stream_cb_add_ro)");
+        }
     }
 
     /// <summary>Asks mpv to deliver log messages of at least the given level, e.g. <c>warn</c> or <c>info</c>.</summary>
@@ -289,6 +409,331 @@ public sealed unsafe class MpvPlayer : IMediaPlayer
         return Native.Mpv.mpv_get_property(guard.Handle, nameUtf8.Pointer, (int)MpvFormat.Double, &value) < 0
             ? fallback
             : value;
+    }
+
+    // ---------------------------------------------------------------- nodes
+
+    /// <summary>
+    /// Reads a property as a node: the structured value mpv has for <c>track-list</c>, <c>chapter-list</c>,
+    /// <c>metadata</c>, <c>command-list</c> and many more, where <see cref="GetPropertyString"/> would give JSON text
+    /// at best.
+    /// </summary>
+    /// <returns>Returns the value, or <see langword="null"/> when the property is unavailable.</returns>
+    /// <exception cref="NotSupportedException">The libmpv in use has no node API.</exception>
+    public MpvNode? GetPropertyNode(string name)
+    {
+        RequireNodeApi();
+        EnsureHandle();
+        Span<byte> scratch = stackalloc byte[Utf8Scoped.StackThreshold];
+        using var nameUtf8 = new Utf8Scoped(name, scratch);
+        var node = stackalloc byte[MpvNode.NativeSize];
+        new Span<byte>(node, MpvNode.NativeSize).Clear();
+        using var guard = EnterHandle();
+        if (Native.Mpv.mpv_get_property(guard.Handle, nameUtf8.Pointer, (int)MpvFormat.Node, node) < 0)
+        {
+            return null;
+        }
+
+        try
+        {
+            return MpvNode.Read(node);
+        }
+        finally
+        {
+            Native.Mpv.mpv_free_node_contents(node);
+        }
+    }
+
+    /// <summary>Sets a property to a structured value.</summary>
+    /// <exception cref="NotSupportedException">The libmpv in use has no node API.</exception>
+    public void SetPropertyNode(string name, MpvNode value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        RequireNodeApi();
+        EnsureHandle();
+        Span<byte> scratch = stackalloc byte[Utf8Scoped.StackThreshold];
+        using var nameUtf8 = new Utf8Scoped(name, scratch);
+        using var arena = new MpvNode.Arena();
+        var native = arena.NewNode(value);
+        using var guard = EnterHandle();
+        Native.Mpv.Check(
+            Native.Mpv.mpv_set_property(guard.Handle, nameUtf8.Pointer, (int)MpvFormat.Node, native), $"mpv_set_property({name})");
+    }
+
+    /// <summary>
+    /// Runs a command given as a node, which is how a command takes named arguments
+    /// (<see cref="MpvNode.Command"/>) and how it hands back data, such as the pixels of <c>screenshot-raw</c>.
+    /// Not every command accepts named arguments; give those an array whose first element is the command name.
+    /// </summary>
+    /// <returns>Returns what the command returned, or <see cref="MpvNode.None"/> when it returns nothing.</returns>
+    /// <exception cref="NotSupportedException">The libmpv in use has no node API.</exception>
+    public MpvNode CommandNode(MpvNode arguments)
+    {
+        ArgumentNullException.ThrowIfNull(arguments);
+        RequireNodeApi();
+        EnsureHandle();
+        using var arena = new MpvNode.Arena();
+        var native = arena.NewNode(arguments);
+        var result = stackalloc byte[MpvNode.NativeSize];
+        new Span<byte>(result, MpvNode.NativeSize).Clear();
+        using var guard = EnterHandle();
+        Native.Mpv.Check(Native.Mpv.mpv_command_node(guard.Handle, native, result), "mpv_command_node");
+        try
+        {
+            return MpvNode.Read(result);
+        }
+        finally
+        {
+            Native.Mpv.mpv_free_node_contents(result);
+        }
+    }
+
+    /// <summary>The tracks of the file that is loaded, as mpv lists them. Empty until a file has loaded.</summary>
+    public IReadOnlyList<MpvTrack> GetTracks() =>
+        GetPropertyNode("track-list") is { Kind: MpvNodeKind.Array } list ? [.. list.Items.Select(MpvTrack.From)] : [];
+
+    /// <summary>The chapters of the file that is loaded. Empty when it has none.</summary>
+    public IReadOnlyList<MpvChapter> GetChapters() =>
+        GetPropertyNode("chapter-list") is { Kind: MpvNodeKind.Array } list
+            ? [.. list.Items.Select(c => new MpvChapter(c["title"]?.AsString() ?? string.Empty, TimeSpan.FromSeconds(c["time"]?.AsDouble() ?? 0)))]
+            : [];
+
+    /// <summary>The tags of the file that is loaded (<c>title</c>, <c>artist</c>...), with the container's own spelling of the keys.</summary>
+    public IReadOnlyDictionary<string, string> GetMetadata()
+    {
+        var result = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (GetPropertyNode("metadata") is { Kind: MpvNodeKind.Map } map)
+        {
+            for (var i = 0; i < map.Keys.Count; i++)
+            {
+                if (map.Items[i].AsString() is { } value)
+                {
+                    result[map.Keys[i]] = value;
+                }
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Takes the picture on screen into memory with mpv's <c>screenshot-raw</c>: the frame after mpv's own filters,
+    /// scaling, colour conversion and subtitles, as the decoder alone could not give it. Pausing first makes the
+    /// frame the one you want.
+    /// </summary>
+    /// <param name="content">What to draw into the picture.</param>
+    /// <param name="format">The pixel layout to return.</param>
+    /// <exception cref="NotSupportedException">The libmpv in use has no node API.</exception>
+    /// <exception cref="MediaToolkitNetException">There is no frame to take, for instance before a file has loaded.</exception>
+    public MpvScreenshot TakeScreenshot(
+        MpvScreenshotContent content = MpvScreenshotContent.Subtitles,
+        MpvScreenshotFormat format = MpvScreenshotFormat.Bgra) =>
+        MpvScreenshot.From(
+            CommandNode(MpvNode.Command(
+                "screenshot-raw",
+                ("flags", MpvScreenshot.Name(content)),
+                ("format", MpvScreenshot.Name(format)))),
+            format);
+
+    // ------------------------------------------------------------------ hooks
+
+    /// <summary>
+    /// Asks mpv to wait for <paramref name="handler"/> at a hook: <c>on_load</c> (before a file is opened: read and
+    /// rewrite <c>stream-open-filename</c>, set <c>file-local-options/...</c>), <c>on_load_fail</c>,
+    /// <c>on_preloaded</c>, <c>on_loaded</c> (0.42), <c>on_unload</c>, <c>on_before_start_file</c> and
+    /// <c>on_after_end_file</c>. mpv does nothing more with the file until every handler has let it go, so a handler
+    /// that never does makes the player freeze.
+    /// </summary>
+    /// <param name="name">The hook's name.</param>
+    /// <param name="handler">Runs on the player's event thread; see <see cref="MpvHookHandler"/>.</param>
+    /// <param name="priority">Handlers with a lower number run first.</param>
+    /// <exception cref="NotSupportedException">The libmpv in use has no hooks.</exception>
+    public void AddHook(string name, MpvHookHandler handler, int priority = 0)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        ArgumentNullException.ThrowIfNull(handler);
+        if (!Native.Mpv.HasHooks)
+        {
+            throw new NotSupportedException("this libmpv has no hooks (mpv_hook_add)");
+        }
+
+        EnsureHandle();
+        var id = (ulong)Interlocked.Increment(ref _nextRequest);
+        Span<byte> scratch = stackalloc byte[Utf8Scoped.StackThreshold];
+        using var nameUtf8 = new Utf8Scoped(name, scratch);
+        _hooks[id] = handler;
+        int result;
+        using (var guard = EnterHandle())
+        {
+            result = Native.Mpv.mpv_hook_add(guard.Handle, id, nameUtf8.Pointer, priority);
+        }
+
+        if (result < 0)
+        {
+            _hooks.TryRemove(id, out _);
+            Native.Mpv.Check(result, $"mpv_hook_add({name})");
+        }
+    }
+
+    internal void ContinueHook(ulong id)
+    {
+        try
+        {
+            using var guard = EnterHandle();
+            Native.Mpv.mpv_hook_continue(guard.Handle, id);
+        }
+        catch (ObjectDisposedException)
+        {
+            // The player is gone, and so is whatever was waiting.
+        }
+    }
+
+    private void RunHook(MpvEvent* evt)
+    {
+        if (evt->Data is null)
+        {
+            return;
+        }
+
+        // mpv_event_hook: { const char *name; uint64_t id; }
+        var hook = new MpvHook(this, Utf8.ToManagedOrEmpty(*(byte**)evt->Data), *(ulong*)((byte*)evt->Data + 8));
+        try
+        {
+            if (_hooks.TryGetValue(evt->ReplyUserData, out var handler))
+            {
+                handler(hook);
+            }
+        }
+        catch (Exception ex)
+        {
+            // A handler that throws must not leave mpv waiting, nor stop the loop.
+            SafeEvents.RaiseFailed(Failed, this, new MediaToolkitNetException(Backend, $"the {hook.Name} hook handler threw: {ex.Message}", 0));
+        }
+        finally
+        {
+            if (!hook.Deferred)
+            {
+                hook.Continue();
+            }
+        }
+    }
+
+    // ------------------------------------------------------ asynchronous commands
+
+    private sealed record PendingCommand(TaskCompletionSource<MpvNode> Source, CancellationToken Token);
+
+    /// <summary>
+    /// Runs a command without waiting for it (<c>mpv_command_node_async</c>): the task finishes when mpv has, with what
+    /// the command returned. Takes arguments as <see cref="CommandNode"/> does.
+    /// </summary>
+    /// <param name="arguments">The command, by name with named arguments or as an array.</param>
+    /// <param name="cancellationToken">
+    /// Asks mpv to stop the command (<c>mpv_abort_async_command</c>), which only some commands honour, such as
+    /// <c>subprocess</c>. The task then ends as cancelled, whatever the command went on to return.
+    /// </param>
+    /// <exception cref="NotSupportedException">The libmpv in use has no asynchronous commands.</exception>
+    /// <exception cref="ObjectDisposedException">The task: the player was disposed before the command finished.</exception>
+    public Task<MpvNode> CommandNodeAsync(MpvNode arguments, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(arguments);
+        if (!Native.Mpv.HasAsyncCommands)
+        {
+            throw new NotSupportedException("this libmpv has no asynchronous commands (mpv_command_node_async)");
+        }
+
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return Task.FromCanceled<MpvNode>(cancellationToken);
+        }
+
+        EnsureHandle();
+        var id = (ulong)Interlocked.Increment(ref _nextRequest);
+        var source = new TaskCompletionSource<MpvNode>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _pending[id] = new PendingCommand(source, cancellationToken);
+
+        try
+        {
+            using var arena = new MpvNode.Arena();
+            var native = arena.NewNode(arguments);
+            using var guard = EnterHandle();
+            Native.Mpv.Check(Native.Mpv.mpv_command_node_async(guard.Handle, id, native), "mpv_command_node_async");
+        }
+        catch
+        {
+            _pending.TryRemove(id, out _);
+            throw;
+        }
+
+        if (cancellationToken.CanBeCanceled)
+        {
+            var registration = cancellationToken.Register(() => AbortCommand(id));
+            source.Task.ContinueWith(_ => registration.Dispose(), TaskScheduler.Default);
+        }
+
+        return source.Task;
+    }
+
+    /// <summary>Runs a command without waiting for it. See <see cref="CommandNodeAsync"/>.</summary>
+    /// <param name="arguments">The command name, then its arguments.</param>
+    public Task CommandAsync(params string[] arguments)
+    {
+        ArgumentOutOfRangeException.ThrowIfZero(arguments.Length);
+        return CommandNodeAsync(MpvNode.Array(arguments.Select(MpvNode.From)));
+    }
+
+    private void AbortCommand(ulong id)
+    {
+        try
+        {
+            using var guard = EnterHandle();
+            Native.Mpv.mpv_abort_async_command(guard.Handle, id);
+        }
+        catch (ObjectDisposedException)
+        {
+            // Disposal fails what is pending.
+        }
+    }
+
+    private void CompleteCommand(MpvEvent* evt)
+    {
+        if (!_pending.TryRemove(evt->ReplyUserData, out var pending))
+        {
+            return;
+        }
+
+        if (pending.Token.IsCancellationRequested)
+        {
+            pending.Source.TrySetCanceled(pending.Token);
+        }
+        else if (evt->Error < 0)
+        {
+            pending.Source.TrySetException(new MediaToolkitNetException(
+                Backend, $"mpv command: {Native.Mpv.Describe(evt->Error)}", evt->Error));
+        }
+        else
+        {
+            // mpv_event_command: { mpv_node result; }
+            pending.Source.TrySetResult(evt->Data is null ? MpvNode.None : MpvNode.Read((byte*)evt->Data));
+        }
+    }
+
+    private void FailPending()
+    {
+        foreach (var id in _pending.Keys)
+        {
+            if (_pending.TryRemove(id, out var pending))
+            {
+                pending.Source.TrySetException(new ObjectDisposedException(nameof(MpvPlayer), "the player ended before the command did"));
+            }
+        }
+    }
+
+    private static void RequireNodeApi()
+    {
+        if (!Native.Mpv.HasNodeApi)
+        {
+            throw new NotSupportedException("this libmpv has no node API (mpv_command_node, mpv_free_node_contents)");
+        }
     }
 
     /// <summary>Runs an mpv command, e.g. <c>Command("loadfile", path, "append-play")</c>.</summary>
@@ -440,6 +885,7 @@ public sealed unsafe class MpvPlayer : IMediaPlayer
                 switch (evt->EventId)
                 {
                     case MpvEventId.Shutdown:
+                        FailPending();
                         TransitionTo(PlaybackState.Closed);
                         return;
 
@@ -457,6 +903,14 @@ public sealed unsafe class MpvPlayer : IMediaPlayer
 
                     case MpvEventId.PropertyChange:
                         HandlePropertyChange((MpvEventProperty*)evt->Data);
+                        break;
+
+                    case MpvEventId.CommandReply:
+                        CompleteCommand(evt);
+                        break;
+
+                    case MpvEventId.Hook:
+                        RunHook(evt);
                         break;
                 }
             }
@@ -581,6 +1035,28 @@ public sealed unsafe class MpvPlayer : IMediaPlayer
         {
             _cancellation?.Dispose();
             _cancellation = null;
+        }
+
+        FailPending();
+
+        // The core is gone, so no stream opens or reads any more; streams it had open are closed.
+        lock (_protocols)
+        {
+            foreach (var protocol in _protocols)
+            {
+                protocol.Handle.Free();
+            }
+
+            _protocols.Clear();
+            foreach (var (stream, leaveOpen) in _lent.Values)
+            {
+                if (!leaveOpen)
+                {
+                    stream.Dispose();
+                }
+            }
+
+            _lent.Clear();
         }
     }
 }

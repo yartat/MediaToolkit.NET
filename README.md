@@ -215,6 +215,89 @@ Things to know:
 - Stream groups are read from the container as it opens; groups that appear later, while packets are read, are not
   listed. Tile grid and layered video parameters are checked for plausibility but were not tested against a real file.
 
+## mpv node API
+
+`MpvPlayer` reads and writes mpv's structured values as `MpvNode` trees (`mpv_node`), so `track-list`, `chapter-list`,
+`metadata` and a command's result are data, not text:
+
+```csharp
+using var player = new MpvPlayer();
+player.Open("movie.mkv");
+
+foreach (var track in player.GetTracks())            // id, type, language, codec, size, rate, selected...
+{
+    Console.WriteLine($"{track.Type} #{track.Id} {track.Language} {track.Codec}");
+}
+
+var chapters = player.GetChapters();                  // title and start
+var tags = player.GetMetadata();                      // the container's own key spelling, e.g. TITLE in Matroska
+
+// Any property or command, with named arguments:
+var raw = player.GetPropertyNode("command-list");
+var text = player.CommandNode(MpvNode.Command("expand-text", ("text", "${filename}")));
+```
+
+`TakeScreenshot` wraps `screenshot-raw`: the frame as mpv shows it, after its filters, scaling, colour conversion and
+subtitles, into memory (`MpvScreenshot`: size, stride, `Bgr0`, `Bgra`, `Rgba` or 16-bit `Rgba64`). It needs a frame, so
+pause and wait for `video-params` first; it works with `vo=null`.
+
+```csharp
+player.Options["vo"] = "null";
+player.Open("movie.mkv");
+// ... wait until player.GetPropertyNode("video-params") is not null
+var shot = player.TakeScreenshot(MpvScreenshotContent.Video, MpvScreenshotFormat.Bgra);
+var row = shot.GetRow(100);        // Width * 4 bytes, without the padding after the row
+```
+
+`Open(Stream)` plays a .NET stream through mpv's `stream_cb` API, and `RegisterStreamProtocol` teaches mpv a scheme of
+your own (`Open("myproto://thing")` calls your opener with the URI):
+
+```csharp
+using var file = File.OpenRead("movie.mkv");
+player.Open(file, leaveOpen: true);                       // mpv reads it on its own thread; seekable streams seek
+
+player.RegisterStreamProtocol("archive", uri => OpenEntry(uri));
+player.Open("archive://movies/a.mkv");
+```
+
+mpv closes a stream it was given unless `leaveOpen` is set, and does so when something else is loaded or the player is
+disposed. A .NET `Stream` cannot be interrupted, so a read that is waiting on a slow source ends only when the stream
+returns; after mpv's cancel request (libmpv 1.106 and newer) further reads fail. A load that fails (opener returns
+`null`, unreadable data) ends playback; it does not raise `Failed`.
+
+`AddHook` makes mpv wait for you at `on_load`, `on_preloaded`, `on_loaded`, `on_unload` and the other hooks, and
+`CommandNodeAsync` / `CommandAsync` run a command without waiting for it, with cancellation:
+
+```csharp
+// Redirect a URL before mpv opens anything (stream-open-filename); file-local-options/<name> sets options for this file.
+player.AddHook("on_load", hook =>
+{
+    if (hook.Player.GetPropertyString("stream-open-filename") is { } url && url.StartsWith("video://"))
+    {
+        hook.Player.SetProperty("stream-open-filename", Resolve(url));
+    }
+});
+
+// Work that takes time: keep mpv waiting and let it go from anywhere.
+player.AddHook("on_load", hook =>
+{
+    hook.Defer();
+    _ = Task.Run(async () => { await PrepareAsync(); hook.Continue(); });
+});
+
+var result = await player.CommandNodeAsync(MpvNode.Command("subprocess", ("args", MpvNode.Array("ffprobe", "x.mkv"))), token);
+```
+
+A hook handler runs on the player's event thread: mpv does nothing more with the file until it returns (or until
+`Continue` after `Defer`), no other event of that player is delivered, and an `await` on its own asynchronous commands
+inside it never finishes. A handler that throws is reported through `Failed` and mpv goes on. Cancelling a command asks
+mpv to abort it, which only some commands honour (`subprocess` does); the task then ends as cancelled. Pending
+commands fail with `ObjectDisposedException` when the player is disposed.
+
+`MpvNode.Command` puts the command under `name`, which every libmpv accepts; a command with an argument called `name`
+needs `_name` (mpv 0.42 and newer) in a node built with `MpvNode.Map`. Nodes are copies, so they stay valid after
+libmpv frees its own. A libmpv without the node API throws `NotSupportedException` (`Mpv.HasNodeApi`).
+
 ## Transcoding
 
 A transcode is described once, as a `TranscodeRequest`, and run by whichever

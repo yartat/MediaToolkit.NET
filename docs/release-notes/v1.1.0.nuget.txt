@@ -7,6 +7,10 @@ ADDED: frame side data and EXIF, MIME codec strings, synchronous decoding, encod
 filter graphs (9.1), HDR gain maps (9.1), downmix matrices (9.1), native DSD decoding (9.1), reading a Windows HANDLE with seek (9.1), stream groups, typed builders for ColorDetect,
 LatticePal, Whisper and GainMap filters.
 
+ADDED TO MediaToolkitNet.Mpv: the node API (MpvNode, GetPropertyNode, SetPropertyNode, CommandNode) and typed
+GetTracks, GetChapters and GetMetadata, AddHook (mpv hooks), CommandNodeAsync and CommandAsync (asynchronous commands), Open(Stream) and
+RegisterStreamProtocol (stream_cb), and TakeScreenshot (mpv's screenshot-raw).
+
 TESTED: Windows 11 with FFmpeg 9.1 (development build) and 9.0.1; Debian 13 with FFmpeg 7.1.5. Every new struct
 layout is confirmed at run time.
 
