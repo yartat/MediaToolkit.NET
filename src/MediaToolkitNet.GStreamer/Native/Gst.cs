@@ -411,6 +411,15 @@ public static unsafe class Gst
     /// <summary><c>void g_value_set_flags(GValue *, guint)</c></summary>
     public static delegate* unmanaged[Cdecl]<byte*, uint, void> g_value_set_flags;
 
+    /// <summary><c>void g_value_set_object(GValue *, gpointer)</c>; the value takes its own reference.</summary>
+    public static delegate* unmanaged[Cdecl]<byte*, void*, void> g_value_set_object;
+
+    /// <summary><c>GstElement *gst_parse_bin_from_description(const gchar *, gboolean ghost_unlinked_pads, GError **)</c>, floating.</summary>
+    public static delegate* unmanaged[Cdecl]<byte*, int, void**, void*> gst_parse_bin_from_description;
+
+    /// <summary><c>gpointer gst_object_ref(gpointer)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, void*> gst_object_ref;
+
     /// <summary><c>void g_object_set_property(GObject *, const gchar *, const GValue *)</c></summary>
     public static delegate* unmanaged[Cdecl]<void*, byte*, byte*, void> g_object_set_property;
 
@@ -481,6 +490,27 @@ public static unsafe class Gst
         {
             g_free(text);
         }
+    }
+
+    private static NativeModule? _video;
+
+    /// <summary>
+    /// Hands a native window (an X11 window id) to an element that implements <c>GstVideoOverlay</c>, such as
+    /// <c>playbin</c> or <c>ximagesink</c>, so that it draws there instead of opening a window. libgstvideo is loaded
+    /// here and not at start, since only this needs it.
+    /// </summary>
+    /// <returns>False when the element is not a video overlay.</returns>
+    public static bool SetVideoOverlayWindow(void* element, nuint window)
+    {
+        _video ??= NativeModule.Load(GstConstants.BackendName, ["libgstvideo-1.0.so.0", "libgstvideo-1.0.so"]);
+        var type = ((delegate* unmanaged[Cdecl]<nuint>)_video.GetExport("gst_video_overlay_get_type"))();
+        if (g_type_check_instance_is_a(element, type) == 0)
+        {
+            return false;
+        }
+
+        ((delegate* unmanaged[Cdecl]<void*, nuint, void>)_video.GetExport("gst_video_overlay_set_window_handle"))(element, window);
+        return true;
     }
 
     /// <summary>Sets one property of an element, converting the value from its string form.</summary>
@@ -693,6 +723,9 @@ public static unsafe class Gst
         g_value_set_float = (delegate* unmanaged[Cdecl]<byte*, float, void>)GObject.GetExport(nameof(g_value_set_float));
         g_value_set_double = (delegate* unmanaged[Cdecl]<byte*, double, void>)GObject.GetExport(nameof(g_value_set_double));
         g_value_set_flags = (delegate* unmanaged[Cdecl]<byte*, uint, void>)GObject.GetExport(nameof(g_value_set_flags));
+        g_value_set_object = (delegate* unmanaged[Cdecl]<byte*, void*, void>)GObject.GetExport(nameof(g_value_set_object));
+        gst_parse_bin_from_description = (delegate* unmanaged[Cdecl]<byte*, int, void**, void*>)Core.GetExport(nameof(gst_parse_bin_from_description));
+        gst_object_ref = (delegate* unmanaged[Cdecl]<void*, void*>)Core.GetExport(nameof(gst_object_ref));
         g_object_set_property = (delegate* unmanaged[Cdecl]<void*, byte*, byte*, void>)GObject.GetExport(nameof(g_object_set_property));
         g_object_get_property = (delegate* unmanaged[Cdecl]<void*, byte*, byte*, void>)GObject.GetExport(nameof(g_object_get_property));
         g_param_spec_get_default_value = (delegate* unmanaged[Cdecl]<void*, byte*>)GObject.GetExport(nameof(g_param_spec_get_default_value));

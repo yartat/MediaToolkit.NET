@@ -27,6 +27,19 @@ public static class FfmpegProgram
         process.ExitCode.Should().Be(0, $"the ffmpeg program is needed to make the test media: {error}");
     }
 
+    /// <summary>Starts the <c>ffmpeg</c> program and leaves it running, for output that goes to a pipe the test reads; the caller disposes it.</summary>
+    public static Process Start(string arguments)
+    {
+        var directory = Environment.GetEnvironmentVariable(FFmpegEnvironment.DirectoryVariable);
+        var exe = OperatingSystem.IsWindows() ? "ffmpeg.exe" : "ffmpeg";
+        var program = directory is not null && File.Exists(Path.Combine(directory, exe)) ? Path.Combine(directory, exe) : "ffmpeg";
+        return Process.Start(new ProcessStartInfo(program, "-v error -y " + arguments)
+        {
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        })!;
+    }
+
     /// <summary>Counts the video frames <c>ffmpeg</c> decodes from a file, with input options such as <c>-skip_frame nokey</c>.</summary>
     public static int Count(string path, string inputOptions)
     {

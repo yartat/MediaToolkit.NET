@@ -24,7 +24,7 @@ remains AOT- and trim-safe.
 | `MediaToolkitNet.Mpv` | libmpv (client API) |
 | `MediaToolkitNet.Windows` | Media Foundation, WASAPI, DirectShow (devices, filter graph, Sample Grabber) |
 | `MediaToolkitNet.Linux` | ALSA, PulseAudio (simple API), V4L2 |
-| `MediaToolkitNet.GStreamer` | GStreamer 1.x: pipeline, element registry, bus and signals, appsrc and appsink, GstDiscoverer, transcoding, recording |
+| `MediaToolkitNet.GStreamer` | GStreamer 1.x: pipeline, element registry, bus and signals, appsrc and appsink, GstDiscoverer, transcoding, recording, playback |
 | `MediaToolkitNet.MacOS` | AVFoundation through the Objective-C runtime, CoreAudio / AudioQueue |
 | `MediaToolkitNet.All` | Facade: backend registry and per-platform selection |
 | `samples/MediaToolkitNet.Sample.Cli` | Demonstrates every scenario |
@@ -226,6 +226,21 @@ recorder.Stop();                        // out.mp4 appears now; disposing withou
 ```
 
 `MediaToolkitNetBackends.CreateRecorder` still prefers the platform backend and FFmpeg; GStreamer is asked for directly.
+
+`GStreamerPlayer` is an `IMediaPlayer` on `playbin3` that hands the decoded frames back, like the FFmpeg player: video as
+`Bgra32`, audio as interleaved `S16`, each paced by the pipeline clock. By default it draws and plays nothing; name a
+sink and that output is real instead: `VideoSink = "ximagesink"` opens a window (`VideoWindowHandle` draws into an X11
+window of yours), `AudioSink = "pulsesink"` plays through the sound server, and the matching event is then not raised.
+
+```csharp
+using var player = new GStreamerPlayer();
+player.VideoFrameDecoded += (in VideoFrame f) => Show(f);       // on a streaming thread, valid for the call only
+player.StateChanged += (_, e) => Console.WriteLine(e.Current);  // Stopped, Playing, Paused, Ended, Faulted
+player.Open("movie.mkv");                                       // prerolls: a bad file fails here, Duration is known
+// or: new GStreamerPlayer { VideoSink = "ximagesink", AudioSink = "pulsesink", VideoWindowHandle = myWindow }
+player.Seek(TimeSpan.FromSeconds(30));
+player.Play();
+```
 
 ## Windows features
 

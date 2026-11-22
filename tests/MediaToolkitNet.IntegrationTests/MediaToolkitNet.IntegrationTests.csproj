@@ -19,6 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\MediaToolkitNet.All\MediaToolkitNet.All.csproj" />
     <ProjectReference Include="..\..\src\MediaToolkitNet.FFmpeg\MediaToolkitNet.FFmpeg.csproj" />
     <ProjectReference Include="..\..\src\MediaToolkitNet.GStreamer\MediaToolkitNet.GStreamer.csproj" />
     <ProjectReference Include="..\..\src\MediaToolkitNet.Mpv\MediaToolkitNet.Mpv.csproj" />

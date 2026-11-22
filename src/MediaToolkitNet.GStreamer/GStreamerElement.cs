@@ -167,6 +167,27 @@ public sealed unsafe class GStreamerElement : IDisposable
         }
     }
 
+    /// <summary>Sets a property that holds an object, such as <c>video-sink</c> of <c>playbin</c>; the property takes its own reference.</summary>
+    internal void SetObject(string property, void* value)
+    {
+        EnsureAlive();
+        var type = PropertyType(property);
+        var storage = stackalloc byte[GstSignals.ValueSize];
+        new Span<byte>(storage, GstSignals.ValueSize).Clear();
+        Gst.g_value_init(storage, type);
+        try
+        {
+            Gst.g_value_set_object(storage, value);
+            Span<byte> scratch = stackalloc byte[Utf8Scoped.StackThreshold];
+            using var utf8 = new Utf8Scoped(property, scratch);
+            Gst.g_object_set_property(_element, utf8.Pointer, storage);
+        }
+        finally
+        {
+            Gst.g_value_unset(storage);
+        }
+    }
+
     /// <summary><see cref="GetValue"/> cast to <typeparamref name="T"/>.</summary>
     public T Get<T>(string property) => (T)GetValue(property)!;
 

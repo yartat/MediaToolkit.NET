@@ -125,6 +125,16 @@ public sealed unsafe class GStreamerPipeline : IDisposable
         return wrapper;
     }
 
+    /// <summary>The pipeline itself as an element, for the properties and signals of a bin such as <c>playbin3</c>.</summary>
+    /// <remarks>The pipeline owns the result and disposes it with itself.</remarks>
+    public GStreamerElement AsElement()
+    {
+        EnsureAlive();
+        var wrapper = new GStreamerElement(Gst.gst_object_ref(_pipeline), "pipeline");
+        _tracked.Add(wrapper);
+        return wrapper;
+    }
+
     /// <summary>
     /// Wraps the <c>appsink</c> the description named, for reading frames.
     /// </summary>

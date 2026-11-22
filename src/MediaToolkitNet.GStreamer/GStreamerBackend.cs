@@ -38,7 +38,14 @@ public sealed class GStreamerBackend : MediaBackendBase
 
     /// <inheritdoc />
     public override BackendCapabilities Capabilities =>
-        BackendCapabilities.Probing | BackendCapabilities.Transcoding | BackendCapabilities.Recording;
+        BackendCapabilities.Probing | BackendCapabilities.Transcoding | BackendCapabilities.Recording | BackendCapabilities.Playback;
+
+    /// <inheritdoc />
+    public override Abstractions.Playback.IMediaPlayer CreatePlayer()
+    {
+        EnsureAvailable();
+        return OperatingSystem.IsLinux() ? new GStreamerPlayer() : throw new PlatformNotSupportedException();
+    }
 
     /// <inheritdoc />
     public override bool IsAvailable => OperatingSystem.IsLinux() && Gst.IsAvailable;

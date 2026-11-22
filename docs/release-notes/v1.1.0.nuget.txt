@@ -1,9 +1,10 @@
-MediaToolkit.NET 1.1.0 - FFmpeg 8.x, 9.0 and 9.1 features in MediaToolkitNet.FFmpeg.
+MediaToolkit.NET 1.1.0 - new features in the FFmpeg, mpv, Windows and GStreamer backends.
 
-FFmpeg-only additions; the shared interfaces and the other backends are unchanged. Every feature is checked at run
-time (FFmpegFeatures), so the package still runs on FFmpeg 7.1.
+The shared interfaces are unchanged. Every feature is checked at run time (FFmpegFeatures for FFmpeg), so the package
+still runs on FFmpeg 7.1.
 
-ADDED: frame side data and EXIF, MIME codec strings, synchronous decoding, encoder reconfiguration (9.1), bitstream
+ADDED TO MediaToolkitNet.FFmpeg (FFmpeg 8.x, 9.0 and 9.1 API):
+frame side data and EXIF, MIME codec strings, synchronous decoding, encoder reconfiguration (9.1), bitstream
 filter graphs (9.1), HDR gain maps (9.1), downmix matrices (9.1), native DSD decoding (9.1), reading a Windows HANDLE with seek (9.1), stream groups, typed builders for ColorDetect,
 LatticePal, Whisper and GainMap filters.
 
@@ -11,8 +12,23 @@ ADDED TO MediaToolkitNet.Mpv: the node API (MpvNode, GetPropertyNode, SetPropert
 GetTracks, GetChapters and GetMetadata, ObserveProperty, GetCommands and HasCommand/HasOption, Failed for a file mpv could not play, AddHook (mpv hooks), CommandNodeAsync and CommandAsync (asynchronous commands), Open(Stream) and
 RegisterStreamProtocol (stream_cb), and TakeScreenshot (mpv's screenshot-raw).
 
-TESTED: Windows 11 with FFmpeg 9.1 (development build) and 9.0.1; Debian 13 with FFmpeg 7.1.5. Every new struct
-layout is confirmed at run time.
+ADDED TO MediaToolkitNet.Windows: DesktopCapture (DXGI Desktop Duplication), GraphicsCapture (window and monitor capture
+with Windows.Graphics.Capture), WasapiCapture.ForProcess (the sound of one process), AudioEndpointVolume, AudioSession and
+AudioDeviceNotifications, camera controls on MediaFoundationVideoCapture, and MediaFoundationProber and
+MediaFoundationTranscoder (WindowsBackend now declares Probing and Transcoding).
+
+ADDED TO MediaToolkitNet.GStreamer: a message bus with a mask (pipeline.Bus), handlers for any signal
+(GStreamerElement.Connect), appsrc (GStreamerSource: PushVideo, PushAudio, Push, EndOfStream), typed properties
+(SetValue, GetValue), GStreamerRecorder (an IMediaRecorder; EncoderName picks a hardware encoder, SegmentDuration cuts
+the recording into files) and GStreamerPlayer (an IMediaPlayer on playbin3 that hands frames back, or draws into a window
+and plays to the sound server through VideoSink, AudioSink and VideoWindowHandle).
+
+CHANGED: Select(Recording) and Select(Playback) put GStreamer after every other backend, so FFmpeg still records and mpv
+still plays by default on Linux.
+
+TESTED: Windows 11 with FFmpeg 9.1 (development build) and 9.0.1; Debian 13 with FFmpeg 7.1.5 and 9.1, mpv 0.42 and
+GStreamer 1.26.2 (WSL). Every new struct layout is confirmed at run time. GStreamer output was read back from outside:
+the pixels of a window from the X server, and the sound from the sound server's monitor; nvh264enc ran on an RTX 4070.
 
 KNOWN LIMITS
 - Reconfigure accepts only options FFmpeg marks as changeable at run time; FFmpeg 9.1 crashes on the others, so they
@@ -21,3 +37,9 @@ KNOWN LIMITS
 - DSD is decoder-level only; readers, recorder and transcoders stay PCM (DSD files decode to float there, as before).
 - Tile grid and layered video group parameters were not tested against a real file; IAMF groups were.
 - Not covered: Linux and macOS with FFmpeg 8 or 9.
+- Windows: device notification events are registered but never fired in the tests; rotated monitors, hiding the capture
+  border, a window on another GPU and a protected window are not covered; the Media Foundation AAC encoder takes only 44.1
+  and 48 kHz, one or two channels and 96 to 192 kb/s.
+- GStreamer: the recorder converts nothing for the caller and takes no subtitles; only NVENC is mapped among hardware
+  encoders (it refuses frames under 160x64). Window output is X11 only and the sound test is tied to WSLg. Nothing
+  GStreamer has run on macOS or Windows.

@@ -41,6 +41,8 @@ static int Usage()
           av-filter <chain>            build a libavfilter graph and print it
           gst-elements [text]          list the GStreamer element factories (Linux only)
           gst-run <pipeline> [seconds] run a gst-launch pipeline (Linux only)
+          gst-play <file|URL> [seconds] [--video-sink ximagesink] [--audio-sink pulsesink] [--window <X11 id>]
+                               play with GStreamer's playbin3: count the frames it hands back, or render them (Linux only)
           gst-rec <file> [seconds] [encoder]  record a test picture and tone with GStreamer; an encoder such as nvh264enc names the element
         """);
     Console.Write(TranscodeCommand.Usage);
@@ -79,6 +81,7 @@ static int Run(string[] args)
             "av-filter" => ShowFFmpegFilterGraph(Argument(args, 1, "filter chain")),
             "gst-elements" => ListGStreamerElements(args.Length > 1 ? args[1] : null),
             "gst-run" => RunGStreamerPipeline(Argument(args, 1, "pipeline"), Seconds(args, 2, 10)),
+            "gst-play" => PlayWithGStreamer(Argument(args, 1, "file or URL"), Seconds(args, 2, 10), args),
             "gst-rec" => RecordWithGStreamer(Argument(args, 1, "output file path"), Seconds(args, 2, 3), args.Length > 3 ? args[3] : null),
             "rec-audio-file" => RecordAudioToFile(Seconds(args, 1, 3), Argument(args, 2, "output file path")),
             "rec-file" => RecordToFile(Seconds(args, 1, 3), Argument(args, 2, "output file path"),
@@ -773,6 +776,50 @@ static int ListGStreamerElements(string? contains)
 
     Console.WriteLine($"{shown} of {elements.Count} elements, {MediaToolkitNet.GStreamer.GStreamerBackend.Version}.");
     return 0;
+}
+
+static int PlayWithGStreamer(string source, int seconds, string[] args)
+{
+    string? Option(string name) => Array.IndexOf(args, name) is var at and >= 0 && at + 1 < args.Length ? args[at + 1] : null;
+
+    if (!OperatingSystem.IsLinux())
+    {
+        Console.Error.WriteLine("The GStreamer backend binds the Linux library names; run this on Linux.");
+        return 2;
+    }
+
+    using var player = new MediaToolkitNet.GStreamer.GStreamerPlayer
+    {
+        VideoSink = Option("--video-sink"),
+        AudioSink = Option("--audio-sink"),
+        VideoWindowHandle = Option("--window") is { } id ? nuint.Parse(id.Replace("0x", string.Empty), System.Globalization.NumberStyles.HexNumber) : 0,
+    };
+    long frames = 0;
+    long samples = 0;
+    var last = TimeSpan.Zero;
+    var ended = new ManualResetEventSlim();
+    player.VideoFrameDecoded += (in VideoFrame frame) =>
+    {
+        frames++;
+        last = frame.Timestamp;
+    };
+    player.AudioFrameDecoded += (in AudioFrame frame) => samples += frame.SampleCount;
+    player.StateChanged += (_, e) =>
+    {
+        Console.WriteLine($"state: {e.Previous} -> {e.Current}");
+        if (e.Current is PlaybackState.Ended or PlaybackState.Faulted)
+        {
+            ended.Set();
+        }
+    };
+    player.Failed += (_, e) => Console.Error.WriteLine($"failed: {e.Message}");
+
+    player.Open(source);
+    Console.WriteLine($"duration {player.Duration.TotalSeconds:0.00} s, seekable {player.CanSeek}");
+    player.Play();
+    ended.Wait(TimeSpan.FromSeconds(seconds));
+    Console.WriteLine($"{frames} video frames (last at {last.TotalSeconds:0.00} s), {samples} audio samples, position {player.Position.TotalSeconds:0.00} s");
+    return frames + samples > 0 || player.VideoSink is not null || player.AudioSink is not null ? 0 : 1;
 }
 
 static unsafe int RecordWithGStreamer(string output, int seconds, string? encoder)

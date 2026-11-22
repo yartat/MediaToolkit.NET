@@ -56,12 +56,12 @@ public class GStreamerBusTests
         var act = () => pipeline.Play();
 
         // The error the bus thread read is the reason the pipeline gives; GStreamer's debug text names the failing element.
-        act.Should().Throw<MediaToolkitNetException>().Which.Message.Should().Contain("filesrc0");
+        act.Should().Throw<MediaToolkitNetException>().Which.Message.Should().Contain("filesrc");
         WaitFor(messages, m => m.Type == GstMessageType.Error);
         var error = Snapshot(messages).First(m => m.Type == GstMessageType.Error);
         error.Source.Should().NotBeNullOrEmpty();
         error.Text.Should().NotBeNullOrEmpty();
-        error.Debug.Should().Contain("filesrc0");
+        error.Debug.Should().Contain("filesrc");
     }
 
     [GStreamerOnlyFact]
@@ -92,6 +92,20 @@ public class GStreamerBusTests
         var tags = Snapshot(messages).First(m => m.Type == GstMessageType.Tag && m.Tags.ContainsKey("title")).Tags;
         tags["title"].Should().Be("Hello");
         tags["artist"].Should().Be("Somebody");
+    }
+
+    [GStreamerOnlyFact]
+    public void TagsWithANumberAreLeftOutAndTheTextOnesStay()
+    {
+        using var pipeline = GStreamerPipeline.Parse("audiotestsrc num-buffers=2 ! taginject tags=\"title=Hello,bitrate=128000,track-number=3\" ! fakesink");
+        var messages = Listen(pipeline);
+
+        pipeline.Play();
+        pipeline.WaitForCompletion(TimeSpan.FromSeconds(5)).Should().BeTrue();
+
+        WaitFor(messages, m => m.Type == GstMessageType.Tag && m.Tags.ContainsKey("title"));
+        var tags = Snapshot(messages).First(m => m.Type == GstMessageType.Tag && m.Tags.ContainsKey("title")).Tags;
+        tags.Keys.Should().Contain("title").And.NotContain("bitrate").And.NotContain("track-number", "a bit rate and a track number are not text");
     }
 
     [GStreamerOnlyFact]

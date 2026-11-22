@@ -409,8 +409,9 @@ public sealed unsafe class GStreamerBus : IDisposable
                 var tag = Gst.gst_tag_list_nth_tag_name(list, i);
                 byte* value = null;
 
-                // Only tags with a text value come out; a number or a date has no string form to take here.
-                if (Gst.gst_tag_list_get_string(list, tag, &value) != 0 && value is not null)
+                // Only tags with a text value come out; a number or a date has no string form to take here, and asking
+                // gst_tag_list_get_string for one makes GStreamer log a critical for every bit rate and track number.
+                if (Gst.gst_tag_get_type(tag) == GstTypes.String && Gst.gst_tag_list_get_string(list, tag, &value) != 0 && value is not null)
                 {
                     result[Utf8.ToManagedOrEmpty(tag)] = Gst.TakeString(value);
                 }

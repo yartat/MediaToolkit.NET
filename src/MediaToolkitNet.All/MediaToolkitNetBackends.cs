@@ -60,9 +60,10 @@ public static class MediaToolkitNetBackends
     /// <summary>Returns the first available backend offering <paramref name="capability"/>, or null.</summary>
     public static IMediaBackend? Select(BackendCapabilities capability) =>
         Registered
-            // GStreamer's recorder takes what the platform backend and FFmpeg do not, never their place: FFmpeg writes
-            // subtitles and every codec the library names, and it was the default on Linux before GStreamer could record.
-            .OrderBy(backend => capability == BackendCapabilities.Recording && backend.Name == "gstreamer" ? 1 : 0)
+            // GStreamer's recorder and player take what the platform backend, mpv and FFmpeg do not, never their place:
+            // FFmpeg writes subtitles and every codec the library names, and mpv renders playback itself; they were the
+            // defaults on Linux before GStreamer could do either.
+            .OrderBy(backend => capability is BackendCapabilities.Recording or BackendCapabilities.Playback && backend.Name == "gstreamer" ? 1 : 0)
             .FirstOrDefault(backend => (backend.Capabilities & capability) == capability && backend.IsAvailable);
 
     /// <summary>Creates a player using the best backend available.</summary>
