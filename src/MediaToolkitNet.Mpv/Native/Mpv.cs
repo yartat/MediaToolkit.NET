@@ -215,6 +215,19 @@ public static unsafe class Mpv
     /// <summary><c>void mpv_abort_async_command(mpv_handle *, uint64_t reply_userdata)</c>; null when libmpv lacks it.</summary>
     public static delegate* unmanaged[Cdecl]<void*, ulong, void> mpv_abort_async_command;
 
+    /// <summary><c>int mpv_unobserve_property(mpv_handle *, uint64_t registered_reply_userdata)</c>; null when libmpv lacks it.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, ulong, int> mpv_unobserve_property;
+
+    /// <summary>True when libmpv can stop watching a property.</summary>
+    public static bool HasUnobserve
+    {
+        get
+        {
+            TryInitialise();
+            return _failure is null && mpv_unobserve_property is not null;
+        }
+    }
+
     /// <summary>True when libmpv has hooks.</summary>
     public static bool HasHooks
     {
@@ -351,6 +364,9 @@ public static unsafe class Mpv
             : null;
         mpv_stream_cb_add_ro = Module.TryGetExport(nameof(mpv_stream_cb_add_ro), out var streamAdd)
             ? (delegate* unmanaged[Cdecl]<void*, byte*, void*, delegate* unmanaged[Cdecl]<void*, byte*, nint*, int>, int>)streamAdd
+            : null;
+        mpv_unobserve_property = Module.TryGetExport(nameof(mpv_unobserve_property), out var unobserve)
+            ? (delegate* unmanaged[Cdecl]<void*, ulong, int>)unobserve
             : null;
         mpv_hook_add = Module.TryGetExport(nameof(mpv_hook_add), out var hookAdd)
             ? (delegate* unmanaged[Cdecl]<void*, ulong, byte*, int, int>)hookAdd

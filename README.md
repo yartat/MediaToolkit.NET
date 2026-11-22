@@ -263,7 +263,18 @@ player.Open("archive://movies/a.mkv");
 mpv closes a stream it was given unless `leaveOpen` is set, and does so when something else is loaded or the player is
 disposed. A .NET `Stream` cannot be interrupted, so a read that is waiting on a slow source ends only when the stream
 returns; after mpv's cancel request (libmpv 1.106 and newer) further reads fail. A load that fails (opener returns
-`null`, unreadable data) ends playback; it does not raise `Failed`.
+`null`, unreadable data) ends playback and raises `Failed`, as does any file mpv could not play.
+
+`ObserveProperty` calls you when any property changes, with its value as a node (and once at the start); dispose the
+returned `MpvObservation` to stop. `GetCommands`, `GetPropertyNames`, `HasCommand`, `HasOption`, `GetMpvVersion` and
+`MpvPlayer.ClientApiVersion` say what the mpv behind libmpv can do, so a command or option a newer mpv added can be
+checked for instead of tried:
+
+```csharp
+using var watch = player.ObserveProperty("track-list", (name, value) => Refresh(value));
+if (player.HasCommand("update-clipboard")) { /* mpv 0.42 */ }
+if (player.HasOption("dvda-device")) { player.Options["dvda-device"] = "E:"; }
+```
 
 `AddHook` makes mpv wait for you at `on_load`, `on_preloaded`, `on_loaded`, `on_unload` and the other hooks, and
 `CommandNodeAsync` / `CommandAsync` run a command without waiting for it, with cancellation:

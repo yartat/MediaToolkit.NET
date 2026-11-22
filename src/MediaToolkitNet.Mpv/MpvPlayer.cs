@@ -45,6 +45,7 @@ public sealed unsafe class MpvPlayer : IMediaPlayer
     private MpvFilterChain? _audioFilters;
     private readonly List<MpvStreamProtocol> _protocols = [];
     private readonly System.Collections.Concurrent.ConcurrentDictionary<ulong, MpvHookHandler> _hooks = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<ulong, MpvPropertyChanged> _observers = new();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<ulong, PendingCommand> _pending = new();
     private long _nextRequest;
     private readonly Dictionary<string, (Stream Stream, bool LeaveOpen)> _lent = [];
@@ -535,6 +536,113 @@ public sealed unsafe class MpvPlayer : IMediaPlayer
                 ("format", MpvScreenshot.Name(format)))),
             format);
 
+    // ------------------------------------------------------- watching properties
+
+    /// <summary>
+    /// Calls <paramref name="changed"/> whenever a property changes, with its value as a node: watch <c>track-list</c>,
+    /// <c>chapter-list</c>, <c>metadata</c>, <c>video-params</c> and anything else, not just the few the player follows
+    /// for itself. mpv also reports the current value once, right after this call.
+    /// </summary>
+    /// <param name="name">The property.</param>
+    /// <param name="changed">Runs on the player's event thread; see <see cref="MpvPropertyChanged"/>.</param>
+    /// <returns>Returns a watch that stops when disposed.</returns>
+    /// <exception cref="NotSupportedException">The libmpv in use has no node API or cannot stop watching.</exception>
+    public MpvObservation ObserveProperty(string name, MpvPropertyChanged changed)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        ArgumentNullException.ThrowIfNull(changed);
+        RequireNodeApi();
+        if (!Native.Mpv.HasUnobserve)
+        {
+            throw new NotSupportedException("this libmpv cannot stop watching a property (mpv_unobserve_property)");
+        }
+
+        EnsureHandle();
+        var id = (ulong)Interlocked.Increment(ref _nextRequest);
+        Span<byte> scratch = stackalloc byte[Utf8Scoped.StackThreshold];
+        using var nameUtf8 = new Utf8Scoped(name, scratch);
+        _observers[id] = changed;
+        int result;
+        using (var guard = EnterHandle())
+        {
+            result = Native.Mpv.mpv_observe_property(guard.Handle, id, nameUtf8.Pointer, (int)MpvFormat.Node);
+        }
+
+        if (result < 0)
+        {
+            _observers.TryRemove(id, out _);
+            Native.Mpv.Check(result, $"mpv_observe_property({name})");
+        }
+
+        return new MpvObservation(this, id);
+    }
+
+    internal void Unobserve(ulong id)
+    {
+        _observers.TryRemove(id, out _);
+        try
+        {
+            using var guard = EnterHandle();
+            Native.Mpv.mpv_unobserve_property(guard.Handle, id);
+        }
+        catch (ObjectDisposedException)
+        {
+            // The player is gone, and its watches with it.
+        }
+    }
+
+    private void NotifyObserver(MpvEvent* evt)
+    {
+        var property = (MpvEventProperty*)evt->Data;
+        if (property is null || !_observers.TryGetValue(evt->ReplyUserData, out var changed))
+        {
+            return;
+        }
+
+        var name = Utf8.ToManagedOrEmpty(property->Name);
+        try
+        {
+            changed(name, property->Format == MpvFormat.Node && property->Data is not null ? MpvNode.Read((byte*)property->Data) : null);
+        }
+        catch (Exception ex)
+        {
+            SafeEvents.RaiseFailed(Failed, this, new MediaToolkitNetException(Backend, $"the handler of {name} threw: {ex.Message}", 0));
+        }
+    }
+
+    // ----------------------------------------------------- what this mpv can do
+
+    /// <summary>
+    /// The version string of the mpv behind libmpv, for example <c>mpv 0.42.0</c>, or <see langword="null"/> when it
+    /// does not say. <see cref="ClientApiVersion"/> is the version of the API between it and this binding.
+    /// </summary>
+    public string? GetMpvVersion() => GetPropertyString("mpv-version");
+
+    /// <summary>The libmpv client API version as <c>major.minor</c>, for example <c>2.7</c>; null when libmpv is not loaded.</summary>
+    public static string? ClientApiVersion => Native.Mpv.IsAvailable
+        ? $"{Native.Mpv.ApiVersion >> 16}.{Native.Mpv.ApiVersion & 0xFFFF}"
+        : null;
+
+    /// <summary>
+    /// Every command this mpv has, with its arguments. Use it to find out whether a command a newer mpv added is there
+    /// before running it, instead of running it and parsing the error.
+    /// </summary>
+    /// <exception cref="NotSupportedException">The libmpv in use has no node API.</exception>
+    public IReadOnlyList<MpvCommandInfo> GetCommands() =>
+        GetPropertyNode("command-list") is { Kind: MpvNodeKind.Array } list ? [.. list.Items.Select(MpvCommandInfo.From)] : [];
+
+    /// <summary>The names of the top-level properties this mpv has.</summary>
+    /// <exception cref="NotSupportedException">The libmpv in use has no node API.</exception>
+    public IReadOnlyList<string> GetPropertyNames() =>
+        GetPropertyNode("property-list") is { Kind: MpvNodeKind.Array } list ? [.. list.Items.Select(i => i.AsString()).OfType<string>()] : [];
+
+    /// <summary>Whether this mpv has a command.</summary>
+    /// <exception cref="NotSupportedException">The libmpv in use has no node API.</exception>
+    public bool HasCommand(string name) => GetCommands().Any(c => c.Name == name);
+
+    /// <summary>Whether this mpv has an option, such as <c>dvda-device</c> (0.42) or <c>vo</c>.</summary>
+    public bool HasOption(string name) => GetPropertyString("options/" + name) is not null;
+
     // ------------------------------------------------------------------ hooks
 
     /// <summary>
@@ -891,6 +999,7 @@ public sealed unsafe class MpvPlayer : IMediaPlayer
 
                     case MpvEventId.EndFile:
                         TransitionTo(PlaybackState.Ended);
+                        ReportFailedEnd(evt);
                         break;
 
                     case MpvEventId.FileLoaded:
@@ -902,7 +1011,15 @@ public sealed unsafe class MpvPlayer : IMediaPlayer
                         break;
 
                     case MpvEventId.PropertyChange:
-                        HandlePropertyChange((MpvEventProperty*)evt->Data);
+                        if (evt->ReplyUserData != 0)
+                        {
+                            NotifyObserver(evt);
+                        }
+                        else
+                        {
+                            HandlePropertyChange((MpvEventProperty*)evt->Data);
+                        }
+
                         break;
 
                     case MpvEventId.CommandReply:
@@ -921,6 +1038,20 @@ public sealed unsafe class MpvPlayer : IMediaPlayer
             TransitionTo(PlaybackState.Faulted);
             SafeEvents.RaiseFailed(Failed, this, error);
         }
+    }
+
+    // mpv_event_end_file: int reason (4 is an error), int error, ...
+    private const int EndFileReasonError = 4;
+
+    private void ReportFailedEnd(MpvEvent* evt)
+    {
+        if (evt->Data is null || *(int*)evt->Data != EndFileReasonError)
+        {
+            return;
+        }
+
+        var code = *((int*)evt->Data + 1);
+        SafeEvents.RaiseFailed(Failed, this, new MediaToolkitNetException(Backend, $"mpv could not play the file: {Native.Mpv.Describe(code)}", code));
     }
 
     private void RaiseLogMessage(MpvEvent* evt)
