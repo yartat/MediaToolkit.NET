@@ -35,6 +35,9 @@ switch (scenario)
     case "mpv-stop-vs-dispose":
         MpvStopVsDispose(media);
         break;
+    case "reconfigure-bitrate":
+        ReconfigureBitrate(media);
+        break;
     case "wasapi-prefill":
         WasapiPrefill();
         break;
@@ -228,4 +231,35 @@ static void PlayerStalledNetwork(string media)
     var clock = Stopwatch.StartNew();
     player.Dispose();
     Console.WriteLine($"RESULT dispose_ms={clock.ElapsedMilliseconds}");
+}
+
+// b, maxrate, bufsize and sar are not runtime parameters of an AVCodecContext, and in some
+// FFmpeg builds asking to change them dereferences a null pointer instead of failing.
+static void ReconfigureBitrate(string path)
+{
+    var format = new MediaToolkitNet.Abstractions.Formats.VideoFormat(
+        320, 240, MediaToolkitNet.Abstractions.Formats.PixelFormat.Yuv420P, new MediaToolkitNet.Abstractions.Formats.Rational(25, 1));
+    using var recorder = new FFmpegRecorder(path);
+    int stream;
+    try
+    {
+        stream = recorder.AddVideoStream(new MediaToolkitNet.Abstractions.Recording.VideoEncodingSettings(
+            format, MediaToolkitNet.Abstractions.Recording.MediaCodec.H264, 200_000, 25) { EncoderName = "libx264" });
+    }
+    catch (MediaToolkitNet.Abstractions.MediaToolkitNetException)
+    {
+        Console.WriteLine("RESULT result=no-libx264");
+        return;
+    }
+
+    recorder.Start();
+    try
+    {
+        recorder.Reconfigure(stream, new Dictionary<string, string> { ["b"] = "3000000" });
+        Console.WriteLine("RESULT result=applied");
+    }
+    catch (MediaToolkitNet.Abstractions.MediaToolkitNetException)
+    {
+        Console.WriteLine("RESULT result=refused");
+    }
 }

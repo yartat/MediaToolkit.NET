@@ -42,6 +42,12 @@ public static unsafe class AbiLayout
     /// <summary>Offset of <c>AVFormatContext::streams</c>.</summary>
     public const int FormatContextStreams = 48;
 
+    /// <summary>
+    /// Offset of <c>AVFormatContext::nb_stream_groups</c>, which follows <c>streams</c> directly in every
+    /// series from 7.1 to 9.1; the list itself comes 8 bytes after it.
+    /// </summary>
+    public const int FormatContextNbStreamGroups = 56;
+
     /// <summary>Offset of <c>AVStream::index</c>.</summary>
     public const int StreamIndex = 8;
 
@@ -140,6 +146,431 @@ public static unsafe class AbiLayout
         };
     }
 
+    // ------------------------------------------------------- gain map, downmix
+
+    /// <summary>
+    /// Size of <c>AVGainMapParams</c>: <c>version</c> at 0, <c>use_base_color_space</c> at 4, the two headrooms
+    /// (an <c>AVRational</c> each) at 8 and 16, three channels of five rationals at 24 with a stride of 40, and
+    /// <c>nb_channels</c> at 144. Every member is a 4-byte integer, so nothing is padded.
+    /// </summary>
+    public const int GainMapSize = 148;
+
+    private static bool? _gainMapVerified;
+
+    /// <summary>
+    /// True when the layout above is the one in the library: a map written with it is accepted by
+    /// <c>av_gain_map_params_validate</c>, and survives a round trip through the library's own ISO 21496-1
+    /// writer and reader.
+    /// </summary>
+    public static bool GainMapLayoutVerified => _gainMapVerified ??= CheckGainMap();
+
+    private static bool CheckGainMap()
+    {
+        if (AVModern.av_gain_map_params_validate is null || AVModern.av_gain_map_params_to_iso21496 is null
+            || AVModern.av_gain_map_params_from_iso21496 is null)
+        {
+            return false;
+        }
+
+        var map = new FFmpegGainMap(
+            0,
+            true,
+            new Abstractions.Formats.Rational(0, 1),
+            new Abstractions.Formats.Rational(3, 1),
+            [new FFmpegGainMapChannel(
+                new Abstractions.Formats.Rational(0, 1),
+                new Abstractions.Formats.Rational(3, 1),
+                new Abstractions.Formats.Rational(1, 1),
+                new Abstractions.Formats.Rational(1, 64),
+                new Abstractions.Formats.Rational(1, 64))]);
+
+        var native = stackalloc byte[GainMapSize];
+        var back = stackalloc byte[GainMapSize];
+        var payload = stackalloc byte[256];
+        WriteGainMap(map, native);
+        if (AVModern.av_gain_map_params_validate(native) < 0)
+        {
+            return false;
+        }
+
+        var written = AVModern.av_gain_map_params_to_iso21496(native, payload);
+        new Span<byte>(back, GainMapSize).Clear();
+        return written > 0
+            && AVModern.av_gain_map_params_from_iso21496(back, payload, (nuint)written) >= 0
+            && new ReadOnlySpan<byte>(native, 64).SequenceEqual(new ReadOnlySpan<byte>(back, 64))
+            && *(int*)(native + 144) == *(int*)(back + 144);
+    }
+
+    /// <summary>Writes a gain map as an <c>AVGainMapParams</c> into a buffer of <see cref="GainMapSize"/> bytes.</summary>
+    public static void WriteGainMap(FFmpegGainMap map, byte* buffer)
+    {
+        new Span<byte>(buffer, GainMapSize).Clear();
+        var ints = (int*)buffer;
+        ints[0] = map.Version;
+        ints[1] = map.UseBaseColorSpace ? 1 : 0;
+        ints[2] = map.BaseHdrHeadroom.Numerator;
+        ints[3] = map.BaseHdrHeadroom.Denominator;
+        ints[4] = map.AlternateHdrHeadroom.Numerator;
+        ints[5] = map.AlternateHdrHeadroom.Denominator;
+        var count = Math.Min(map.Channels.Count, 3);
+        for (var c = 0; c < count; c++)
+        {
+            var channel = map.Channels[c];
+            var at = ints + 6 + (c * 10);
+            WriteRational(at + 0, channel.Min);
+            WriteRational(at + 2, channel.Max);
+            WriteRational(at + 4, channel.Gamma);
+            WriteRational(at + 6, channel.BaseOffset);
+            WriteRational(at + 8, channel.AlternateOffset);
+        }
+
+        ints[36] = count;
+    }
+
+    /// <summary>Reads an <c>AVGainMapParams</c> of <see cref="GainMapSize"/> bytes.</summary>
+    public static FFmpegGainMap ReadGainMap(byte* buffer)
+    {
+        var ints = (int*)buffer;
+        var count = Math.Clamp(ints[36], 0, 3);
+        var channels = new FFmpegGainMapChannel[count];
+        for (var c = 0; c < count; c++)
+        {
+            var at = ints + 6 + (c * 10);
+            channels[c] = new FFmpegGainMapChannel(
+                ReadRational(at + 0), ReadRational(at + 2), ReadRational(at + 4), ReadRational(at + 6), ReadRational(at + 8));
+        }
+
+        return new FFmpegGainMap(
+            ints[0], ints[1] != 0, ReadRational(ints + 2), ReadRational(ints + 4), channels);
+    }
+
+    private static void WriteRational(int* at, Abstractions.Formats.Rational value)
+    {
+        at[0] = value.Numerator;
+        at[1] = value.Denominator;
+    }
+
+    private static Abstractions.Formats.Rational ReadRational(int* at) => new(at[0], at[1]);
+
+    // ---------------------------------------------------------------- downmix matrix
+
+    private static bool? _downmixVerified;
+
+    /// <summary>
+    /// True when <c>AVDownmixMatrix</c> reads as the header documents (<c>downmix_type</c> at 0, <c>in_ch_count</c>
+    /// at 4, <c>nb_coeffs</c> at 8, <c>coeffs_offset</c> at 16): a matrix the library allocated for six inputs
+    /// reports six, a whole number of rows of them, and an offset that leaves room for the doubles.
+    /// </summary>
+    public static bool DownmixLayoutVerified => _downmixVerified ??= CheckDownmix();
+
+    private static bool CheckDownmix()
+    {
+        if (AVModern.av_downmix_matrix_alloc is null)
+        {
+            return false;
+        }
+
+        nuint size;
+        var matrix = AVModern.av_downmix_matrix_alloc(1, 6, &size);
+        if (matrix is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            var bytes = (byte*)matrix;
+            var coefficients = (long)*(uint*)(bytes + 8);
+            var offset = (long)*(nuint*)(bytes + 16);
+            return *(int*)bytes == 1
+                && *(int*)(bytes + 4) == 6
+                && coefficients > 0 && coefficients % 6 == 0
+                && offset >= 16 && offset + (coefficients * 8) == (long)size;
+        }
+        finally
+        {
+            AV.av_free(matrix);
+        }
+    }
+
+    /// <summary>Reads the side data block of a downmix matrix, or null when it does not hold what it says.</summary>
+    public static FFmpegDownmixMatrix? ReadDownmixMatrix(ReadOnlySpan<byte> data)
+    {
+        if (data.Length < 24)
+        {
+            return null;
+        }
+
+        var type = BitConverter.ToInt32(data[..4]);
+        var input = BitConverter.ToInt32(data.Slice(4, 4));
+        var count = (long)BitConverter.ToUInt32(data.Slice(8, 4));
+        var offset = (long)BitConverter.ToUInt64(data.Slice(16, 8));
+        if (input <= 0 || count <= 0 || count % input != 0 || offset < 0 || offset + (count * 8) > data.Length)
+        {
+            return null;
+        }
+
+        var values = new double[count];
+        for (var i = 0; i < count; i++)
+        {
+            values[i] = BitConverter.ToDouble(data.Slice((int)(offset + (i * 8)), 8));
+        }
+
+        return new FFmpegDownmixMatrix((FFmpegDownmixType)type, input, (int)(count / input), values);
+    }
+
+    /// <summary>Writes a downmix matrix as the library allocates it, so the header fields are the library's own.</summary>
+    public static byte[] WriteDownmixMatrix(FFmpegDownmixMatrix matrix)
+    {
+        nuint size;
+        var native = AVModern.av_downmix_matrix_alloc((int)matrix.Type, matrix.InputChannels, &size);
+        if (native is null)
+        {
+            throw new Abstractions.MediaToolkitNetException(
+                FFmpegLibraries.BackendName, "av_downmix_matrix_alloc refused the matrix", AVConstants.ErrorInvalid);
+        }
+
+        try
+        {
+            var bytes = (byte*)native;
+            var count = (int)*(uint*)(bytes + 8);
+            if (count != matrix.Coefficients.Count)
+            {
+                throw new ArgumentException(
+                    $"A {matrix.Type} matrix of {matrix.InputChannels} inputs has {count} coefficients, not {matrix.Coefficients.Count}.", nameof(matrix));
+            }
+
+            var offset = (long)*(nuint*)(bytes + 16);
+            for (var i = 0; i < count; i++)
+            {
+                *(double*)(bytes + offset + (i * 8L)) = matrix.Coefficients[i];
+            }
+
+            return new ReadOnlySpan<byte>(bytes, (int)size).ToArray();
+        }
+        finally
+        {
+            AV.av_free(native);
+        }
+    }
+
+    // --------------------------------------------------------------------- AVOption
+
+    /// <summary><c>AV_OPT_FLAG_RUNTIME_PARAM</c>: the option may be changed on an object that is already in use.</summary>
+    public const int OptionFlagRuntimeParam = 1 << 15;
+
+    private static bool? _optionVerified;
+
+    /// <summary>
+    /// True when <c>AVOption::flags</c> is at offset 48 (after <c>name</c>, <c>help</c>,
+    /// <c>offset</c>, <c>type</c>, the 8-byte default union and <c>min</c>, <c>max</c>):
+    /// the <c>b</c> option of a fresh codec context is an audio, video and encoding
+    /// parameter, which is <c>8 | 16 | 1</c> and nothing else.
+    /// </summary>
+    public static bool OptionLayoutVerified => _optionVerified ??= CheckOption();
+
+    private static bool CheckOption()
+    {
+        if (AVModern.av_opt_find is null)
+        {
+            return false;
+        }
+
+        var context = AV.avcodec_alloc_context3(null);
+        if (context is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            Span<byte> name = "b\0"u8.ToArray();
+            fixed (byte* key = name)
+            {
+                var option = AVModern.av_opt_find(context, key, null, 0, 1);
+                return option is not null && Utf8.ToManagedOrEmpty(*(byte**)option) == "b" && OptionFlags(option) == 25;
+            }
+        }
+        finally
+        {
+            var local = context;
+            AV.avcodec_free_context(&local);
+        }
+    }
+
+    /// <summary>The <c>flags</c> of an <c>AVOption</c>.</summary>
+    public static int OptionFlags(void* option) => *(int*)((byte*)option + 48);
+
+    // ----------------------------------------------------------------------- EXIF
+
+    /// <summary>Size of <c>AVExifEntry</c>: <c>id</c> at 0, <c>type</c> at 4, <c>count</c> at 8, <c>ifd_offset</c> at 12, <c>ifd_lead</c> at 16, the value union at 24.</summary>
+    public const int ExifEntrySize = 40;
+
+    private static bool? _exifVerified;
+
+    /// <summary>
+    /// True when <c>AVExifMetadata</c> (<c>entries</c> at 0, <c>count</c> at 8) and
+    /// <c>AVExifEntry</c> have the layout the header documents: a small TIFF
+    /// built here, with known tags, types and values, reads back as expected.
+    /// </summary>
+    public static bool ExifLayoutVerified => _exifVerified ??= CheckExif();
+
+    private static bool CheckExif()
+    {
+        if (AVModern.av_exif_parse_buffer is null || AVModern.av_exif_free is null)
+        {
+            return false;
+        }
+
+        // II, 42, first directory at 8; two entries: Orientation (SHORT 6) and Software (ASCII "ab"); no next directory.
+        ReadOnlySpan<byte> tiff =
+        [
+            0x49, 0x49, 0x2A, 0x00, 0x08, 0x00, 0x00, 0x00,
+            0x02, 0x00,
+            0x12, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00,
+            0x31, 0x01, 0x02, 0x00, 0x03, 0x00, 0x00, 0x00, 0x61, 0x62, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+        ];
+
+        var ifd = stackalloc byte[16];
+        new Span<byte>(ifd, 16).Clear();
+        int result;
+        fixed (byte* data = tiff)
+        {
+            result = AVModern.av_exif_parse_buffer(null, data, (nuint)tiff.Length, ifd, 0);
+        }
+
+        try
+        {
+            if (result < 0 || ExifCount(ifd) != 2)
+            {
+                return false;
+            }
+
+            var orientation = ExifEntryAt(ifd, 0);
+            var software = ExifEntryAt(ifd, 1);
+            return ExifId(orientation) == 0x0112 && ExifType(orientation) == 3 && ExifValueCount(orientation) == 1
+                && *(ulong*)ExifValue(orientation) == 6
+                && ExifId(software) == 0x0131 && ExifType(software) == 2 && ExifValueCount(software) == 3
+                && Utf8.ToManagedOrEmpty((byte*)ExifValue(software)) == "ab";
+        }
+        finally
+        {
+            AVModern.av_exif_free(ifd);
+        }
+    }
+
+    /// <summary>Number of entries of an <c>AVExifMetadata</c>.</summary>
+    public static int ExifCount(void* ifd) => (int)*(uint*)((byte*)ifd + 8);
+
+    /// <summary>The entry at an index of an <c>AVExifMetadata</c>.</summary>
+    public static byte* ExifEntryAt(void* ifd, int index) => *(byte**)ifd + ((long)index * ExifEntrySize);
+
+    /// <summary>Tag number of an <c>AVExifEntry</c>.</summary>
+    public static ushort ExifId(byte* entry) => *(ushort*)entry;
+
+    /// <summary>The <c>AVTiffDataType</c> of an <c>AVExifEntry</c>.</summary>
+    public static int ExifType(byte* entry) => *(int*)(entry + 4);
+
+    /// <summary>Number of values of an <c>AVExifEntry</c>.</summary>
+    public static int ExifValueCount(byte* entry) => (int)*(uint*)(entry + 8);
+
+    /// <summary>The value array of an <c>AVExifEntry</c>; for a directory, its first member.</summary>
+    public static void* ExifValue(byte* entry) => *(void**)(entry + 24);
+
+    /// <summary>The nested <c>AVExifMetadata</c> an <c>AVExifEntry</c> of type IFD holds in its union.</summary>
+    public static void* ExifNested(byte* entry) => entry + 24;
+
+    // ------------------------------------------------------------ frame side data
+
+    private static bool? _sideDataVerified;
+
+    /// <summary>
+    /// True when <c>AVFrameSideData</c> has the layout the header documents
+    /// (<c>type</c> at 0, <c>data</c> at 8, <c>size</c> at 16 on a 64-bit target):
+    /// a side data block this binding creates through the API reads back with the
+    /// type, size and a pointer that were asked for.
+    /// </summary>
+    public static bool SideDataLayoutVerified => _sideDataVerified ??= CheckSideData();
+
+    private static bool CheckSideData()
+    {
+        if (AVModern.av_frame_get_side_data is null || AVModern.av_frame_new_side_data is null)
+        {
+            return false;
+        }
+
+        var frame = (AVFrameHead*)AV.av_frame_alloc();
+        if (frame is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            const int displayMatrix = 6;
+            var block = AVModern.av_frame_new_side_data(frame, displayMatrix, 36);
+            return block is not null
+                && block == AVModern.av_frame_get_side_data(frame, displayMatrix)
+                && *(int*)block == displayMatrix
+                && *(byte**)((byte*)block + 8) is not null
+                && *(nuint*)((byte*)block + 16) == 36;
+        }
+        finally
+        {
+            var local = frame;
+            AV.av_frame_free(&local);
+        }
+    }
+
+    /// <summary>The bytes of a side data block returned by <c>av_frame_get_side_data</c>.</summary>
+    public static ReadOnlySpan<byte> SideDataBytes(void* block) =>
+        new(*(byte**)((byte*)block + 8), (int)*(nuint*)((byte*)block + 16));
+
+    /// <summary>The bytes of a side data block that was just created, for writing.</summary>
+    public static Span<byte> SideDataWritable(void* block) =>
+        new(*(byte**)((byte*)block + 8), (int)*(nuint*)((byte*)block + 16));
+
+    /// <summary>Size of <c>AVBPrint</c>, which the header pads to a fixed 1024 bytes so that it can live on the stack.</summary>
+    public const int BprintSize = 1024;
+
+    private static bool? _bprintVerified;
+
+    /// <summary>
+    /// True when the first member of <c>AVBPrint</c> is the <c>str</c> pointer the
+    /// header documents: a freshly initialised buffer points it at the struct's own
+    /// reserved bytes, which lie inside the 1024 the struct is padded to.
+    /// </summary>
+    public static bool BprintLayoutVerified => _bprintVerified ??= CheckBprint();
+
+    private static bool CheckBprint()
+    {
+        if (AVModern.av_bprint_init is null || AVModern.av_bprint_finalize is null)
+        {
+            return false;
+        }
+
+        var buffer = stackalloc byte[BprintSize];
+        new Span<byte>(buffer, BprintSize).Clear();
+        BprintInit(buffer);
+        var str = *(byte**)buffer;
+        var inside = str is not null && str > buffer && str < buffer + BprintSize;
+        BprintFree(buffer);
+        return inside;
+    }
+
+    /// <summary>Starts an <c>AVBPrint</c> that grows without limit.</summary>
+    public static void BprintInit(void* buffer) => AVModern.av_bprint_init(buffer, 0, uint.MaxValue);
+
+    /// <summary>
+    /// Reads the text of an <c>AVBPrint</c>: its first member is the <c>char *str</c>,
+    /// which points at the struct's own reserved buffer until the text outgrows it.
+    /// </summary>
+    public static string BprintString(void* buffer) => Utf8.ToManagedOrEmpty(*(byte**)buffer);
+
+    /// <summary>Frees what an <c>AVBPrint</c> allocated beyond its own reserved buffer.</summary>
+    public static void BprintFree(void* buffer) => AVModern.av_bprint_finalize(buffer, null);
+
     /// <summary>Offset of <c>AVCodecContext::codec_type</c>. Read only by <see cref="Validate"/>.</summary>
     public const int CodecContextCodecType = 12;
 
@@ -183,6 +614,129 @@ public static unsafe class AbiLayout
 
     /// <summary>Writes <c>AVFormatContext::pb</c>.</summary>
     public static void SetPb(void* formatContext, void* pb) => *(void**)((byte*)formatContext + FormatContextPb) = pb;
+
+    // ------------------------------------------------------------ stream groups
+
+    /// <summary>
+    /// Reads the file's stream groups. Nothing here can be checked against a constant, so each group has to
+    /// agree with the rest of the context: its <c>index</c> is its position, its <c>av_class</c> is set, and every
+    /// member is one of the context's own streams. A context that fails that has no groups for this
+    /// binding, not wrong ones.
+    /// </summary>
+    public static IReadOnlyList<FFmpegStreamGroup> ReadStreamGroups(void* formatContext)
+    {
+        var bytes = (byte*)formatContext;
+        var count = (int)*(uint*)(bytes + FormatContextNbStreamGroups);
+        var list = *(void***)(bytes + FormatContextNbStreamGroups + 8);
+        if (count is <= 0 or > 4096 || list is null)
+        {
+            return [];
+        }
+
+        var streamCount = NbStreams(formatContext);
+        var result = new List<FFmpegStreamGroup>(count);
+        for (var g = 0; g < count; g++)
+        {
+            var group = (byte*)list[g];
+            if (group is null || *(void**)group is null || *(uint*)(group + 16) != (uint)g)
+            {
+                return [];
+            }
+
+            var type = *(int*)(group + 32);
+            var memberCount = (int)*(uint*)(group + 56);
+            var members = *(void***)(group + 64);
+            if (memberCount is < 0 or > 4096 || (memberCount > 0 && members is null))
+            {
+                return [];
+            }
+
+            var indices = new int[memberCount];
+            for (var m = 0; m < memberCount; m++)
+            {
+                indices[m] = -1;
+                for (var s = 0; s < streamCount; s++)
+                {
+                    if (Stream(formatContext, s) == members[m])
+                    {
+                        indices[m] = s;
+                        break;
+                    }
+                }
+
+                if (indices[m] < 0)
+                {
+                    return [];
+                }
+            }
+
+            var parameters = *(byte**)(group + 40);
+            result.Add(new FFmpegStreamGroup(
+                g,
+                *(long*)(group + 24),
+                Enum.IsDefined((FFmpegStreamGroupType)type) ? (FFmpegStreamGroupType)type : FFmpegStreamGroupType.None,
+                type,
+                indices,
+                type == 3 ? ReadTileGrid(parameters, memberCount) : null,
+                type == 4 ? ReadLayeredVideo(parameters, memberCount) : null));
+        }
+
+        return result;
+    }
+
+    // AVStreamGroupTileGrid: av_class 0, nb_tiles 8, coded_width 12, coded_height 16, offsets 24 (idx, horizontal,
+    // vertical: 12 bytes each), background 32, horizontal_offset 36, vertical_offset 40, width 44, height 48.
+    private static FFmpegTileGrid? ReadTileGrid(byte* grid, int memberCount)
+    {
+        if (grid is null)
+        {
+            return null;
+        }
+
+        var tiles = (int)*(uint*)(grid + 8);
+        var offsets = *(byte**)(grid + 24);
+        var codedWidth = *(int*)(grid + 12);
+        var codedHeight = *(int*)(grid + 16);
+        if (tiles is < 0 or > 65535 || (tiles > 0 && offsets is null) || codedWidth <= 0 || codedHeight <= 0)
+        {
+            return null;
+        }
+
+        var result = new FFmpegTile[tiles];
+        for (var t = 0; t < tiles; t++)
+        {
+            var entry = offsets + (t * 12);
+            var idx = (int)*(uint*)entry;
+            if (idx >= memberCount)
+            {
+                return null;
+            }
+
+            result[t] = new FFmpegTile(idx, *(int*)(entry + 4), *(int*)(entry + 8));
+        }
+
+        return new FFmpegTileGrid(
+            codedWidth,
+            codedHeight,
+            *(int*)(grid + 44),
+            *(int*)(grid + 48),
+            *(int*)(grid + 36),
+            *(int*)(grid + 40),
+            new ReadOnlySpan<byte>(grid + 32, 4).ToArray(),
+            result);
+    }
+
+    // AVStreamGroupLayeredVideo (AVStreamGroupLCEVC before 8.1): av_class 0, el_index 8, width 12, height 16.
+    private static FFmpegLayeredVideo? ReadLayeredVideo(byte* layered, int memberCount)
+    {
+        if (layered is null)
+        {
+            return null;
+        }
+
+        var index = (int)*(uint*)(layered + 8);
+        return index < memberCount ? new FFmpegLayeredVideo(index, *(int*)(layered + 12), *(int*)(layered + 16)) : null;
+    }
 
     /// <summary>Reads <c>AVFormatContext::pb</c>.</summary>
     public static void* GetPb(void* formatContext) => *(void**)((byte*)formatContext + FormatContextPb);

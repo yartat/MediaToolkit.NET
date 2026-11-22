@@ -123,6 +123,12 @@ public enum AVSampleFormat
 
     /// <summary>AV_SAMPLE_FMT_S64P.</summary>
     S64P = 11,
+
+    /// <summary>
+    /// AV_SAMPLE_FMT_DSD (FFmpeg 9.1): a Direct Stream Digital bitstream, interleaved. One sample is one byte
+    /// holding eight one-bit samples, most significant bit first, so the sample rate is an eighth of the DSD rate.
+    /// </summary>
+    Dsd = 12,
 }
 
 /// <summary>Constants lifted from the FFmpeg headers that are part of the public contract.</summary>
@@ -173,6 +179,9 @@ public static class AVConstants
     /// <summary>AVERROR(EINVAL).</summary>
     public const int ErrorInvalid = -22;
 
+    /// <summary><c>AVERROR_OPTION_NOT_FOUND</c>.</summary>
+    public const int ErrorOptionNotFound = unchecked((int)0xABAFB008);
+
     /// <summary>AVERROR_DECODER_NOT_FOUND.</summary>
     public const int ErrorDecoderNotFound = -1128613112;
 
@@ -220,6 +229,9 @@ public static class AVConstants
 
     /// <summary>AVFMT_NOFILE.</summary>
     public const int FormatNoFile = 0x0001;
+
+    /// <summary>AV_CODEC_RECEIVE_FRAME_FLAG_SYNCHRONOUS.</summary>
+    public const uint ReceiveFrameFlagSynchronous = 1;
 
     /// <summary>AVIO_FLAG_READ.</summary>
     public const int AvioFlagRead = 1;

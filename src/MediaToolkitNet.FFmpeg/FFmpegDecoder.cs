@@ -45,9 +45,21 @@ public sealed unsafe class FFmpegDecoder : IDisposable
     /// <param name="demuxer">Open input to take codec parameters from.</param>
     /// <param name="streamIndex">Index of the stream to decode.</param>
     /// <param name="threadCount">Decode threads; 0 lets FFmpeg pick.</param>
-    public static FFmpegDecoder Open(FFmpegDemuxer demuxer, int streamIndex, int threadCount = 0)
+    /// <param name="nativeDsd">
+    /// For a DSD stream, ask for the bitstream itself (<see cref="AVSampleFormat.Dsd"/>, one byte per channel per
+    /// eight one-bit samples) instead of float PCM. Frames then carry no PCM: push them through a filter graph
+    /// (<c>aresample</c> converts them) or write them as DSD. Needs <see cref="FFmpegFeatures.NativeDsd"/>.
+    /// </param>
+    /// <exception cref="NotSupportedException"><paramref name="nativeDsd"/> was asked for on libraries older than FFmpeg 9.1.</exception>
+    public static FFmpegDecoder Open(FFmpegDemuxer demuxer, int streamIndex, int threadCount = 0, bool nativeDsd = false)
     {
         ArgumentNullException.ThrowIfNull(demuxer);
+        if (nativeDsd && !FFmpegFeatures.NativeDsd)
+        {
+            throw new NotSupportedException(
+                "native DSD decoding needs the DSD sample format, which FFmpeg has from 9.1 on; " +
+                "check FFmpegFeatures.NativeDsd first");
+        }
 
         var info = demuxer.Streams[streamIndex];
         var parameters = demuxer.CodecParameters(streamIndex);
@@ -72,6 +84,12 @@ public sealed unsafe class FFmpegDecoder : IDisposable
             if (threadCount > 0)
             {
                 AV.SetOption(context, "threads", threadCount);
+            }
+
+            if (nativeDsd)
+            {
+                // The DSD decoders read this and keep the bitstream; without it they convert to float.
+                AV.SetOption(context, "request_sample_fmt", "dsd");
             }
 
             // FFmpeg 7 expects decoders to be told the packet time base, and some,
@@ -111,7 +129,7 @@ public sealed unsafe class FFmpegDecoder : IDisposable
     /// </summary>
     /// <returns>
     /// <see langword="false"/> when the decoder is full and needs
-    /// <see cref="ReceiveFrame"/> to be called first.
+    /// <see cref="ReceiveFrame(AVFrameHead*)"/> to be called first.
     /// </returns>
     public bool SendPacket(AVPacketNative* packet)
     {
@@ -132,7 +150,7 @@ public sealed unsafe class FFmpegDecoder : IDisposable
         return true;
     }
 
-    /// <summary>Outcome of <see cref="ReceiveFrame"/>.</summary>
+    /// <summary>Outcome of <see cref="ReceiveFrame(AVFrameHead*)"/>.</summary>
     public enum ReceiveResult
     {
         /// <summary>A frame was written into the supplied AVFrame.</summary>
@@ -145,12 +163,42 @@ public sealed unsafe class FFmpegDecoder : IDisposable
         EndOfStream,
     }
 
+    /// <summary>
+    /// Pulls one decoded frame, optionally without waiting for the decoder's
+    /// frame-threading pipeline to fill: with <paramref name="synchronous"/> the
+    /// decoder bypasses frame threads and returns the next frame as soon as it can,
+    /// which may be earlier than <c>AVCodecContext.delay</c> says. It has no effect
+    /// when frame threading is off. Needs <see cref="FFmpegFeatures.SynchronousDecoding"/>.
+    /// </summary>
+    /// <exception cref="NotSupportedException">The libraries are older than FFmpeg 8.1.</exception>
+    public ReceiveResult ReceiveFrame(AVFrameHead* frame, bool synchronous)
+    {
+        if (!synchronous)
+        {
+            return ReceiveFrame(frame);
+        }
+
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (AVModern.avcodec_receive_frame_flags is null)
+        {
+            throw new NotSupportedException(
+                "a synchronous receive needs avcodec_receive_frame_flags, which FFmpeg has from 8.1 on; " +
+                "check FFmpegFeatures.SynchronousDecoding first");
+        }
+
+        return ToResult(AVModern.avcodec_receive_frame_flags(_context, frame, AVConstants.ReceiveFrameFlagSynchronous));
+    }
+
     /// <summary>Pulls one decoded frame out of the decoder.</summary>
     public ReceiveResult ReceiveFrame(AVFrameHead* frame)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        var result = AV.avcodec_receive_frame(_context, frame);
+        return ToResult(AV.avcodec_receive_frame(_context, frame));
+    }
+
+    private static ReceiveResult ToResult(int result)
+    {
         return result switch
         {
             0 => ReceiveResult.Frame,

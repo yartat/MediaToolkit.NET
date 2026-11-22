@@ -202,6 +202,26 @@ using var pipeline = GStreamerPipeline.Parse(
 var sink = pipeline.GetSink("sink");
 ```
 
+## New in FFmpeg 8.x and 9.x
+
+When the FFmpeg libraries are new enough, `MediaToolkitNet.FFmpeg` also exposes what they added after 7.1:
+frame side data and EXIF, MIME codec strings, synchronous decoding, changing an encoder while it runs, bitstream
+filter graphs, HDR gain maps, downmix matrices, native DSD decoding, reading a Windows handle, stream groups and typed builders for the new filters. Check
+`FFmpegFeatures` first; a missing feature throws `NotSupportedException`.
+
+```csharp
+using var demuxer = FFmpegDemuxer.Open("clip.mp4");
+if (FFmpegFeatures.MimeCodecStrings)
+{
+    Console.WriteLine(demuxer.MimeCodecString(0));   // e.g. avc1.64001f
+}
+
+foreach (var group in demuxer.StreamGroups)          // tiles of a picture, IAMF elements, ...
+{
+    Console.WriteLine($"{group.Type}: streams {string.Join(",", group.StreamIndices)}");
+}
+```
+
 ## What each backend provides
 
 | Capability | Windows | Linux | macOS | FFmpeg | mpv |

@@ -37,6 +37,7 @@ public sealed unsafe class FFmpegDemuxer : IDisposable
     private InterruptState? _interrupt;
     private System.Runtime.InteropServices.GCHandle _interruptHandle;
     private FFmpegStreamInfo[] _streams = [];
+    private System.Runtime.InteropServices.SafeHandle? _inputHandle;
     private bool _disposed;
 
     private FFmpegDemuxer(void* context, void* pb, InterruptState? interrupt, System.Runtime.InteropServices.GCHandle interruptHandle)
@@ -96,6 +97,19 @@ public sealed unsafe class FFmpegDemuxer : IDisposable
 
     /// <summary>Streams found in the container.</summary>
     public IReadOnlyList<FFmpegStreamInfo> Streams => _streams;
+
+    /// <summary>
+    /// The groups of streams the container declares: the tiles of a picture, the substreams of an IAMF
+    /// element, and so on. Empty for most files. Groups that appear only while packets are read are not here.
+    /// </summary>
+    public IReadOnlyList<FFmpegStreamGroup> StreamGroups
+    {
+        get
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            return AbiLayout.ReadStreamGroups(_context);
+        }
+    }
 
     /// <summary>Raw <c>AVFormatContext</c> pointer, for callers that need to go lower.</summary>
     public void* Handle => _context;
@@ -270,6 +284,62 @@ public sealed unsafe class FFmpegDemuxer : IDisposable
     }
 
     /// <summary>
+    /// Opens an input that is already open in this process, as a Windows <c>HANDLE</c>: a file, a pipe, a memory-mapped
+    /// view wrapped in a file. Unlike <c>pipe:</c> it can seek when the handle is a regular file. The caller supplies a
+    /// handle, not a string that names one, so no protocol whitelist is widened for untrusted input.
+    /// </summary>
+    /// <param name="handle">
+    /// A handle opened for reading without <c>FILE_FLAG_OVERLAPPED</c> (a <see cref="FileStream"/> made with
+    /// <c>useAsync: false</c>). The demuxer keeps it alive and never closes it, and it moves the file position, so
+    /// the handle should not be read from elsewhere meanwhile.
+    /// </param>
+    /// <param name="inputFormat">Forced demuxer name, for a handle whose content cannot be probed.</param>
+    /// <param name="options">Demuxer options.</param>
+    /// <param name="allowPlaylists">See <see cref="Open"/>.</param>
+    /// <exception cref="NotSupportedException">Not Windows, or the libraries are older than FFmpeg 9.1.</exception>
+    public static FFmpegDemuxer OpenHandle(
+        Microsoft.Win32.SafeHandles.SafeFileHandle handle,
+        string? inputFormat = null,
+        IReadOnlyDictionary<string, string>? options = null,
+        bool allowPlaylists = false)
+    {
+        ArgumentNullException.ThrowIfNull(handle);
+        FFmpegLibraries.EnsureLoaded();
+        if (!FFmpegFeatures.HandleInput)
+        {
+            throw new NotSupportedException(
+                "opening a handle needs the handle: protocol, which FFmpeg has on Windows from 9.1 on; " +
+                "check FFmpegFeatures.HandleInput first");
+        }
+
+        if (handle.IsInvalid || handle.IsClosed)
+        {
+            throw new ArgumentException("The handle is not open.", nameof(handle));
+        }
+
+        var added = false;
+        handle.DangerousAddRef(ref added);
+        try
+        {
+            var merged = options is null ? [] : new Dictionary<string, string>(options);
+            merged["handle"] = handle.DangerousGetHandle().ToInt64().ToString(System.Globalization.CultureInfo.InvariantCulture);
+            merged["protocol_whitelist"] = "handle";
+
+            var demuxer = Open("handle:", inputFormat, merged, allowPlaylists);
+            demuxer._inputHandle = handle;
+            added = false;
+            return demuxer;
+        }
+        finally
+        {
+            if (added)
+            {
+                handle.DangerousRelease();
+            }
+        }
+    }
+
+    /// <summary>
     /// Whether inputs may be network URLs when the caller does not say. Off, so
     /// that a path taken from an untrusted source stays on the local machine;
     /// an application that handles URLs on purpose turns it on once at start-up.
@@ -349,6 +419,49 @@ public sealed unsafe class FFmpegDemuxer : IDisposable
         return AbiLayout.Stream(_context, index);
     }
 
+    /// <summary>
+    /// The codec string of a stream as a browser or a DASH manifest writes it, for
+    /// example <c>avc1.640028</c> or <c>mp4a.40.2</c>. Needs
+    /// <see cref="FFmpegFeatures.MimeCodecStrings"/>.
+    /// </summary>
+    /// <param name="index">Stream index.</param>
+    /// <returns>Returns the string, or <see langword="null"/> when FFmpeg has none for this codec.</returns>
+    /// <exception cref="NotSupportedException">The libraries are older than FFmpeg 8.1.</exception>
+    public string? MimeCodecString(int index)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (AVModern.av_mime_codec_str is null)
+        {
+            throw new NotSupportedException(
+                "a MIME codec string needs av_mime_codec_str, which FFmpeg has from 8.1 on; " +
+                "check FFmpegFeatures.MimeCodecStrings first");
+        }
+
+        // The frame rate decides the profile of a video codec; 1/0 says it is not known.
+        var rate = AbiLayout.AvgFrameRateOf(StreamHandle(index));
+        if (rate.Num <= 0 || rate.Den <= 0)
+        {
+            rate = new AVRationalNative(1, 0);
+        }
+
+        var buffer = stackalloc byte[AbiLayout.BprintSize];
+        AbiLayout.BprintInit(buffer);
+        try
+        {
+            if (AVModern.av_mime_codec_str(CodecParameters(index), rate, buffer) < 0)
+            {
+                return null;
+            }
+
+            var text = AbiLayout.BprintString(buffer);
+            return string.IsNullOrEmpty(text) ? null : text;
+        }
+        finally
+        {
+            AbiLayout.BprintFree(buffer);
+        }
+    }
+
     /// <summary>Raw <c>AVCodecParameters</c> pointer for the given stream.</summary>
     public void* CodecParameters(int index) => AbiLayout.CodecParametersOf(StreamHandle(index));
 
@@ -416,5 +529,8 @@ public sealed unsafe class FFmpegDemuxer : IDisposable
         {
             _interruptHandle.Free();
         }
+
+        _inputHandle?.DangerousRelease();
+        _inputHandle = null;
     }
 }

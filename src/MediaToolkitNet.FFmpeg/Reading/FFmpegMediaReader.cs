@@ -605,7 +605,16 @@ public sealed unsafe class VideoStreamReader : FrameStreamReader
     public bool TryReadNext(VideoFrameHandler handler)
     {
         ArgumentNullException.ThrowIfNull(handler);
-        return ReadNext(frame => Deliver((AVFrameHead*)frame, handler));
+        return ReadNext(frame => Deliver((AVFrameHead*)frame, handler, null));
+    }
+
+    /// <summary>Reads the next frame together with the side data FFmpeg attached to it.</summary>
+    /// <param name="handler">Receives the frame and its details, which are valid only for the call.</param>
+    /// <returns>False at the end of the stream.</returns>
+    public bool TryReadNext(FFmpegVideoFrameHandler handler)
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        return ReadNext(frame => Deliver((AVFrameHead*)frame, null, handler));
     }
 
     /// <summary>
@@ -617,7 +626,16 @@ public sealed unsafe class VideoStreamReader : FrameStreamReader
     public bool TryReadAt(TimeSpan time, VideoFrameHandler handler)
     {
         ArgumentNullException.ThrowIfNull(handler);
-        return ReadAt(time, EndOf, frame => Deliver((AVFrameHead*)frame, handler));
+        return ReadAt(time, EndOf, frame => Deliver((AVFrameHead*)frame, handler, null));
+    }
+
+    /// <summary>Like <see cref="TryReadAt(TimeSpan, VideoFrameHandler)"/>, with the side data of the frame.</summary>
+    /// <param name="time">Time from the start of the file.</param>
+    /// <param name="handler">Receives the frame and its details.</param>
+    public bool TryReadAt(TimeSpan time, FFmpegVideoFrameHandler handler)
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        return ReadAt(time, EndOf, frame => Deliver((AVFrameHead*)frame, null, handler));
     }
 
     private protected override string FormatKey(AVFrameHead* frame) => $"{frame->Width}x{frame->Height}/{frame->Format}";
@@ -670,7 +688,7 @@ public sealed unsafe class VideoStreamReader : FrameStreamReader
             ? TimeSpan.FromSeconds(video.FrameRate.Denominator / (double)video.FrameRate.Numerator)
             : TimeSpan.Zero);
 
-    private void Deliver(AVFrameHead* frame, VideoFrameHandler handler)
+    private void Deliver(AVFrameHead* frame, VideoFrameHandler? plain, FFmpegVideoFrameHandler? detailed)
     {
         var format = new VideoFormat(
             frame->Width,
@@ -690,7 +708,8 @@ public sealed unsafe class VideoStreamReader : FrameStreamReader
         var timestamp = TimeOf(frame->Pts, FrameTimeBase);
         Position = timestamp;
         var view = new VideoFrame(format, timestamp, planes, strides, planeCount);
-        handler(in view);
+        plain?.Invoke(in view);
+        detailed?.Invoke(in view, new FFmpegFrameDetails(frame));
     }
 }
 
@@ -709,7 +728,16 @@ public sealed unsafe class AudioStreamReader : FrameStreamReader
     public bool TryReadNext(AudioFrameHandler handler)
     {
         ArgumentNullException.ThrowIfNull(handler);
-        return ReadNext(frame => Deliver((AVFrameHead*)frame, handler));
+        return ReadNext(frame => Deliver((AVFrameHead*)frame, handler, null));
+    }
+
+    /// <summary>Reads the next block of audio together with the side data FFmpeg attached to it.</summary>
+    /// <param name="handler">Receives the audio and its details, which are valid only for the call.</param>
+    /// <returns>False at the end of the stream.</returns>
+    public bool TryReadNext(FFmpegAudioFrameHandler handler)
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        return ReadNext(frame => Deliver((AVFrameHead*)frame, null, handler));
     }
 
     /// <summary>
@@ -722,7 +750,7 @@ public sealed unsafe class AudioStreamReader : FrameStreamReader
     public bool TryReadAt(TimeSpan time, AudioFrameHandler handler)
     {
         ArgumentNullException.ThrowIfNull(handler);
-        return ReadAt(time, EndOf, frame => Deliver((AVFrameHead*)frame, handler));
+        return ReadAt(time, EndOf, frame => Deliver((AVFrameHead*)frame, handler, null));
     }
 
     private protected override void OpenCore()
@@ -788,7 +816,7 @@ public sealed unsafe class AudioStreamReader : FrameStreamReader
         return TimeOf(raw->Pts, FrameTimeBase) + (rate > 0 ? TimeSpan.FromSeconds(raw->NbSamples / (double)rate) : TimeSpan.Zero);
     }
 
-    private void Deliver(AVFrameHead* frame, AudioFrameHandler handler)
+    private void Deliver(AVFrameHead* frame, AudioFrameHandler? plain, FFmpegAudioFrameHandler? detailed)
     {
         var format = Graph is { } graph
             ? graph.OutputAudioFormat
@@ -804,7 +832,8 @@ public sealed unsafe class AudioStreamReader : FrameStreamReader
         var timestamp = TimeOf(frame->Pts, FrameTimeBase);
         Position = timestamp;
         var view = new AudioFrame(format, timestamp, frame->NbSamples, planes, planeCount);
-        handler(in view);
+        plain?.Invoke(in view);
+        detailed?.Invoke(in view, new FFmpegFrameDetails(frame));
     }
 }
 

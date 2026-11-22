@@ -172,6 +172,99 @@ public sealed unsafe class FFmpegRecorder : ISubtitleRecorder
         }
     }
 
+    /// <summary>
+    /// Changes settings of a video or audio encoder that is already running, such as
+    /// <c>b</c> (the bit rate) or <c>crf</c>, without closing it. Only some encoders
+    /// allow it, and only some of their options; see
+    /// <see cref="FFmpegFeatures.EncoderReconfiguration"/>.
+    /// </summary>
+    /// <param name="stream">The index <see cref="AddVideoStream"/> or <see cref="AddAudioStream"/> returned.</param>
+    /// <param name="options">The AVOptions to change, by name.</param>
+    /// <exception cref="NotSupportedException">The libraries are older than FFmpeg 9.1, or this encoder cannot be reconfigured.</exception>
+    /// <exception cref="MediaToolkitNetException">An option is unknown to the encoder, cannot change, or has an invalid value.</exception>
+    public void Reconfigure(int stream, IReadOnlyDictionary<string, string> options)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentOutOfRangeException.ThrowIfNegative(stream);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(stream, _streams.Count);
+        if (options.Count == 0)
+        {
+            return;
+        }
+
+        if (AVModern.avcodec_encode_reconfigure is null)
+        {
+            throw new NotSupportedException(
+                "reconfiguring an encoder needs avcodec_encode_reconfigure, which FFmpeg has from 9.1 on; " +
+                "check FFmpegFeatures.EncoderReconfiguration first");
+        }
+
+        RequireRuntimeOptions(_streams[stream].Context, options);
+
+        void* dictionary = null;
+        try
+        {
+            foreach (var (key, value) in options)
+            {
+                AV.DictionarySet(&dictionary, key, value);
+            }
+
+            var result = AVModern.avcodec_encode_reconfigure(_streams[stream].Context, &dictionary);
+            if (result < 0)
+            {
+                var reason = FFmpegError.Describe(result);
+
+                // The library answers ENOSYS for an encoder that does not allow it, which is not a mistake in the options.
+                if (reason.Contains("not implemented", StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new NotSupportedException("the encoder of this stream cannot be reconfigured; libx264 and libaom can");
+                }
+
+                throw new MediaToolkitNetException(
+                    Backend, $"avcodec_encode_reconfigure({string.Join(", ", options.Keys)}): {reason}", result);
+            }
+        }
+        finally
+        {
+            if (dictionary is not null)
+            {
+                AV.av_dict_free(&dictionary);
+            }
+        }
+    }
+
+    // FFmpeg tries the options on a stand-in object first, and for an option that is not flagged as a
+    // runtime parameter (b, maxrate, bufsize and sar among them) some builds dereference a null pointer
+    // there instead of answering "cannot change". Asking the option itself first keeps that out of reach.
+    private static void RequireRuntimeOptions(void* context, IReadOnlyDictionary<string, string> options)
+    {
+        if (AVModern.av_opt_find is null || !AbiLayout.OptionLayoutVerified)
+        {
+            throw new NotSupportedException("the option flags of this FFmpeg could not be read, so no option can be checked before it is changed");
+        }
+
+        Span<byte> scratch = stackalloc byte[Utf8Scoped.StackThreshold];
+        foreach (var key in options.Keys)
+        {
+            using var name = new Utf8Scoped(key, scratch);
+            var option = AVModern.av_opt_find(context, name.Pointer, null, 0, 1);
+            if (option is null)
+            {
+                throw new MediaToolkitNetException(
+                    FFmpegLibraries.BackendName, $"the encoder has no option named {key}", AVConstants.ErrorOptionNotFound);
+            }
+
+            if ((AbiLayout.OptionFlags(option) & AbiLayout.OptionFlagRuntimeParam) == 0)
+            {
+                throw new MediaToolkitNetException(
+                    FFmpegLibraries.BackendName,
+                    $"the option {key} cannot be changed while the encoder runs; set it before the stream is added",
+                    AVConstants.ErrorInvalid);
+            }
+        }
+    }
+
     /// <inheritdoc />
     public int AddAudioStream(AudioEncodingSettings settings)
     {

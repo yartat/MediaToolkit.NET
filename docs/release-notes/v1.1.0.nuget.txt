@@ -1,0 +1,19 @@
+MediaToolkit.NET 1.1.0 - FFmpeg 8.x, 9.0 and 9.1 features in MediaToolkitNet.FFmpeg.
+
+FFmpeg-only additions; the shared interfaces and the other backends are unchanged. Every feature is checked at run
+time (FFmpegFeatures), so the package still runs on FFmpeg 7.1.
+
+ADDED: frame side data and EXIF, MIME codec strings, synchronous decoding, encoder reconfiguration (9.1), bitstream
+filter graphs (9.1), HDR gain maps (9.1), downmix matrices (9.1), native DSD decoding (9.1), reading a Windows HANDLE with seek (9.1), stream groups, typed builders for ColorDetect,
+LatticePal, Whisper and GainMap filters.
+
+TESTED: Windows 11 with FFmpeg 9.1 (development build) and 9.0.1; Debian 13 with FFmpeg 7.1.5. Every new struct
+layout is confirmed at run time.
+
+KNOWN LIMITS
+- Reconfigure accepts only options FFmpeg marks as changeable at run time; FFmpeg 9.1 crashes on the others, so they
+  are refused first.
+- A bitstream filter graph takes graph filters only (lcevc_merge, source, sink).
+- DSD is decoder-level only; readers, recorder and transcoders stay PCM (DSD files decode to float there, as before).
+- Tile grid and layered video group parameters were not tested against a real file; IAMF groups were.
+- Not covered: Linux and macOS with FFmpeg 8 or 9.

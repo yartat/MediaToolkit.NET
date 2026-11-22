@@ -174,6 +174,47 @@ while (!sink.IsEndOfStream)
 }
 ```
 
+## FFmpeg 8.x and 9.x features
+
+`MediaToolkitNet.FFmpeg` exposes what FFmpeg added after 7.1 as FFmpeg-only API, with no counterpart on the other
+backends. Each feature is optional: it exists only if the loaded libraries have it, and `FFmpegFeatures` says which
+(`SynchronousDecoding`, `MimeCodecStrings`, `EncoderReconfiguration`, `BitstreamFilterGraphs`, `GainMaps`,
+`DownmixMatrices`, `Exif`, `NativeDsd`, `HandleInput`). A call to a missing feature throws `NotSupportedException`; the typed filter builders
+have `*Available` properties. Series 9 covers 9.0 and 9.1, so features are told apart by the functions the library
+exports, not by its major version.
+
+| Feature | API | Needs |
+|---|---|---|
+| Frame side data, and EXIF in it | `FFmpegFrameDetails` from the `TryReadNext` / `TryReadAt` overloads | any series; EXIF 8.1 |
+| EXIF buffers | `FFmpegExif.Parse` | 8.1 |
+| MIME codec string | `FFmpegDemuxer.MimeCodecString` | 8.1 |
+| Synchronous decoding | `FFmpegDecoder.ReceiveFrame(frame, synchronous: true)` | 8.1 |
+| Changing an encoder while it runs | `FFmpegRecorder.Reconfigure` | 9.1 |
+| Bitstream filter graphs | `FFmpegBitstreamFilterGraph` | 9.1 |
+| HDR gain maps (ISO 21496-1) | `FFmpegGainMap`, `FFmpegFrameDetails.GainMap()` | 9.1 |
+| Downmix matrices | `FFmpegDownmixMatrix`, `FFmpegFrameDetails.DownmixMatrix()` | 9.1 |
+| DSD (native bitstream) | `FFmpegDecoder.Open(..., nativeDsd: true)`, `AVSampleFormat.Dsd` | 9.1 |
+| Reading a Windows `HANDLE` with seek | `FFmpegDemuxer.OpenHandle` | 9.1, Windows |
+| Stream groups | `FFmpegDemuxer.StreamGroups` | any series (types 5-8 need 8.1-9.1) |
+| Typed filters | `FFmpegNewFilters` (`ColorDetect`, `LatticePal`, `Whisper`, `GainMap`) | the filter's own release |
+
+Things to know:
+
+- `Reconfigure` only takes options FFmpeg marks as changeable at run time. Passing another (`b`, `maxrate`,
+  `bufsize`, `sar`) crashes the process inside FFmpeg 9.1 (a NULL dereference in `avcodec_encode_reconfigure`), so the
+  binding refuses them first.
+- A bitstream filter graph holds graph filters only (`lcevc_merge` and the source and sink nodes); a classic
+  filter such as `h264_mp4toannexb` is refused with a message that says so.
+- DSD: FFmpeg 9.1 decodes DSD to float unless asked otherwise (and 9.0 and earlier always do). With `nativeDsd: true` the
+  decoder returns the bitstream (`AVSampleFormat.Dsd`, one byte is eight one-bit samples, so the sample rate is an eighth
+  of the DSD rate); `aresample` in a filter graph turns it into PCM. There is no PCM to DSD conversion, and the shared
+  `SampleFormat` has no DSD value, so the readers, the recorder and the transcoders still work in PCM.
+- `OpenHandle` takes a `SafeFileHandle` opened without `FILE_FLAG_OVERLAPPED` (`FileStream` with `useAsync: false`). The
+  demuxer keeps the handle alive and does not close it, but it moves the file position. The string URL `handle:` stays
+  refused by `Open`.
+- Stream groups are read from the container as it opens; groups that appear later, while packets are read, are not
+  listed. Tile grid and layered video parameters are checked for plausibility but were not tested against a real file.
+
 ## Transcoding
 
 A transcode is described once, as a `TranscodeRequest`, and run by whichever

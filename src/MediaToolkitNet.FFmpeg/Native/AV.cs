@@ -456,6 +456,7 @@ public static unsafe class AV
         }
 
         BindTranscoding(util, codec, format);
+        AVModern.Bind(util, codec, format);
         _bound = true;
     }
 
