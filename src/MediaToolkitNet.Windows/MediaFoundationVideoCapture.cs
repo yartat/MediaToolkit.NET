@@ -34,6 +34,7 @@ public sealed unsafe class MediaFoundationVideoCapture : IVideoCapture
     private Thread? _worker;
     private CancellationTokenSource? _cancellation;
     private int _defaultStride;
+    private CameraControls? _controls;
     private bool _disposed;
 
     /// <summary>Opens the device described by <paramref name="settings"/>.</summary>
@@ -74,6 +75,17 @@ public sealed unsafe class MediaFoundationVideoCapture : IVideoCapture
 
     /// <inheritdoc />
     public string Backend => MediaFoundationDeviceEnumerator.BackendName;
+
+    /// <summary>The camera's own controls: exposure, focus, zoom, brightness, white balance and the like.</summary>
+    /// <exception cref="ObjectDisposedException">The capture has been disposed.</exception>
+    public CameraControls Controls
+    {
+        get
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            return _controls ??= new CameraControls(_source.Pointer);
+        }
+    }
 
     /// <inheritdoc />
     public VideoFormat Format { get; private set; }

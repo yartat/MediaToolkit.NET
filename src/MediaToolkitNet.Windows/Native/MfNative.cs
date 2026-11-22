@@ -25,6 +25,15 @@ public static unsafe partial class MfApi
     /// <summary>MF_SOURCE_READER_FIRST_AUDIO_STREAM.</summary>
     public const uint FirstAudioStream = 0xFFFFFFFD;
 
+    /// <summary>MF_SOURCE_READER_ALL_STREAMS, also MF_SOURCE_READER_ANY_STREAM.</summary>
+    public const uint AllStreams = 0xFFFFFFFE;
+
+    /// <summary>MF_SOURCE_READER_MEDIASOURCE, the source itself rather than one of its streams.</summary>
+    public const uint MediaSource = 0xFFFFFFFF;
+
+    /// <summary>MF_E_INVALIDSTREAMNUMBER, which ends an enumeration of streams.</summary>
+    public const int InvalidStreamNumber = unchecked((int)0xC00D36B3);
+
     /// <summary>MF_SOURCE_READERF_ENDOFSTREAM.</summary>
     public const uint EndOfStream = 0x00000002;
 
@@ -195,6 +204,7 @@ public static unsafe class Mf
     private const int ReaderSetCurrentPosition = 8;
     private const int ReaderReadSample = 9;
     private const int ReaderFlush = 10;
+    private const int ReaderGetPresentationAttribute = 12; // after GetServiceForStream (11)
 
     // IMFSinkWriter : IUnknown.
     private const int WriterAddStream = 3;
@@ -206,6 +216,7 @@ public static unsafe class Mf
 
     // IMFSample : IMFAttributes.
     private const int SampleSetSampleTime = 36;
+    private const int SampleGetSampleDuration = 37;
     private const int SampleSetSampleDuration = 38;
     private const int SampleGetSampleTime = 35;
     private const int SampleGetBufferCount = 39;
@@ -367,6 +378,13 @@ public static unsafe class Mf
         }
     }
 
+    /// <summary>Selects a stream and sets the type the reader is to deliver it in.</summary>
+    public static int SelectAndSet(void* self, uint streamIndex, void* mediaType)
+    {
+        var hr = SetStreamSelection(self, streamIndex, selected: true);
+        return HResult.Failed(hr) ? hr : SetCurrentMediaType(self, streamIndex, mediaType);
+    }
+
     /// <summary>IMFSourceReader::GetNativeMediaType.</summary>
     public static int GetNativeMediaType(void* self, uint streamIndex, uint typeIndex, out void* mediaType)
     {
@@ -424,6 +442,34 @@ public static unsafe class Mf
             self, &guidNull, variant);
     }
 
+    /// <summary>IMFSourceReader::GetPresentationAttribute for an attribute that is a 64-bit integer, such as <c>MF_PD_DURATION</c>.</summary>
+    public static int GetPresentationUint64(void* self, uint streamIndex, in Guid key, out ulong value)
+    {
+        // A PROPVARIANT is 24 bytes on 64-bit Windows; VT_UI8 is 21 and its value sits at offset 8.
+        var variant = stackalloc byte[24];
+        new Span<byte>(variant, 24).Clear();
+        int hr;
+        fixed (Guid* pKey = &key)
+        {
+            hr = ((delegate* unmanaged[Stdcall]<void*, uint, Guid*, void*, int>)Com.Slot(self, ReaderGetPresentationAttribute))(
+                self, streamIndex, pKey, variant);
+        }
+
+        value = 0;
+        if (HResult.Failed(hr))
+        {
+            return hr;
+        }
+
+        if (*(ushort*)variant != 21)
+        {
+            return unchecked((int)0x80004005); // E_FAIL
+        }
+
+        value = *(ulong*)(variant + 8);
+        return hr;
+    }
+
     // ------------------------------------------------------------ sink writer
 
     /// <summary>IMFSinkWriter::AddStream.</summary>
@@ -470,6 +516,15 @@ public static unsafe class Mf
         fixed (long* pTime = &time)
         {
             return ((delegate* unmanaged[Stdcall]<void*, long*, int>)Com.Slot(self, SampleGetSampleTime))(self, pTime);
+        }
+    }
+
+    /// <summary>IMFSample::GetSampleDuration, in 100-nanosecond units.</summary>
+    public static int GetSampleDuration(void* self, out long duration)
+    {
+        fixed (long* pDuration = &duration)
+        {
+            return ((delegate* unmanaged[Stdcall]<void*, long*, int>)Com.Slot(self, SampleGetSampleDuration))(self, pDuration);
         }
     }
 

@@ -26,4 +26,24 @@ public static class FfmpegProgram
         process.WaitForExit();
         process.ExitCode.Should().Be(0, $"the ffmpeg program is needed to make the test media: {error}");
     }
+
+    /// <summary>Counts the video frames <c>ffmpeg</c> decodes from a file, with input options such as <c>-skip_frame nokey</c>.</summary>
+    public static int Count(string path, string inputOptions)
+    {
+        var directory = Environment.GetEnvironmentVariable(FFmpegEnvironment.DirectoryVariable);
+        var exe = OperatingSystem.IsWindows() ? "ffmpeg.exe" : "ffmpeg";
+        var program = directory is not null && File.Exists(Path.Combine(directory, exe)) ? Path.Combine(directory, exe) : "ffmpeg";
+        using var process = Process.Start(new ProcessStartInfo(program, $"-v error -progress pipe:1 {inputOptions} -i \"{path}\" -map 0:v:0 -f null -")
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        })!;
+        var errors = process.StandardError.ReadToEndAsync();
+        var output = process.StandardOutput.ReadToEnd();
+        process.WaitForExit();
+        process.ExitCode.Should().Be(0, errors.Result);
+        var last = output.Split('\n').Last(l => l.StartsWith("frame=", StringComparison.Ordinal));
+        return int.Parse(last["frame=".Length..].Trim(), System.Globalization.CultureInfo.InvariantCulture);
+    }
 }

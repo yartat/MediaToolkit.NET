@@ -8,13 +8,14 @@ using MediaToolkitNet.Abstractions;
 using MediaToolkitNet.Abstractions.Capture;
 using MediaToolkitNet.Abstractions.Devices;
 using MediaToolkitNet.Abstractions.Recording;
+using MediaToolkitNet.Abstractions.Transcoding;
 using MediaToolkitNet.Windows.Native;
 
 namespace MediaToolkitNet.Windows;
 
 /// <summary>
-/// Windows entry point. Device enumeration, video capture and recording go
-/// through Media Foundation; audio capture and playback go through WASAPI.
+/// Windows entry point. Device enumeration, video capture, recording, probing and
+/// transcoding go through Media Foundation; audio capture and playback go through WASAPI.
 /// </summary>
 /// <remarks>
 /// The DirectShow enumerator is reachable through
@@ -37,7 +38,9 @@ public sealed class WindowsBackend : MediaBackendBase
         BackendCapabilities.AudioCapture |
         BackendCapabilities.AudioRender |
         BackendCapabilities.VideoCapture |
-        BackendCapabilities.Recording;
+        BackendCapabilities.Recording |
+        BackendCapabilities.Probing |
+        BackendCapabilities.Transcoding;
 
     /// <inheritdoc />
     public override bool IsAvailable => MfApi.TryStartup();
@@ -93,6 +96,20 @@ public sealed class WindowsBackend : MediaBackendBase
     {
         EnsureAvailable();
         return new MediaFoundationRecorder(outputPath);
+    }
+
+    /// <inheritdoc />
+    public override IMediaProber CreateProber()
+    {
+        EnsureAvailable();
+        return new MediaFoundationProber();
+    }
+
+    /// <inheritdoc />
+    public override IMediaTranscoder CreateTranscoder()
+    {
+        EnsureAvailable();
+        return new MediaFoundationTranscoder();
     }
 
     /// <summary>Presents the Media Foundation and WASAPI enumerators as one list.</summary>

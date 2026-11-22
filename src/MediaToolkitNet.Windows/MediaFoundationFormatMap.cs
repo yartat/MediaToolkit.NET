@@ -4,6 +4,7 @@
 #endregion
 
 using System.Runtime.Versioning;
+using System.Text;
 using MediaToolkitNet.Abstractions.Formats;
 using MediaToolkitNet.Abstractions.Recording;
 using MediaToolkitNet.Windows.Native;
@@ -91,6 +92,80 @@ public static class MediaFoundationFormatMap
     /// <summary>Maps a toolkit sample format onto a Media Foundation audio subtype.</summary>
     public static Guid ToAudioSubtype(SampleFormat format) =>
         format.IsFloat() ? WinGuids.AudioFloat : WinGuids.AudioPcm;
+
+    /// <summary>
+    /// Names a subtype the way the other backends name codecs, and finds this library's <see cref="MediaCodec"/> for it
+    /// when it has one. An unfamiliar subtype is named by its four character code.
+    /// </summary>
+    public static (MediaCodec? Codec, string Name) Describe(Guid subtype, uint bitsPerSample)
+    {
+        if (subtype == WinGuids.VideoH264)
+        {
+            return (MediaCodec.H264, "h264");
+        }
+
+        if (subtype == WinGuids.VideoHevc || subtype == WinGuids.FromFourCc("HEV1"))
+        {
+            return (MediaCodec.Hevc, "hevc");
+        }
+
+        if (subtype == WinGuids.VideoMjpg)
+        {
+            return (MediaCodec.Mjpeg, "mjpeg");
+        }
+
+        if (subtype == WinGuids.FromFourCc("VP90"))
+        {
+            return (MediaCodec.Vp9, "vp9");
+        }
+
+        if (subtype == WinGuids.FromFourCc("AV01"))
+        {
+            return (MediaCodec.Av1, "av1");
+        }
+
+        if (subtype == WinGuids.AudioAac)
+        {
+            return (MediaCodec.Aac, "aac");
+        }
+
+        if (subtype == WinGuids.AudioMp3)
+        {
+            return (MediaCodec.Mp3, "mp3");
+        }
+
+        if (subtype == WinGuids.FromWaveFormatTag(0x2000))
+        {
+            return (MediaCodec.Ac3, "ac3");
+        }
+
+        if (subtype == WinGuids.AudioFloat)
+        {
+            return (null, bitsPerSample == 64 ? "pcm_f64le" : "pcm_f32le");
+        }
+
+        if (subtype == WinGuids.AudioPcm)
+        {
+            return bitsPerSample switch
+            {
+                8 => (MediaCodec.PcmU8, "pcm_u8"),
+                16 => (MediaCodec.PcmS16, "pcm_s16le"),
+                24 => (MediaCodec.PcmS24, "pcm_s24le"),
+                32 => (MediaCodec.PcmS32, "pcm_s32le"),
+                _ => (MediaCodec.Pcm, "pcm"),
+            };
+        }
+
+        // The common subtypes are a four character code in the first field and a fixed tail.
+        var bytes = subtype.ToByteArray();
+        var isBase = bytes[4] == 0 && bytes[5] == 0 && bytes[6] == 0x00 && bytes[7] == 0x10 && bytes[8] == 0x80;
+        if (isBase && bytes[..4].All(b => b is >= 0x20 and < 0x7F))
+        {
+            return (null, Encoding.ASCII.GetString(bytes, 0, 4).Trim().ToLowerInvariant());
+        }
+
+        return (null, subtype.ToString());
+    }
 
     /// <summary>Maps a codec onto the Media Foundation subtype the sink writer expects.</summary>
     public static Guid ToEncoderSubtype(MediaCodec codec) => codec switch

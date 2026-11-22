@@ -14,6 +14,16 @@ using MediaToolkitNet.Windows.Native;
 
 namespace MediaToolkitNet.Windows;
 
+/// <summary>Which processes <see cref="WasapiCapture.ForProcess"/> listens to.</summary>
+public enum ProcessLoopbackMode
+{
+    /// <summary>The process and every process it started.</summary>
+    IncludeProcessTree = 0,
+
+    /// <summary>Everything the system plays except the process and the processes it started.</summary>
+    ExcludeProcessTree = 1,
+}
+
 /// <summary>
 /// Captures PCM from a WASAPI endpoint in shared mode.
 /// </summary>
@@ -71,6 +81,102 @@ public sealed unsafe class WasapiCapture : IAudioCapture
         catch
         {
             Dispose();
+            throw;
+        }
+    }
+
+    // Wraps a client that has been activated and initialised for event-driven capture elsewhere (process loopback).
+    private WasapiCapture(ComPtr client, AudioFormat format, int blockAlign)
+    {
+        _loopback = false;
+        Ole32.Initialize();
+        try
+        {
+            _client = client;
+            Format = format;
+            _blockAlign = blockAlign;
+
+            HResult.ThrowIfFailed(
+                Wasapi.SetEventHandle(_client.Pointer, _dataReady.SafeWaitHandle.DangerousGetHandle()),
+                "IAudioClient::SetEventHandle");
+            HResult.ThrowIfFailed(
+                Wasapi.GetService(_client.Pointer, WinGuids.IAudioCaptureClient, out var capture),
+                "IAudioClient::GetService(IAudioCaptureClient)");
+            _capture = new ComPtr(capture);
+        }
+        catch
+        {
+            Dispose();
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// True when this Windows can capture the sound of one process (<see cref="ForProcess"/>): Windows 10 version 2004
+    /// (build 19041) or newer.
+    /// </summary>
+    public static bool SupportsProcessLoopback => OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041);
+
+    /// <summary>
+    /// Captures what one process, and the processes it started, plays: a game, a browser, a player; or everything
+    /// except that process. Needs no device: it listens to the audio engine, not to an endpoint, and works whichever
+    /// device the process plays through.
+    /// </summary>
+    /// <param name="processId">The process.</param>
+    /// <param name="mode">Whether to capture the process and its children, or the whole system without them.</param>
+    /// <param name="format">
+    /// What to deliver; Windows converts to it. The default is 48 kHz stereo 32-bit float. The sound of a process
+    /// has no format of its own to ask for.
+    /// </param>
+    /// <param name="bufferDuration">The length of the buffer; the default is 20 ms.</param>
+    /// <exception cref="NotSupportedException">This Windows is older than 10 version 2004.</exception>
+    /// <exception cref="MediaToolkitNetException">Windows refused, for instance for a process that does not exist.</exception>
+    public static WasapiCapture ForProcess(
+        int processId,
+        ProcessLoopbackMode mode = ProcessLoopbackMode.IncludeProcessTree,
+        AudioFormat? format = null,
+        TimeSpan? bufferDuration = null)
+    {
+        if (!SupportsProcessLoopback)
+        {
+            throw new NotSupportedException("capturing one process's sound needs Windows 10 version 2004 (build 19041) or newer");
+        }
+
+        ArgumentOutOfRangeException.ThrowIfNegative(processId);
+        Ole32.Initialize();
+
+        // AUDIOCLIENT_ACTIVATION_PARAMS: ActivationType 0 (1 is process loopback), TargetProcessId 4, ProcessLoopbackMode 8.
+        // PROPVARIANT (24 bytes on x64): vt 0 (VT_BLOB is 65), blob.cbSize 8, blob.pBlobData 16.
+        var activation = stackalloc int[3] { 1, processId, (int)mode };
+        var variant = stackalloc byte[24];
+        new Span<byte>(variant, 24).Clear();
+        *(ushort*)variant = 65;
+        *(uint*)(variant + 8) = 12;
+        *(void**)(variant + 16) = activation;
+
+        var client = ActivateAudio.Activate("VAD\\Process_Loopback", WinGuids.IAudioClient, variant, TimeSpan.FromSeconds(10));
+
+        try
+        {
+            var wanted = format ?? new AudioFormat(48000, 2, SampleFormat.F32);
+            var wave = WaveFormatEx.From(wanted);
+            var duration = bufferDuration is { } d && d > TimeSpan.Zero ? d : TimeSpan.FromMilliseconds(20);
+
+            // A process loopback client has no mix format; it takes the one asked for and converts to it.
+            HResult.ThrowIfFailed(
+                Wasapi.Initialize(
+                    client.Pointer,
+                    AudioShareMode.Shared,
+                    Wasapi.StreamFlagsLoopback | Wasapi.StreamFlagsEventCallback | Wasapi.StreamFlagsAutoConvertPcm | Wasapi.StreamFlagsSrcDefaultQuality,
+                    duration.Ticks,
+                    0,
+                    &wave),
+                "IAudioClient::Initialize");
+            return new WasapiCapture(client, wanted, wave.BlockAlign);
+        }
+        catch
+        {
+            client.Dispose();
             throw;
         }
     }

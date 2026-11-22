@@ -44,6 +44,9 @@ static int Usage()
         """);
     Console.Write(TranscodeCommand.Usage);
     Console.Write(ReadCommand.Usage);
+    Console.Write(DesktopCommand.Usage);
+    Console.Write(DesktopCommand.WindowUsage);
+    Console.Write(ProcessAudioCommand.Usage);
     return 1;
 }
 
@@ -64,6 +67,9 @@ static int Run(string[] args)
             "decode" => Decode(Argument(args, 1, "file path"), Seconds(args, 2, 5)),
             "rec-audio" => RecordAudio(Seconds(args, 1, 3)),
             "rec-video" => RecordVideo(Seconds(args, 1, 3)),
+            "desktop" => DesktopCommand.Run(args),
+            "window" => DesktopCommand.RunWindow(args),
+            "proc-audio" => ProcessAudioCommand.Run(args),
             "encoders" => ListEncoders(),
             "ds-filters" => ProbeDirectShowFilters(),
             "ds-graph" => ShowDirectShowGraph(Argument(args, 1, "file path")),

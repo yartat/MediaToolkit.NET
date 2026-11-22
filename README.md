@@ -174,6 +174,124 @@ while (!sink.IsEndOfStream)
 }
 ```
 
+## Windows features
+
+`MediaToolkitNet.Windows` has Windows-only classes next to the shared capture and recording ones.
+
+**Desktop Duplication** (`DesktopCapture`) captures a monitor from the GPU through DXGI, as BGRA frames, without GDI:
+
+```csharp
+foreach (var output in DesktopCapture.GetOutputs())          // name, place on the desktop, size in physical pixels, rotation
+{
+    Console.WriteLine($"{output.Index}: {output.Name} {output.Width}x{output.Height}");
+}
+
+using var capture = new DesktopCapture(outputIndex: 0, frameRate: 30);
+capture.FrameCaptured += (in VideoFrame frame) => Save(frame);   // it is an IVideoCapture
+capture.Start();
+
+capture.TryGrab(TimeSpan.FromSeconds(1), (in VideoFrame frame) => Screenshot(frame));   // or pull one frame (not while running)
+```
+
+**Window and monitor capture** (`GraphicsCapture`, Windows.Graphics.Capture, Windows 10 version 1903 or later) takes the picture of
+one window straight from the compositor: it works while other windows cover it and for windows drawn with DirectX, which a
+screen grab gets wrong. It is an `IVideoCapture` that delivers BGRA frames, can draw the mouse pointer into them, can switch
+Windows' yellow border off (Windows 11), follows a resize, and raises `Closed` when the window is destroyed:
+
+```csharp
+foreach (var w in GraphicsCapture.GetWindows())                       // visible, titled, not minimised
+{
+    Console.WriteLine($"0x{w.Handle:X} pid {w.ProcessId} {w.Width}x{w.Height} {w.Title}");
+}
+
+using var capture = GraphicsCapture.ForWindow(handle, frameRate: 30, captureCursor: true, showBorder: false);   // or ForMonitor(0)
+capture.FrameCaptured += (in VideoFrame frame) => Encode(frame);       // the size can change when the window is resized
+capture.Closed += (_, _) => Console.WriteLine("the window is gone");
+capture.Start();
+
+capture.TryGrab(TimeSpan.FromSeconds(1), (in VideoFrame frame) => Screenshot(frame));   // or one frame (not while running)
+```
+
+A still window sends one frame at the start and then one when it draws; a minimised window sends none. `window list` and
+`window <title part|0xHWND|monitor:N> 3 shot.bmp` in the sample try it.
+
+**Sound of one process** (`WasapiCapture.ForProcess`, Windows 10 version 2004 or newer) listens to what a process and its
+children play, or to everything but them, whichever device they play through:
+
+```csharp
+if (WasapiCapture.SupportsProcessLoopback)
+{
+    using var capture = WasapiCapture.ForProcess(processId, ProcessLoopbackMode.IncludeProcessTree);   // or ExcludeProcessTree
+    capture.FrameCaptured += (in AudioFrame frame) => Write(frame);       // 48 kHz stereo float unless you pass a format
+    capture.Start();
+}
+```
+
+A process that does not exist is accepted and delivers silence. `proc-audio <pid>` in the sample tries it.
+
+**Audio controls.** `AudioEndpointVolume` is the volume, mute switch and peak meter of a playback or recording endpoint, and
+reports changes made anywhere; `AudioSession.GetAll()` lists the programs that have a session on the endpoint, each with its
+own volume, mute and meter (what the Windows mixer shows); `AudioDeviceNotifications` tells you when a device is added,
+removed, changes state or becomes the default:
+
+```csharp
+using var speakers = new AudioEndpointVolume();                       // the default output; (device, capture: true) for a microphone
+speakers.Changed += (_, change) => Console.WriteLine($"{change.Volume:P0} muted={change.IsMuted}");
+speakers.Volume = 0.4f;
+
+foreach (var session in AudioSession.GetAll())
+{
+    Console.WriteLine($"{session.ProcessId} {session.State} {session.Volume:P0} peak {session.PeakLevel:F2}");
+    session.Dispose();
+}
+
+using var devices = new AudioDeviceNotifications();
+devices.DefaultDeviceChanged += (_, e) => Console.WriteLine($"default {e.Flow} is now {e.DeviceId}");
+```
+
+**Camera controls.** `MediaFoundationVideoCapture.Controls` reaches the camera's pan, tilt, zoom, exposure, focus, iris,
+brightness, contrast, saturation, white balance and the rest (`IAMCameraControl`, `IAMVideoProcAmp`). `Supported` lists what
+the camera has, `GetRange`, `Get` and `Set` read and change a setting, by hand or automatic:
+
+```csharp
+using var camera = new MediaFoundationVideoCapture(VideoCaptureSettings.Default);
+if (camera.Controls.GetRange(CameraProperty.Exposure) is { CanBeManual: true } range)
+{
+    camera.Controls.Set(CameraProperty.Exposure, range.Default);
+}
+```
+
+**Transcoding and probing through Media Foundation** (`MediaFoundationTranscoder`, `MediaFoundationProber`; both are the
+Windows backend's `CreateTranscoder` and `CreateProber`) read with `IMFSourceReader` and write with `IMFSinkWriter`, which uses
+the machine's hardware encoders (NVENC, Quick Sync, AMD) when there are any:
+
+```csharp
+var request = new TranscodeRequest("out.mp4")
+{
+    Inputs = ["in.mp4"],
+    Start = TimeSpan.FromSeconds(10), End = TimeSpan.FromSeconds(40),
+    Streams =
+    [
+        OutputStream.Video(StreamSource.First(MediaStreamKind.Video), new VideoOutputSettings(MediaCodec.Hevc) { Width = 1280, Height = -1, FrameRate = new Rational(30, 1), BitrateBitsPerSecond = 4_000_000, KeyFrameInterval = 60 }),
+        OutputStream.Audio(StreamSource.First(MediaStreamKind.Audio), new AudioOutputSettings { Channels = 2, SampleRate = 48000, BitrateBitsPerSecond = 128_000 }),
+    ],
+};
+var issues = new MediaFoundationTranscoder().Validate(request);       // errors and warnings, before anything is written
+var result = await new MediaFoundationTranscoder(hardwareEncoders: true).RunAsync(request, progress, cancellation);
+```
+
+It does less than the FFmpeg backend and refuses the rest with a reason: one video stream (H.264 or HEVC) and one AAC audio
+stream, from one input into `.mp4`, `.m4v` or `.m4a`; no stream copy, filters, quality-based rate control, encoder options, tags or
+chapters (the chapters and tags of the input are not carried over, which the validation warns about). The AAC encoder takes 44.1
+or 48 kHz, one or two channels and 96, 128, 160 or 192 kb/s; another bit rate is rounded to the nearest and reported.
+The prober reads streams, codecs, sizes and duration; Media Foundation gives it no tags or chapters. The registry tries it
+after FFmpeg, GStreamer and mpv. `transcode in.mp4 out.mp4 --backend windows --vcodec Hevc --size 1280x720` tries it.
+
+A desktop frame arrives when the desktop changes, so a still desktop sends one at the start and then nothing; the mouse pointer
+is not in the picture; the duplication is made again by itself after a mode change or the secure desktop. A monitor
+set to a rotation other than 0 delivers its picture rotated. Needs a session with a desktop: a service has none.
+`dotnet run --project samples/MediaToolkitNet.Sample.Cli -- desktop 0 3 shot.bmp` tries it.
+
 ## FFmpeg 8.x and 9.x features
 
 `MediaToolkitNet.FFmpeg` exposes what FFmpeg added after 7.1 as FFmpeg-only API, with no counterpart on the other

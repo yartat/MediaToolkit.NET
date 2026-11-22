@@ -100,6 +100,15 @@ public static class WinGuids
     /// <summary>MF_SINK_WRITER_DISABLE_THROTTLING.</summary>
     public static readonly Guid DisableThrottling = new("08b845d8-2b74-4afe-9d53-be16d2d5ae4f");
 
+    /// <summary>MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING: lets the reader scale and change the frame rate.</summary>
+    public static readonly Guid EnableAdvancedVideoProcessing = new("0f81da2c-b537-4672-a8b2-a681b17307a3");
+
+    /// <summary>MF_PD_DURATION, the presentation's length in 100 ns units.</summary>
+    public static readonly Guid PresentationDuration = new("6c990d33-bb8e-477a-8598-0d5d96fcd88a");
+
+    /// <summary>CODECAPI_AVEncMPVGOPSize, the distance between key frames, passed to an encoder as a setting.</summary>
+    public static readonly Guid EncoderGopSize = new("95f31b26-95a4-41aa-9303-246a7fc6eef1");
+
     // ------------------------------------------------- Media type attributes
 
     /// <summary>MF_MT_MAJOR_TYPE.</summary>
