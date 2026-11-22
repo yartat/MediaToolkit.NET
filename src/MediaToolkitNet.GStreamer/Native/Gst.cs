@@ -309,6 +309,162 @@ public static unsafe class Gst
     /// <summary><c>GstCaps *gst_sample_get_caps(GstSample *)</c>, borrowed from the sample.</summary>
     public static delegate* unmanaged[Cdecl]<void*, void*> gst_sample_get_caps;
 
+    /// <summary><c>gulong g_signal_connect_closure(gpointer, const gchar *detailed_signal, GClosure *, gboolean after)</c>; sinks the closure.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, byte*, void*, int, nuint> g_signal_connect_closure;
+
+    /// <summary><c>void g_signal_handler_disconnect(gpointer, gulong)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, nuint, void> g_signal_handler_disconnect;
+
+    /// <summary><c>guint g_signal_lookup(const gchar *name, GType)</c>, 0 when the type has no such signal; the name has no <c>::detail</c>.</summary>
+    public static delegate* unmanaged[Cdecl]<byte*, nuint, uint> g_signal_lookup;
+
+    /// <summary><c>GClosure *g_cclosure_new(GCallback, gpointer, GClosureNotify)</c>, floating.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, void*, void*, void*> g_cclosure_new;
+
+    /// <summary><c>void g_closure_set_meta_marshal(GClosure *, gpointer marshal_data, GClosureMarshal)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, void*, void*, void> g_closure_set_meta_marshal;
+
+    /// <summary><c>void g_closure_add_finalize_notifier(GClosure *, gpointer, GClosureNotify)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, void*, void*, void> g_closure_add_finalize_notifier;
+
+    /// <summary><c>GType g_type_fundamental(GType)</c></summary>
+    public static delegate* unmanaged[Cdecl]<nuint, nuint> g_type_fundamental;
+
+    /// <summary><c>const gchar *g_type_name(GType)</c>, borrowed.</summary>
+    public static delegate* unmanaged[Cdecl]<nuint, byte*> g_type_name;
+
+    /// <summary><c>const gchar *g_type_name_from_instance(GTypeInstance *)</c>, borrowed.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, byte*> g_type_name_from_instance;
+
+    /// <summary><c>GType g_type_from_name(const gchar *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<byte*, nuint> g_type_from_name;
+
+    /// <summary><c>gboolean g_value_get_boolean(const GValue *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<byte*, int> g_value_get_boolean;
+
+    /// <summary><c>gint g_value_get_int(const GValue *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<byte*, int> g_value_get_int;
+
+    /// <summary><c>guint g_value_get_uint(const GValue *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<byte*, uint> g_value_get_uint;
+
+    /// <summary><c>glong g_value_get_long(const GValue *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<byte*, long> g_value_get_long;
+
+    /// <summary><c>gulong g_value_get_ulong(const GValue *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<byte*, ulong> g_value_get_ulong;
+
+    /// <summary><c>gint64 g_value_get_int64(const GValue *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<byte*, long> g_value_get_int64;
+
+    /// <summary><c>guint64 g_value_get_uint64(const GValue *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<byte*, ulong> g_value_get_uint64;
+
+    /// <summary><c>gfloat g_value_get_float(const GValue *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<byte*, float> g_value_get_float;
+
+    /// <summary><c>gdouble g_value_get_double(const GValue *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<byte*, double> g_value_get_double;
+
+    /// <summary><c>const gchar *g_value_get_string(const GValue *)</c>, borrowed.</summary>
+    public static delegate* unmanaged[Cdecl]<byte*, byte*> g_value_get_string;
+
+    /// <summary><c>gpointer g_value_get_object(const GValue *)</c>, borrowed.</summary>
+    public static delegate* unmanaged[Cdecl]<byte*, void*> g_value_get_object;
+
+    /// <summary><c>gpointer g_value_get_pointer(const GValue *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<byte*, void*> g_value_get_pointer;
+
+    /// <summary><c>gpointer g_value_get_boxed(const GValue *)</c>, borrowed.</summary>
+    public static delegate* unmanaged[Cdecl]<byte*, void*> g_value_get_boxed;
+
+    /// <summary><c>gint g_value_get_enum(const GValue *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<byte*, int> g_value_get_enum;
+
+    /// <summary><c>guint g_value_get_flags(const GValue *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<byte*, uint> g_value_get_flags;
+
+    /// <summary><c>void g_value_set_boolean(GValue *, gboolean)</c></summary>
+    public static delegate* unmanaged[Cdecl]<byte*, int, void> g_value_set_boolean;
+
+    /// <summary><c>void g_value_set_int(GValue *, gint)</c></summary>
+    public static delegate* unmanaged[Cdecl]<byte*, int, void> g_value_set_int;
+
+    /// <summary><c>void g_value_set_int64(GValue *, gint64)</c></summary>
+    public static delegate* unmanaged[Cdecl]<byte*, long, void> g_value_set_int64;
+
+    /// <summary><c>void g_value_set_enum(GValue *, gint)</c></summary>
+    public static delegate* unmanaged[Cdecl]<byte*, int, void> g_value_set_enum;
+
+    /// <summary><c>void g_value_set_uint(GValue *, guint)</c></summary>
+    public static delegate* unmanaged[Cdecl]<byte*, uint, void> g_value_set_uint;
+
+    /// <summary><c>void g_value_set_uint64(GValue *, guint64)</c></summary>
+    public static delegate* unmanaged[Cdecl]<byte*, ulong, void> g_value_set_uint64;
+
+    /// <summary><c>void g_value_set_float(GValue *, gfloat)</c></summary>
+    public static delegate* unmanaged[Cdecl]<byte*, float, void> g_value_set_float;
+
+    /// <summary><c>void g_value_set_double(GValue *, gdouble)</c></summary>
+    public static delegate* unmanaged[Cdecl]<byte*, double, void> g_value_set_double;
+
+    /// <summary><c>void g_value_set_flags(GValue *, guint)</c></summary>
+    public static delegate* unmanaged[Cdecl]<byte*, uint, void> g_value_set_flags;
+
+    /// <summary><c>void g_object_set_property(GObject *, const gchar *, const GValue *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, byte*, byte*, void> g_object_set_property;
+
+    /// <summary><c>void g_object_get_property(GObject *, const gchar *, GValue *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, byte*, byte*, void> g_object_get_property;
+
+    /// <summary><c>const GValue *g_param_spec_get_default_value(GParamSpec *)</c>, borrowed; its type is the property's type.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, byte*> g_param_spec_get_default_value;
+
+    /// <summary><c>GstCaps *gst_caps_from_string(const gchar *)</c>, a reference the caller owns, or null for text that is not caps.</summary>
+    public static delegate* unmanaged[Cdecl]<byte*, void*> gst_caps_from_string;
+
+    /// <summary><c>GstFlowReturn gst_app_src_push_buffer(GstAppSrc *, GstBuffer *)</c>; takes the buffer, whatever it returns.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, void*, int> gst_app_src_push_buffer;
+
+    /// <summary><c>GstFlowReturn gst_app_src_end_of_stream(GstAppSrc *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, int> gst_app_src_end_of_stream;
+
+    /// <summary><c>void gst_app_src_set_caps(GstAppSrc *, const GstCaps *)</c>; takes its own reference.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, void*, void> gst_app_src_set_caps;
+
+    /// <summary><c>GstMessage *gst_bus_timed_pop(GstBus *, GstClockTime)</c>, any message type.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, ulong, void*> gst_bus_timed_pop;
+
+    /// <summary><c>void gst_message_parse_warning(GstMessage *, GError **, gchar **debug)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, void**, byte**, void> gst_message_parse_warning;
+
+    /// <summary><c>void gst_message_parse_info(GstMessage *, GError **, gchar **debug)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, void**, byte**, void> gst_message_parse_info;
+
+    /// <summary><c>void gst_message_parse_state_changed(GstMessage *, GstState *old, GstState *new, GstState *pending)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, int*, int*, int*, void> gst_message_parse_state_changed;
+
+    /// <summary><c>void gst_message_parse_buffering(GstMessage *, gint *percent)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, int*, void> gst_message_parse_buffering;
+
+    /// <summary><c>void gst_message_parse_tag(GstMessage *, GstTagList **)</c>; the list is a reference the caller owns.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, void**, void> gst_message_parse_tag;
+
+    /// <summary><c>const GstStructure *gst_message_get_structure(GstMessage *)</c>, borrowed from the message.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, void*> gst_message_get_structure;
+
+    /// <summary><c>gchar *gst_structure_to_string(const GstStructure *)</c>, which the caller frees.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, byte*> gst_structure_to_string;
+
+    /// <summary><c>GParamSpec *g_value_get_param(const GValue *)</c>, borrowed.</summary>
+    public static delegate* unmanaged[Cdecl]<byte*, void*> g_value_get_param;
+
+    /// <summary><c>const gchar *g_param_spec_get_name(GParamSpec *)</c>, borrowed.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, byte*> g_param_spec_get_name;
+
+    /// <summary><c>GType gst_object_get_type(void)</c></summary>
+    public static delegate* unmanaged[Cdecl]<nuint> gst_object_get_type;
+
     /// <summary>Reads a NUL-terminated string GLib allocated and frees it.</summary>
     public static string TakeString(byte* text)
     {
@@ -500,5 +656,57 @@ public static unsafe class Gst
         gst_pad_get_current_caps = (delegate* unmanaged[Cdecl]<void*, void*>)Core.GetExport(nameof(gst_pad_get_current_caps));
         gst_sample_get_buffer = (delegate* unmanaged[Cdecl]<void*, void*>)Core.GetExport(nameof(gst_sample_get_buffer));
         gst_sample_get_caps = (delegate* unmanaged[Cdecl]<void*, void*>)Core.GetExport(nameof(gst_sample_get_caps));
+        g_value_get_param = (delegate* unmanaged[Cdecl]<byte*, void*>)GObject.GetExport(nameof(g_value_get_param));
+        g_param_spec_get_name = (delegate* unmanaged[Cdecl]<void*, byte*>)GObject.GetExport(nameof(g_param_spec_get_name));
+        gst_object_get_type = (delegate* unmanaged[Cdecl]<nuint>)Core.GetExport(nameof(gst_object_get_type));
+        g_signal_connect_closure = (delegate* unmanaged[Cdecl]<void*, byte*, void*, int, nuint>)GObject.GetExport(nameof(g_signal_connect_closure));
+        g_signal_handler_disconnect = (delegate* unmanaged[Cdecl]<void*, nuint, void>)GObject.GetExport(nameof(g_signal_handler_disconnect));
+        g_signal_lookup = (delegate* unmanaged[Cdecl]<byte*, nuint, uint>)GObject.GetExport(nameof(g_signal_lookup));
+        g_cclosure_new = (delegate* unmanaged[Cdecl]<void*, void*, void*, void*>)GObject.GetExport(nameof(g_cclosure_new));
+        g_closure_set_meta_marshal = (delegate* unmanaged[Cdecl]<void*, void*, void*, void>)GObject.GetExport(nameof(g_closure_set_meta_marshal));
+        g_closure_add_finalize_notifier = (delegate* unmanaged[Cdecl]<void*, void*, void*, void>)GObject.GetExport(nameof(g_closure_add_finalize_notifier));
+        g_type_fundamental = (delegate* unmanaged[Cdecl]<nuint, nuint>)GObject.GetExport(nameof(g_type_fundamental));
+        g_type_name = (delegate* unmanaged[Cdecl]<nuint, byte*>)GObject.GetExport(nameof(g_type_name));
+        g_type_name_from_instance = (delegate* unmanaged[Cdecl]<void*, byte*>)GObject.GetExport(nameof(g_type_name_from_instance));
+        g_type_from_name = (delegate* unmanaged[Cdecl]<byte*, nuint>)GObject.GetExport(nameof(g_type_from_name));
+        g_value_get_boolean = (delegate* unmanaged[Cdecl]<byte*, int>)GObject.GetExport(nameof(g_value_get_boolean));
+        g_value_get_int = (delegate* unmanaged[Cdecl]<byte*, int>)GObject.GetExport(nameof(g_value_get_int));
+        g_value_get_uint = (delegate* unmanaged[Cdecl]<byte*, uint>)GObject.GetExport(nameof(g_value_get_uint));
+        g_value_get_long = (delegate* unmanaged[Cdecl]<byte*, long>)GObject.GetExport(nameof(g_value_get_long));
+        g_value_get_ulong = (delegate* unmanaged[Cdecl]<byte*, ulong>)GObject.GetExport(nameof(g_value_get_ulong));
+        g_value_get_int64 = (delegate* unmanaged[Cdecl]<byte*, long>)GObject.GetExport(nameof(g_value_get_int64));
+        g_value_get_uint64 = (delegate* unmanaged[Cdecl]<byte*, ulong>)GObject.GetExport(nameof(g_value_get_uint64));
+        g_value_get_float = (delegate* unmanaged[Cdecl]<byte*, float>)GObject.GetExport(nameof(g_value_get_float));
+        g_value_get_double = (delegate* unmanaged[Cdecl]<byte*, double>)GObject.GetExport(nameof(g_value_get_double));
+        g_value_get_string = (delegate* unmanaged[Cdecl]<byte*, byte*>)GObject.GetExport(nameof(g_value_get_string));
+        g_value_get_object = (delegate* unmanaged[Cdecl]<byte*, void*>)GObject.GetExport(nameof(g_value_get_object));
+        g_value_get_pointer = (delegate* unmanaged[Cdecl]<byte*, void*>)GObject.GetExport(nameof(g_value_get_pointer));
+        g_value_get_boxed = (delegate* unmanaged[Cdecl]<byte*, void*>)GObject.GetExport(nameof(g_value_get_boxed));
+        g_value_get_enum = (delegate* unmanaged[Cdecl]<byte*, int>)GObject.GetExport(nameof(g_value_get_enum));
+        g_value_get_flags = (delegate* unmanaged[Cdecl]<byte*, uint>)GObject.GetExport(nameof(g_value_get_flags));
+        g_value_set_boolean = (delegate* unmanaged[Cdecl]<byte*, int, void>)GObject.GetExport(nameof(g_value_set_boolean));
+        g_value_set_int = (delegate* unmanaged[Cdecl]<byte*, int, void>)GObject.GetExport(nameof(g_value_set_int));
+        g_value_set_int64 = (delegate* unmanaged[Cdecl]<byte*, long, void>)GObject.GetExport(nameof(g_value_set_int64));
+        g_value_set_enum = (delegate* unmanaged[Cdecl]<byte*, int, void>)GObject.GetExport(nameof(g_value_set_enum));
+        g_value_set_uint = (delegate* unmanaged[Cdecl]<byte*, uint, void>)GObject.GetExport(nameof(g_value_set_uint));
+        g_value_set_uint64 = (delegate* unmanaged[Cdecl]<byte*, ulong, void>)GObject.GetExport(nameof(g_value_set_uint64));
+        g_value_set_float = (delegate* unmanaged[Cdecl]<byte*, float, void>)GObject.GetExport(nameof(g_value_set_float));
+        g_value_set_double = (delegate* unmanaged[Cdecl]<byte*, double, void>)GObject.GetExport(nameof(g_value_set_double));
+        g_value_set_flags = (delegate* unmanaged[Cdecl]<byte*, uint, void>)GObject.GetExport(nameof(g_value_set_flags));
+        g_object_set_property = (delegate* unmanaged[Cdecl]<void*, byte*, byte*, void>)GObject.GetExport(nameof(g_object_set_property));
+        g_object_get_property = (delegate* unmanaged[Cdecl]<void*, byte*, byte*, void>)GObject.GetExport(nameof(g_object_get_property));
+        g_param_spec_get_default_value = (delegate* unmanaged[Cdecl]<void*, byte*>)GObject.GetExport(nameof(g_param_spec_get_default_value));
+        gst_caps_from_string = (delegate* unmanaged[Cdecl]<byte*, void*>)Core.GetExport(nameof(gst_caps_from_string));
+        gst_app_src_push_buffer = (delegate* unmanaged[Cdecl]<void*, void*, int>)App.GetExport(nameof(gst_app_src_push_buffer));
+        gst_app_src_end_of_stream = (delegate* unmanaged[Cdecl]<void*, int>)App.GetExport(nameof(gst_app_src_end_of_stream));
+        gst_app_src_set_caps = (delegate* unmanaged[Cdecl]<void*, void*, void>)App.GetExport(nameof(gst_app_src_set_caps));
+        gst_bus_timed_pop = (delegate* unmanaged[Cdecl]<void*, ulong, void*>)Core.GetExport(nameof(gst_bus_timed_pop));
+        gst_message_parse_warning = (delegate* unmanaged[Cdecl]<void*, void**, byte**, void>)Core.GetExport(nameof(gst_message_parse_warning));
+        gst_message_parse_info = (delegate* unmanaged[Cdecl]<void*, void**, byte**, void>)Core.GetExport(nameof(gst_message_parse_info));
+        gst_message_parse_state_changed = (delegate* unmanaged[Cdecl]<void*, int*, int*, int*, void>)Core.GetExport(nameof(gst_message_parse_state_changed));
+        gst_message_parse_buffering = (delegate* unmanaged[Cdecl]<void*, int*, void>)Core.GetExport(nameof(gst_message_parse_buffering));
+        gst_message_parse_tag = (delegate* unmanaged[Cdecl]<void*, void**, void>)Core.GetExport(nameof(gst_message_parse_tag));
+        gst_message_get_structure = (delegate* unmanaged[Cdecl]<void*, void*>)Core.GetExport(nameof(gst_message_get_structure));
+        gst_structure_to_string = (delegate* unmanaged[Cdecl]<void*, byte*>)Core.GetExport(nameof(gst_structure_to_string));
     }
 }

@@ -33,18 +33,23 @@ public sealed unsafe class GStreamerPipeline : IDisposable
 {
     private readonly List<IDisposable> _tracked = [];
     private void* _pipeline;
-    private void* _bus;
     private bool _disposed;
 
     private GStreamerPipeline(void* pipeline, string description)
     {
         _pipeline = pipeline;
         Description = description;
-        _bus = Gst.gst_element_get_bus(pipeline);
+        Bus = new GStreamerBus(Gst.gst_element_get_bus(pipeline), pipeline);
     }
 
     /// <summary>The description this pipeline was built from.</summary>
     public string Description { get; }
+
+    /// <summary>
+    /// The pipeline's message bus: subscribe to its <see cref="GStreamerBus.MessageReceived"/> to hear about errors,
+    /// tags, buffering and state changes as they happen.
+    /// </summary>
+    public GStreamerBus Bus { get; }
 
     /// <summary>The raw <c>GstElement</c> of the pipeline itself.</summary>
     public void* Handle => _pipeline;
@@ -136,6 +141,25 @@ public sealed unsafe class GStreamerPipeline : IDisposable
         return sink;
     }
 
+    /// <summary>The <c>appsrc</c> the description gave that name, as the way to push frames into the pipeline.</summary>
+    /// <exception cref="MediaToolkitNetException">There is no such element, or it is not an appsrc.</exception>
+    public GStreamerSource GetSource(string name)
+    {
+        var element = FindElement(name)
+            ?? throw new MediaToolkitNetException(
+                GstConstants.BackendName, $"the pipeline has no element named {name}.", 0);
+
+        if (Utf8.ToManagedOrEmpty(Gst.g_type_name_from_instance(element.Handle)) != "GstAppSrc")
+        {
+            element.Dispose();
+            throw new MediaToolkitNetException(GstConstants.BackendName, $"the element {name} is not an appsrc.", 0);
+        }
+
+        var source = new GStreamerSource(element);
+        _tracked.Add(source);
+        return source;
+    }
+
     /// <summary>Moves the pipeline to PLAYING.</summary>
     public void Play() => SetState(GstState.Playing);
 
@@ -160,7 +184,7 @@ public sealed unsafe class GStreamerPipeline : IDisposable
         if (result == GstStateChangeReturn.Failure)
         {
             throw new MediaToolkitNetException(
-                GstConstants.BackendName, $"the pipeline refused to go to {state}: {LastError() ?? "no reason given"}", 0);
+                GstConstants.BackendName, $"the pipeline refused to go to {state}: {Bus.TakeError(expected: true) ?? "no reason given"}", 0);
         }
 
         if (result != GstStateChangeReturn.Async)
@@ -168,11 +192,13 @@ public sealed unsafe class GStreamerPipeline : IDisposable
             return;
         }
 
-        var waited = WaitForState(timeout ?? TimeSpan.FromSeconds(5));
+        // A pipeline fed by an appsrc prerolls when its first buffer arrives, and the caller pushes that after this
+        // returns: waiting for it here would only run the timeout out. A refusal that is already known still shows.
+        var waited = WaitForState(_tracked.Exists(t => t is GStreamerSource) ? TimeSpan.Zero : timeout ?? TimeSpan.FromSeconds(5));
         if (waited == GstStateChangeReturn.Failure)
         {
             throw new MediaToolkitNetException(
-                GstConstants.BackendName, $"the pipeline failed on the way to {state}: {LastError() ?? "no reason given"}", 0);
+                GstConstants.BackendName, $"the pipeline failed on the way to {state}: {Bus.TakeError(expected: true) ?? "no reason given"}", 0);
         }
     }
 
@@ -249,55 +275,13 @@ public sealed unsafe class GStreamerPipeline : IDisposable
     public bool WaitForCompletion(TimeSpan timeout)
     {
         EnsureAlive();
-
-        var message = Gst.gst_bus_timed_pop_filtered(
-            _bus, Nanoseconds(timeout), (uint)(GstMessageType.Eos | GstMessageType.Error));
-
-        if (message is null)
-        {
-            return false;
-        }
-
-        try
-        {
-            if (GstLayout.TypeOfMessage(message) != GstMessageType.Error)
-            {
-                return true;
-            }
-
-            throw new MediaToolkitNetException(GstConstants.BackendName, ErrorOf(message), 0);
-        }
-        finally
-        {
-            Gst.gst_mini_object_unref(message);
-        }
+        return Bus.WaitForCompletion(timeout);
     }
 
     /// <summary>
     /// Takes the error the pipeline posted, when it posted one, without waiting.
     /// </summary>
-    public string? LastError()
-    {
-        if (_bus is null)
-        {
-            return null;
-        }
-
-        var message = Gst.gst_bus_timed_pop_filtered(_bus, 0, (uint)GstMessageType.Error);
-        if (message is null)
-        {
-            return null;
-        }
-
-        try
-        {
-            return ErrorOf(message);
-        }
-        finally
-        {
-            Gst.gst_mini_object_unref(message);
-        }
-    }
+    public string? LastError() => Bus.TakeError(expected: false);
 
     /// <inheritdoc />
     public void Dispose()
@@ -321,28 +305,13 @@ public sealed unsafe class GStreamerPipeline : IDisposable
             Gst.gst_element_set_state(_pipeline, (int)GstState.Null);
         }
 
-        if (_bus is not null)
-        {
-            Gst.gst_object_unref(_bus);
-            _bus = null;
-        }
+        Bus.Dispose();
 
         if (_pipeline is not null)
         {
             Gst.gst_object_unref(_pipeline);
             _pipeline = null;
         }
-    }
-
-    private static string ErrorOf(void* message)
-    {
-        void* error = null;
-        byte* debug = null;
-        Gst.gst_message_parse_error(message, &error, &debug);
-
-        var text = Gst.TakeError(error);
-        var detail = debug is null ? string.Empty : Gst.TakeString(debug);
-        return string.IsNullOrEmpty(detail) ? text : $"{text} ({detail})";
     }
 
     private static ulong Nanoseconds(TimeSpan timeout) =>

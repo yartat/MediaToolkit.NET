@@ -53,6 +53,9 @@ public static unsafe class GstLayout
     /// <summary>Offset of <c>GstMessage::type</c>, found by <see cref="Validate"/>.</summary>
     public static int MessageType { get; private set; } = -1;
 
+    /// <summary>Offset of <c>GstMessage::src</c>, the object that posted the message, found by <see cref="Validate"/>.</summary>
+    public static int MessageSource { get; private set; } = -1;
+
     /// <summary>Offset of <c>GstEvent::type</c>, found by <see cref="Validate"/>.</summary>
     public static int EventType { get; private set; } = -1;
 
@@ -69,6 +72,9 @@ public static unsafe class GstLayout
     public static GstMessageType TypeOfMessage(void* message) =>
         (GstMessageType)(*(uint*)((byte*)message + MessageType));
 
+    /// <summary>Reads <c>GST_MESSAGE_SRC</c>: the object that posted the message, not a reference, or null.</summary>
+    public static void* SourceOfMessage(void* message) => *(void**)((byte*)message + MessageSource);
+
     /// <summary>Reads <c>GST_EVENT_TYPE</c>.</summary>
     public static GstEventType TypeOfEvent(void* evt) => (GstEventType)(*(int*)((byte*)evt + EventType));
 
@@ -77,6 +83,20 @@ public static unsafe class GstLayout
 
     /// <summary>Reads <c>GST_BUFFER_PTS</c>, in nanoseconds.</summary>
     public static ulong PtsOfBuffer(void* buffer) => *(ulong*)((byte*)buffer + BufferPts);
+
+    // GstBuffer keeps pts, dts, duration, offset and offset_end in that order, and the probe found the run they form,
+    // so the duration is two qwords after the pts.
+    private const int BufferDurationDelta = 16;
+
+    /// <summary>Reads <c>GST_BUFFER_DURATION</c>, in nanoseconds.</summary>
+    public static ulong DurationOfBuffer(void* buffer) => *(ulong*)((byte*)buffer + BufferPts + BufferDurationDelta);
+
+    /// <summary>Writes <c>GST_BUFFER_PTS</c> and <c>GST_BUFFER_DURATION</c> of a buffer nothing else holds yet.</summary>
+    public static void SetBufferTimes(void* buffer, ulong pts, ulong duration)
+    {
+        *(ulong*)((byte*)buffer + BufferPts) = pts;
+        *(ulong*)((byte*)buffer + BufferPts + BufferDurationDelta) = duration;
+    }
 
     /// <summary>Reads <c>GList::data</c>.</summary>
     public static void* DataOfListNode(void* node) => *(void**)((byte*)node + ListData);
@@ -106,6 +126,7 @@ public static unsafe class GstLayout
     internal static void Validate()
     {
         MessageType = ProbeMessageType();
+        MessageSource = ProbeMessageSource();
         EventType = ProbeEventType();
         BufferPts = ProbeBufferPts();
 
@@ -115,6 +136,11 @@ public static unsafe class GstLayout
         if (MessageType < 0)
         {
             failed.Add("GstMessage::type");
+        }
+
+        if (MessageSource < 0)
+        {
+            failed.Add("GstMessage::src");
         }
 
         if (EventType < 0)
@@ -201,6 +227,65 @@ public static unsafe class GstLayout
         finally
         {
             Gst.gst_mini_object_unref(message);
+        }
+    }
+
+    /// <summary>
+    /// Finds <c>GstMessage::src</c> by posting a message that names an element made here as its source: the field
+    /// is the one that holds that pointer.
+    /// </summary>
+    private static int ProbeMessageSource()
+    {
+        const int searchLimit = 128;
+
+        Span<byte> factoryScratch = stackalloc byte[Utf8Scoped.StackThreshold];
+        Span<byte> nameScratch = stackalloc byte[Utf8Scoped.StackThreshold];
+        using var factory = new Utf8Scoped("identity", factoryScratch);
+        using var name = new Utf8Scoped("mediatoolkitnet-probe", nameScratch);
+
+        var element = Gst.gst_element_factory_make(factory.Pointer, null);
+        if (element is null)
+        {
+            return -1;
+        }
+
+        Gst.gst_object_ref_sink(element);
+        try
+        {
+            var structure = Gst.gst_structure_new_empty(name.Pointer);
+            if (structure is null)
+            {
+                return -1;
+            }
+
+            var message = Gst.gst_message_new_application(element, structure);
+            if (message is null)
+            {
+                return -1;
+            }
+
+            try
+            {
+                // Pointers are eight-aligned; the scan starts past the GType that opens every GstMiniObject.
+                var raw = (byte*)message;
+                for (var offset = 8; offset + 8 <= searchLimit; offset += 8)
+                {
+                    if (*(void**)(raw + offset) == element)
+                    {
+                        return offset;
+                    }
+                }
+
+                return -1;
+            }
+            finally
+            {
+                Gst.gst_mini_object_unref(message);
+            }
+        }
+        finally
+        {
+            Gst.gst_object_unref(element);
         }
     }
 

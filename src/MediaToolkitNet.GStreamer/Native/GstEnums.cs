@@ -64,14 +64,41 @@ public enum GstMessageType : uint
     /// <summary>GST_MESSAGE_INFO.</summary>
     Info = 1 << 3,
 
+    /// <summary>GST_MESSAGE_TAG.</summary>
+    Tag = 1 << 4,
+
+    /// <summary>GST_MESSAGE_BUFFERING.</summary>
+    Buffering = 1 << 5,
+
     /// <summary>GST_MESSAGE_STATE_CHANGED.</summary>
     StateChanged = 1 << 6,
 
     /// <summary>GST_MESSAGE_ASYNC_DONE.</summary>
     AsyncDone = 1 << 21,
 
+    /// <summary>GST_MESSAGE_QOS.</summary>
+    Qos = 1 << 24,
+
+    /// <summary>GST_MESSAGE_PROGRESS.</summary>
+    Progress = 1 << 25,
+
+    /// <summary>GST_MESSAGE_TOC.</summary>
+    Toc = 1 << 26,
+
+    /// <summary>GST_MESSAGE_STREAM_START.</summary>
+    StreamStart = 1 << 28,
+
     /// <summary>GST_MESSAGE_APPLICATION, which only an application ever posts.</summary>
     Application = 1 << 14,
+
+    /// <summary>GST_MESSAGE_ELEMENT.</summary>
+    Element = 1 << 15,
+
+    /// <summary>GST_MESSAGE_DURATION_CHANGED.</summary>
+    DurationChanged = 1 << 18,
+
+    /// <summary>GST_MESSAGE_LATENCY.</summary>
+    Latency = 1 << 19,
 
     /// <summary>GST_MESSAGE_ANY.</summary>
     Any = 0xFFFFFFFF,

@@ -384,6 +384,43 @@ public readonly record struct GstMediaFormat(
         _ => PixelFormat.Unknown,
     };
 
+    /// <summary>The caps text for raw video of a format, such as <c>video/x-raw,format=BGRA,width=64,height=48,framerate=25/1</c>.</summary>
+    public static string CapsOf(VideoFormat format)
+    {
+        var name = format.PixelFormat switch
+        {
+            PixelFormat.Bgr24 => "BGR",
+            PixelFormat.Rgb24 => "RGB",
+            PixelFormat.Bgra32 => "BGRA",
+            PixelFormat.Rgba32 => "RGBA",
+            PixelFormat.Yuv420P => "I420",
+            PixelFormat.Yuv422P => "Y42B",
+            PixelFormat.Yuv444P => "Y444",
+            PixelFormat.Nv12 => "NV12",
+            PixelFormat.Yuyv422 => "YUY2",
+            PixelFormat.Uyvy422 => "UYVY",
+            _ => throw new MediaToolkitNetException(GstConstants.BackendName, $"the pixel format {format.PixelFormat} has no GStreamer raw video name.", 0),
+        };
+        var rate = format.FrameRate.Denominator > 0 && format.FrameRate.Numerator > 0 ? format.FrameRate : new Rational(0, 1);
+        return $"video/x-raw,format={name},width={format.Width},height={format.Height},framerate={rate.Numerator}/{rate.Denominator}";
+    }
+
+    /// <summary>The caps text for raw audio of a format, such as <c>audio/x-raw,format=S16LE,layout=interleaved,rate=48000,channels=2</c>.</summary>
+    public static string CapsOf(AudioFormat format)
+    {
+        var name = format.SampleFormat switch
+        {
+            SampleFormat.U8 or SampleFormat.U8Planar => "U8",
+            SampleFormat.S16 or SampleFormat.S16Planar => "S16LE",
+            SampleFormat.S32 or SampleFormat.S32Planar => "S32LE",
+            SampleFormat.F32 or SampleFormat.F32Planar => "F32LE",
+            SampleFormat.F64 or SampleFormat.F64Planar => "F64LE",
+            _ => throw new MediaToolkitNetException(GstConstants.BackendName, $"the sample format {format.SampleFormat} has no GStreamer raw audio name.", 0),
+        };
+        var layout = format.SampleFormat.IsPlanar() ? "non-interleaved" : "interleaved";
+        return $"audio/x-raw,format={name},layout={layout},rate={format.SampleRate},channels={format.Channels}";
+    }
+
     /// <summary>Maps a GStreamer raw audio format name onto a toolkit sample format.</summary>
     /// <param name="name">The caps format, for example <c>S16LE</c>.</param>
     /// <param name="planar">True when the caps say <c>layout=non-interleaved</c>.</param>

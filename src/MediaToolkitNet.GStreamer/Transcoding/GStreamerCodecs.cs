@@ -81,8 +81,8 @@ internal static class GStreamerCodecs
     /// <summary>The parser that follows an encoder, for the muxers that want parsed caps.</summary>
     public static string? EncodedParser(string encoder) => encoder switch
     {
-        "x264enc" or "openh264enc" => "h264parse",
-        "x265enc" => "h265parse",
+        "x264enc" or "openh264enc" or "nvh264enc" => "h264parse",
+        "x265enc" or "nvh265enc" => "h265parse",
         "svtav1enc" or "av1enc" => "av1parse",
         "avenc_aac" or "fdkaacenc" or "voaacenc" => "aacparse",
         "lamemp3enc" or "twolamemp2enc" or "avenc_mp2" => "mpegaudioparse",
@@ -155,6 +155,14 @@ internal static class GStreamerCodecs
                     result.Add(("preset", (12 - svtSpeed).ToString(CultureInfo.InvariantCulture)));
                 }
 
+                break;
+
+            case "nvh264enc":
+            case "nvh265enc":
+                // NVENC: kbit/s, and a gop of -1 would be infinite, so only a positive distance is passed.
+                AddIf(result, "bitrate", settings.BitrateBitsPerSecond / 1000);
+                AddIf(result, "gop-size", settings.KeyFrameInterval);
+                Unmapped(encoder, settings.Quality is not null, "a constant quality", issues);
                 break;
 
             case "openh264enc":

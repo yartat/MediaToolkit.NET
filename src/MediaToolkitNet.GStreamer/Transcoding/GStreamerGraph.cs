@@ -483,7 +483,7 @@ internal sealed class GStreamerGraph
         return tags.Count == 0 ? null : string.Join(',', tags);
     }
 
-    private static string? MuxerFor(MediaContainer? container) => container switch
+    internal static string? MuxerFor(MediaContainer? container) => container switch
     {
         MediaContainer.Mp4 => "mp4mux",
         MediaContainer.Mov => "qtmux",
@@ -500,7 +500,7 @@ internal sealed class GStreamerGraph
     /// The request pad a branch links to. <c>mpegtsmux</c> numbers its pads by
     /// PID, and the PIDs below 0x40 are reserved, so its streams start at 0x100.
     /// </summary>
-    private static string MuxerPad(string muxer, bool isVideo, int kindIndex, int outputIndex) => muxer switch
+    internal static string MuxerPad(string muxer, bool isVideo, int kindIndex, int outputIndex) => muxer switch
     {
         "mpegtsmux" => $"sink_{0x100 + outputIndex}",
         "oggmux" => $"sink_{outputIndex}",
@@ -547,7 +547,7 @@ internal sealed class GStreamerGraph
     /// The GStreamer name of a sample format. flacenc takes no 32-bit samples:
     /// 32 bits is how libavcodec carries 24-bit FLAC, which flacenc calls S24_32LE.
     /// </summary>
-    private static string SampleFormatName(SampleFormat format, string? encoder) => format switch
+    internal static string SampleFormatName(SampleFormat format, string? encoder) => format switch
     {
         SampleFormat.U8 or SampleFormat.U8Planar => "U8",
         SampleFormat.S16 or SampleFormat.S16Planar => "S16LE",

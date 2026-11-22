@@ -37,7 +37,8 @@ public sealed class GStreamerBackend : MediaBackendBase
     public override string Name => GstConstants.BackendName;
 
     /// <inheritdoc />
-    public override BackendCapabilities Capabilities => BackendCapabilities.Probing | BackendCapabilities.Transcoding;
+    public override BackendCapabilities Capabilities =>
+        BackendCapabilities.Probing | BackendCapabilities.Transcoding | BackendCapabilities.Recording;
 
     /// <inheritdoc />
     public override bool IsAvailable => OperatingSystem.IsLinux() && Gst.IsAvailable;
@@ -63,6 +64,13 @@ public sealed class GStreamerBackend : MediaBackendBase
     {
         EnsureAvailable();
         return OperatingSystem.IsLinux() ? new GStreamerTranscoder() : throw new PlatformNotSupportedException();
+    }
+
+    /// <inheritdoc />
+    public override Abstractions.Recording.IMediaRecorder CreateRecorder(string outputPath)
+    {
+        EnsureAvailable();
+        return OperatingSystem.IsLinux() ? new GStreamerRecorder(outputPath) : throw new PlatformNotSupportedException();
     }
 
     /// <summary>

@@ -41,6 +41,7 @@ static int Usage()
           av-filter <chain>            build a libavfilter graph and print it
           gst-elements [text]          list the GStreamer element factories (Linux only)
           gst-run <pipeline> [seconds] run a gst-launch pipeline (Linux only)
+          gst-rec <file> [seconds] [encoder]  record a test picture and tone with GStreamer; an encoder such as nvh264enc names the element
         """);
     Console.Write(TranscodeCommand.Usage);
     Console.Write(ReadCommand.Usage);
@@ -78,6 +79,7 @@ static int Run(string[] args)
             "av-filter" => ShowFFmpegFilterGraph(Argument(args, 1, "filter chain")),
             "gst-elements" => ListGStreamerElements(args.Length > 1 ? args[1] : null),
             "gst-run" => RunGStreamerPipeline(Argument(args, 1, "pipeline"), Seconds(args, 2, 10)),
+            "gst-rec" => RecordWithGStreamer(Argument(args, 1, "output file path"), Seconds(args, 2, 3), args.Length > 3 ? args[3] : null),
             "rec-audio-file" => RecordAudioToFile(Seconds(args, 1, 3), Argument(args, 2, "output file path")),
             "rec-file" => RecordToFile(Seconds(args, 1, 3), Argument(args, 2, "output file path"),
                 args.Length > 3 ? Enum.Parse<MediaCodec>(args[3], ignoreCase: true) : MediaCodec.H264),
@@ -773,6 +775,66 @@ static int ListGStreamerElements(string? contains)
     return 0;
 }
 
+static unsafe int RecordWithGStreamer(string output, int seconds, string? encoder)
+{
+    if (!OperatingSystem.IsLinux())
+    {
+        Console.Error.WriteLine("The GStreamer backend binds the Linux library names; run this on Linux.");
+        return 2;
+    }
+
+    var video = new VideoFormat(320, 240, PixelFormat.Bgra32, new Rational(25, 1));
+    var audio = new AudioFormat(48000, 2, SampleFormat.S16);
+    using var recorder = new MediaToolkitNet.GStreamer.GStreamerRecorder(output);
+    var v = recorder.AddVideoStream(new VideoEncodingSettings(video, MediaCodec.H264, 1_000_000, 25) { EncoderName = encoder });
+    var a = recorder.AddAudioStream(new AudioEncodingSettings(audio, MediaCodec.Aac));
+    foreach (var warning in recorder.Warnings)
+    {
+        Console.WriteLine($"warning: {warning}");
+    }
+
+    Console.WriteLine($"encoders: {string.Join(", ", recorder.Encoders)}");
+    recorder.Start();
+
+    var picture = new byte[video.Width * video.Height * 4];
+    var tone = new short[960 * 2];
+    for (var frame = 0; frame < seconds * 25; frame++)
+    {
+        // A bar that crosses the picture, so a stalled or scrambled recording is visible.
+        Array.Clear(picture);
+        var bar = frame * 8 % video.Width;
+        for (var y = 0; y < video.Height; y++)
+        {
+            for (var x = bar; x < Math.Min(bar + 16, video.Width); x++)
+            {
+                var at = ((y * video.Width) + x) * 4;
+                picture[at] = 40;
+                picture[at + 1] = 200;
+                picture[at + 2] = 255;
+                picture[at + 3] = 255;
+            }
+        }
+
+        for (var s = 0; s < 960; s++)
+        {
+            var sample = (short)(Math.Sin(2 * Math.PI * 440 * (((long)frame * 960) + s) / audio.SampleRate) * 8000);
+            tone[s * 2] = sample;
+            tone[(s * 2) + 1] = sample;
+        }
+
+        fixed (byte* p = picture)
+        fixed (short* t = tone)
+        {
+            recorder.WriteVideo(v, new VideoFrame(video, TimeSpan.FromSeconds(frame / 25d), p, video.Width * 4));
+            recorder.WriteAudio(a, new AudioFrame(audio, TimeSpan.FromSeconds(frame / 25d), 960, (byte*)t));
+        }
+    }
+
+    recorder.Stop();
+    Console.WriteLine($"wrote {output}, {recorder.Elapsed.TotalSeconds:0.0} s");
+    return 0;
+}
+
 static int RunGStreamerPipeline(string pipeline, int seconds)
 {
     if (!OperatingSystem.IsLinux())
@@ -786,6 +848,9 @@ static int RunGStreamerPipeline(string pipeline, int seconds)
     MediaToolkitNet.GStreamer.Native.GstLayout.Require();
 
     using var graph = MediaToolkitNet.GStreamer.GStreamerPipeline.Parse(pipeline);
+
+    // Errors, warnings, tags, buffering and the pipeline's own state changes, as the bus delivers them.
+    graph.Bus.MessageReceived += (_, message) => Console.WriteLine($"  bus: {message}");
     graph.Pause();
     Console.WriteLine($"Prerolled, duration {graph.Duration}.");
 

@@ -24,7 +24,7 @@ remains AOT- and trim-safe.
 | `MediaToolkitNet.Mpv` | libmpv (client API) |
 | `MediaToolkitNet.Windows` | Media Foundation, WASAPI, DirectShow (devices, filter graph, Sample Grabber) |
 | `MediaToolkitNet.Linux` | ALSA, PulseAudio (simple API), V4L2 |
-| `MediaToolkitNet.GStreamer` | GStreamer 1.x: pipeline, element registry, appsink, GstDiscoverer, transcoding |
+| `MediaToolkitNet.GStreamer` | GStreamer 1.x: pipeline, element registry, bus and signals, appsrc and appsink, GstDiscoverer, transcoding, recording |
 | `MediaToolkitNet.MacOS` | AVFoundation through the Objective-C runtime, CoreAudio / AudioQueue |
 | `MediaToolkitNet.All` | Facade: backend registry and per-platform selection |
 | `samples/MediaToolkitNet.Sample.Cli` | Demonstrates every scenario |
@@ -173,6 +173,59 @@ while (!sink.IsEndOfStream)
     sink.TryPullVideo(TimeSpan.FromMilliseconds(500), (in VideoFrame frame) => Save(frame));
 }
 ```
+
+The pipeline's **bus** reports what happens inside it, and an element's **signals** can be handled, with no GLib main loop:
+
+```csharp
+pipeline.Bus.MessageReceived += (_, m) =>                 // errors, warnings, tags, buffering, state changes, the end
+{
+    if (m.Type == GstMessageType.Error) Console.WriteLine($"{m.Source}: {m.Text} ({m.Debug})");
+    if (m.Type == GstMessageType.Tag)   Console.WriteLine(string.Join(", ", m.Tags));
+};
+
+var decoder = pipeline.FindElement("dec")!;
+decoder.Connect("pad-added", args => Console.WriteLine($"new pad {args.NameOf(0)}"));     // dynamic pads
+pipeline.FindElement("id")!.Connect("notify::silent", args => Console.WriteLine(args.NameOf(0)));
+```
+
+Messages and signals arrive on threads GStreamer or the library owns, one message at a time and in order; a handler
+that throws is reported through `Failed`. `Bus.Mask` picks the kinds delivered, `PostApplication` sends your own, and
+`WaitForCompletion` goes on working while the bus is listened to. A handler may answer a signal that returns something
+(`args.ReturnValue = -5` is `GST_FLOW_ERROR` for an `appsink`'s `new-sample`); objects in the values (pads, buffers) are
+pointers valid for the call only.
+
+Frames go the other way through an `appsrc`, and properties can be set and read with their own types:
+
+```csharp
+using var pipeline = GStreamerPipeline.Parse("appsrc name=src ! videoconvert ! x264enc ! mp4mux ! filesink location=out.mp4");
+var source = pipeline.GetSource("src");
+source.SetFormat(new VideoFormat(1280, 720, PixelFormat.Bgra32, new Rational(30, 1)));
+source.NeedData += (_, bytes) => { /* the queue is empty: push more */ };
+pipeline.Play();                                           // returns at once, the first frame prerolls it
+
+source.PushVideo(frame);                                   // repacked to GStreamer's strides; false once the stream ended
+source.EndOfStream();
+pipeline.WaitForCompletion(TimeSpan.FromSeconds(30));
+
+source.Element.SetValue("max-bytes", 4_000_000UL);         // bool, integers, float/double, string, enum, flags
+var level = pipeline.FindElement("enc")!.Get<int>("bitrate");
+```
+
+The same `appsrc` is behind `GStreamerRecorder`, an `IMediaRecorder` for Linux: it needs no description, only the streams.
+The container follows the extension, `EncoderName` can name a hardware encoder, and `SegmentDuration` cuts the recording
+into files that each play on their own.
+
+```csharp
+using var recorder = new GStreamerRecorder("out.mp4") { SegmentDuration = null };   // or TimeSpan.FromMinutes(10)
+var v = recorder.AddVideoStream(new VideoEncodingSettings(video, MediaCodec.H264, 4_000_000, 60) { EncoderName = "nvh264enc" });
+var a = recorder.AddAudioStream(new AudioEncodingSettings(audio, MediaCodec.Aac));
+recorder.Start();
+recorder.WriteVideo(v, frame);          // each frame in the format its stream was added with
+recorder.WriteAudio(a, block);
+recorder.Stop();                        // out.mp4 appears now; disposing without Stop leaves the output as it was
+```
+
+`MediaToolkitNetBackends.CreateRecorder` still prefers the platform backend and FFmpeg; GStreamer is asked for directly.
 
 ## Windows features
 
