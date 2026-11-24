@@ -227,6 +227,19 @@ recorder.Stop();                        // out.mp4 appears now; disposing withou
 
 `MediaToolkitNetBackends.CreateRecorder` still prefers the platform backend and FFmpeg; GStreamer is asked for directly.
 
+The output can also be a stream. A path ending in `.m3u8` writes HLS (MPEG-TS segments beside the playlist, which gets its
+`#EXT-X-ENDLIST` from `Stop`; `SegmentDuration` is the target length of a segment), and `srt://host:port?mode=listener` sends
+MPEG-TS over SRT to a receiver that connects:
+
+```csharp
+using var hls = new GStreamerRecorder("site/live.m3u8") { SegmentDuration = TimeSpan.FromSeconds(4) };
+using var srt = new GStreamerRecorder("srt://0.0.0.0:9000?mode=listener") { DrainTime = TimeSpan.FromSeconds(1) };
+```
+
+SRT in live mode drops what it cannot deliver in time, so `Stop` keeps the connection open for `DrainTime` after the last
+frame; closing at once lost the last three of fifty frames. The sink waits for a receiver, so a listener with none
+connected holds `Stop` until its 60 s timeout.
+
 `GStreamerPlayer` is an `IMediaPlayer` on `playbin3` that hands the decoded frames back, like the FFmpeg player: video as
 `Bgra32`, audio as interleaved `S16`, each paced by the pipeline clock. By default it draws and plays nothing; name a
 sink and that output is real instead: `VideoSink = "ximagesink"` opens a window (`VideoWindowHandle` draws into an X11

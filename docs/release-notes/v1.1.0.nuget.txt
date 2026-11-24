@@ -20,7 +20,7 @@ MediaFoundationTranscoder (WindowsBackend now declares Probing and Transcoding).
 ADDED TO MediaToolkitNet.GStreamer: a message bus with a mask (pipeline.Bus), handlers for any signal
 (GStreamerElement.Connect), appsrc (GStreamerSource: PushVideo, PushAudio, Push, EndOfStream), typed properties
 (SetValue, GetValue), GStreamerRecorder (an IMediaRecorder; EncoderName picks a hardware encoder, SegmentDuration cuts
-the recording into files) and GStreamerPlayer (an IMediaPlayer on playbin3 that hands frames back, or draws into a window
+the recording into files, and the output can be an HLS playlist or an srt:// stream) and GStreamerPlayer (an IMediaPlayer on playbin3 that hands frames back, or draws into a window
 and plays to the sound server through VideoSink, AudioSink and VideoWindowHandle).
 
 CHANGED: Select(Recording) and Select(Playback) put GStreamer after every other backend, so FFmpeg still records and mpv
@@ -41,5 +41,6 @@ KNOWN LIMITS
   border, a window on another GPU and a protected window are not covered; the Media Foundation AAC encoder takes only 44.1
   and 48 kHz, one or two channels and 96 to 192 kb/s.
 - GStreamer: the recorder converts nothing for the caller and takes no subtitles; only NVENC is mapped among hardware
-  encoders (it refuses frames under 160x64). Window output is X11 only and the sound test is tied to WSLg. Nothing
+  encoders (it refuses frames under 160x64). Streaming covers HLS and SRT over the loopback only; RTMP, RTSP and UDP are
+  not offered, and SRT in live mode can drop frames on a real network. Window output is X11 only and the sound test is tied to WSLg. Nothing
   GStreamer has run on macOS or Windows.

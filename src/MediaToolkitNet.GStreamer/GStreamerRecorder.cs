@@ -41,6 +41,7 @@ public sealed class GStreamerRecorder : IMediaRecorder
 
     private readonly string _output;
     private readonly MediaContainer? _container;
+    private readonly OutputKind _kind;
     private readonly List<Entry> _streams = [];
     private readonly List<GStreamerSource> _sources = [];
     private readonly List<string> _warnings = [];
@@ -56,8 +57,12 @@ public sealed class GStreamerRecorder : IMediaRecorder
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(outputPath);
         Gst.EnsureLoaded();
-        _output = Path.GetFullPath(outputPath);
-        _container = MediaFormats.ContainerFromPath(_output);
+        var isAddress = outputPath.Contains("://", StringComparison.Ordinal);
+        _output = isAddress ? outputPath : Path.GetFullPath(outputPath);
+        _kind = isAddress
+            ? outputPath.StartsWith("srt://", StringComparison.OrdinalIgnoreCase) ? OutputKind.Srt : OutputKind.Unknown
+            : _output.EndsWith(".m3u8", StringComparison.OrdinalIgnoreCase) ? OutputKind.Hls : OutputKind.File;
+        _container = _kind == OutputKind.File ? MediaFormats.ContainerFromPath(_output) : null;
     }
 
     /// <inheritdoc />
@@ -71,9 +76,16 @@ public sealed class GStreamerRecorder : IMediaRecorder
 
     /// <summary>
     /// When set, the recording is cut into files of about this length, each starting on a key frame. Set it before
-    /// <see cref="Start"/>; the files are <c>name_00000.ext</c> beside the output, which itself is not written.
+    /// <see cref="Start"/>; the files are <c>name_00000.ext</c> beside the output, which itself is not written. For an
+    /// HLS output (<c>.m3u8</c>) it is the target length of a segment, two seconds when left unset.
     /// </summary>
     public TimeSpan? SegmentDuration { get; set; }
+
+    /// <summary>
+    /// For an SRT output, how long <see cref="Stop"/> keeps the connection open after the last frame was sent, so that the
+    /// receiver gets what is still on its way. One second by default; zero closes at once and loses the last few frames.
+    /// </summary>
+    public TimeSpan DrainTime { get; set; } = TimeSpan.FromSeconds(1);
 
     /// <summary>The encoder element chosen for each stream, in the order the streams were added; PCM has none and shows as <c>raw</c>.</summary>
     public IReadOnlyList<string> Encoders => [.. _streams.Select(s => s.Encoder ?? "raw")];
@@ -163,13 +175,29 @@ public sealed class GStreamerRecorder : IMediaRecorder
             throw new InvalidOperationException("Add at least one stream before Start.");
         }
 
-        var muxer = GStreamerGraph.MuxerFor(_container);
+        if (_kind == OutputKind.Unknown)
+        {
+            throw new MediaToolkitNetException(
+                Backend, $"{_output.Split("://")[0]}:// is not a stream this recorder writes; it writes srt:// and an .m3u8 playlist, and files by extension", 0);
+        }
+
+        if (_kind == OutputKind.Srt && SegmentDuration is not null)
+        {
+            throw new MediaToolkitNetException(Backend, "a stream over SRT is not cut into segments", 0);
+        }
+
+        var muxer = _kind switch
+        {
+            OutputKind.Hls => "hlssink2",
+            OutputKind.Srt => "mpegtsmux",
+            _ => GStreamerGraph.MuxerFor(_container),
+        };
         if (muxer is null && _streams.Count > 1)
         {
             throw new MediaToolkitNetException(Backend, $"{Path.GetExtension(_output)} holds one stream and {_streams.Count} were added", 0);
         }
 
-        if (_container is null)
+        if (_kind == OutputKind.File && _container is null)
         {
             throw new MediaToolkitNetException(Backend, $"the extension {Path.GetExtension(_output)} names no container this library writes", 0);
         }
@@ -265,6 +293,13 @@ public sealed class GStreamerRecorder : IMediaRecorder
                 throw new MediaToolkitNetException(Backend, $"the recording did not finish within {FinishTimeout.TotalSeconds:0} s of its end", 0);
             }
 
+            // An SRT sender that closes its socket at once loses the last frames it has not yet delivered: a plain gst-launch
+            // of the same stream loses three of fifty. Waiting lets the link finish the delivery.
+            if (_kind == OutputKind.Srt && DrainTime > TimeSpan.Zero)
+            {
+                Thread.Sleep(DrainTime);
+            }
+
             // The muxer finishes its file when the pipeline reaches NULL, so the output is renamed only after that.
             pipeline.Stop();
             pipeline.Dispose();
@@ -294,8 +329,26 @@ public sealed class GStreamerRecorder : IMediaRecorder
     private string Describe(string? muxer, List<(string Element, string Property, string Value)> properties)
     {
         var builder = new StringBuilder();
-        var segments = SegmentDuration;
-        if (segments is { } length)
+        var segments = _kind == OutputKind.File ? SegmentDuration : null;
+        if (_kind == OutputKind.Hls)
+        {
+            // hlssink2 muxes into MPEG-TS segments itself and writes the playlist, which is complete (ENDLIST) once the
+            // end of the stream reached it. Nothing is deleted and the playlist keeps every segment, as a recording does.
+            var seconds = Math.Max(1, (int)Math.Ceiling((SegmentDuration ?? TimeSpan.FromSeconds(2)).TotalSeconds));
+            var directory = Path.GetDirectoryName(_output)!;
+            builder.Append("hlssink2 name=mux");
+            properties.Add(("mux", "location", Path.Combine(directory, $"{Path.GetFileNameWithoutExtension(_output)}_%05d.ts")));
+            properties.Add(("mux", "playlist-location", _output));
+            properties.Add(("mux", "target-duration", seconds.ToString(CultureInfo.InvariantCulture)));
+            properties.Add(("mux", "max-files", "0"));
+            properties.Add(("mux", "playlist-length", "0"));
+        }
+        else if (_kind == OutputKind.Srt)
+        {
+            builder.Append("mpegtsmux name=mux ! srtsink name=out");
+            properties.Add(("out", "uri", _output));
+        }
+        else if (segments is { } length)
         {
             var directory = Path.GetDirectoryName(_output)!;
             var pattern = Path.Combine(directory, $"{Path.GetFileNameWithoutExtension(_output)}_%05d{Path.GetExtension(_output)}");
@@ -374,8 +427,8 @@ public sealed class GStreamerRecorder : IMediaRecorder
             }
             else
             {
-                var pad = segments is not null
-                    ? stream.IsVideo ? "video" : $"audio_{audio}"
+                var pad = _kind == OutputKind.Hls ? (stream.IsVideo ? "video" : "audio")
+                    : segments is not null ? stream.IsVideo ? "video" : $"audio_{audio}"
                     : GStreamerGraph.MuxerPad(muxer, stream.IsVideo, stream.IsVideo ? video : audio, i);
                 builder.Append(" ! queue ! mux.").Append(pad);
             }
@@ -429,6 +482,14 @@ public sealed class GStreamerRecorder : IMediaRecorder
         _sources.Clear();
         _partial?.Dispose();
         _partial = null;
+    }
+
+    private enum OutputKind
+    {
+        File,
+        Hls,
+        Srt,
+        Unknown,
     }
 
     private sealed record Entry(
