@@ -43,6 +43,7 @@ static int Usage()
           gst-run <pipeline> [seconds] run a gst-launch pipeline (Linux only)
           gst-play <file|URL> [seconds] [--video-sink ximagesink] [--audio-sink pulsesink] [--window <X11 id>]
                                play with GStreamer's playbin3: count the frames it hands back, or render them (Linux only)
+          gst-compose <file> [seconds] compose a square moving over a background with GStreamer and record the picture (Linux only)
           gst-screen [seconds] [--window <X11 id>] [--region x,y,w,h]
                                capture the X screen, a region or a window with ximagesrc and count the frames (Linux only)
           gst-rec <file> [seconds] [encoder]  record a test picture and tone with GStreamer; an encoder such as nvh264enc names the element
@@ -84,6 +85,7 @@ static int Run(string[] args)
             "gst-elements" => ListGStreamerElements(args.Length > 1 ? args[1] : null),
             "gst-run" => RunGStreamerPipeline(Argument(args, 1, "pipeline"), Seconds(args, 2, 10)),
             "gst-play" => PlayWithGStreamer(Argument(args, 1, "file or URL"), Seconds(args, 2, 10), args),
+            "gst-compose" => ComposeWithGStreamer(Argument(args, 1, "output file path"), Seconds(args, 2, 3)),
             "gst-screen" => CaptureScreenWithGStreamer(Seconds(args, 1, 3), args),
             "gst-rec" => RecordWithGStreamer(Argument(args, 1, "output file path"), Seconds(args, 2, 3), args.Length > 3 ? args[3] : null),
             "rec-audio-file" => RecordAudioToFile(Seconds(args, 1, 3), Argument(args, 2, "output file path")),
@@ -779,6 +781,76 @@ static int ListGStreamerElements(string? contains)
 
     Console.WriteLine($"{shown} of {elements.Count} elements, {MediaToolkitNet.GStreamer.GStreamerBackend.Version}.");
     return 0;
+}
+
+static unsafe int ComposeWithGStreamer(string output, int seconds)
+{
+    if (!OperatingSystem.IsLinux())
+    {
+        Console.Error.WriteLine("The GStreamer backend binds the Linux library names; run this on Linux.");
+        return 2;
+    }
+
+    var picture = new VideoFormat(320, 240, PixelFormat.Bgra32, new Rational(25, 1));
+    var square = new VideoFormat(64, 64, PixelFormat.Bgra32, new Rational(25, 1));
+    using var recorder = new MediaToolkitNet.GStreamer.GStreamerRecorder(output);
+    using var compositor = new MediaToolkitNet.GStreamer.GStreamerCompositor(picture);
+    var video = recorder.AddVideoStream(new VideoEncodingSettings(picture, MediaCodec.H264, 0, 25));
+    var back = compositor.AddLayer(picture);
+    var front = compositor.AddLayer(square, alpha: 0.8);
+    long composed = 0;
+    compositor.FrameComposed += (in VideoFrame frame) =>
+    {
+        // The guard is repeated here: the analyzer does not carry the one above into a lambda.
+        if (OperatingSystem.IsLinux())
+        {
+            recorder.WriteVideo(video, in frame);
+        }
+
+        Interlocked.Increment(ref composed);
+    };
+    recorder.Start();
+    compositor.Start();
+
+    var background = new byte[picture.Width * picture.Height * 4];
+    var block = new byte[square.Width * square.Height * 4];
+    for (var i = 0; i < background.Length; i += 4)
+    {
+        background[i] = (byte)(i / 4 % picture.Width * 255 / picture.Width);
+        background[i + 1] = 90;
+        background[i + 2] = 160;
+        background[i + 3] = 255;
+    }
+
+    for (var i = 0; i < block.Length; i += 4)
+    {
+        block[i + 1] = 220;
+        block[i + 2] = 255;
+        block[i + 3] = 255;
+    }
+
+    fixed (byte* b = background)
+    fixed (byte* q = block)
+    {
+        for (var frame = 0; frame < seconds * 25; frame++)
+        {
+            var at = TimeSpan.FromSeconds(frame / 25d);
+            compositor.Push(back, new VideoFrame(picture, at, b, picture.Width * 4));
+            compositor.Push(front, new VideoFrame(square, at, q, square.Width * 4));
+            compositor.SetPosition(front, frame * 4 % (picture.Width - square.Width), 20 + (frame * 3 % (picture.Height - square.Height - 40)));
+        }
+    }
+
+    compositor.EndOfStream();
+    var deadline = DateTime.UtcNow.AddSeconds(5);
+    while (DateTime.UtcNow < deadline && Interlocked.Read(ref composed) < (seconds * 25) - 1)
+    {
+        Thread.Sleep(20);
+    }
+
+    recorder.Stop();
+    Console.WriteLine($"composed {composed} frames into {output}");
+    return composed > 0 ? 0 : 1;
 }
 
 static int CaptureScreenWithGStreamer(int seconds, string[] args)

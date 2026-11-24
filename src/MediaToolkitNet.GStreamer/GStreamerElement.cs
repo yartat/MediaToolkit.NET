@@ -91,8 +91,43 @@ public sealed unsafe class GStreamerElement : IDisposable
         ArgumentException.ThrowIfNullOrEmpty(property);
         ArgumentNullException.ThrowIfNull(value);
         EnsureAlive();
+        SetOn(_element, Name, property, value);
+    }
 
-        var type = PropertyType(property);
+    /// <summary>
+    /// Sets a property of one of the element's pads, such as <c>xpos</c> of a <c>compositor</c> input or <c>volume</c> of an
+    /// <c>audiomixer</c> input, with the same values as <see cref="SetValue"/>.
+    /// </summary>
+    /// <param name="pad">The pad's name (<c>sink_0</c>); a request pad has to exist already.</param>
+    /// <param name="property">The pad's property.</param>
+    /// <param name="value">The value, of the type the property has.</param>
+    /// <exception cref="MediaToolkitNetException">There is no such pad or property, or the value does not fit.</exception>
+    public void SetPadValue(string pad, string property, object value)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(pad);
+        ArgumentException.ThrowIfNullOrEmpty(property);
+        ArgumentNullException.ThrowIfNull(value);
+        EnsureAlive();
+        var handle = GetStaticPad(pad);
+        if (handle is null)
+        {
+            throw new MediaToolkitNetException(GstConstants.BackendName, $"the element {Name} has no pad named {pad}.", 0);
+        }
+
+        try
+        {
+            SetOn(handle, $"{Name}:{pad}", property, value);
+        }
+        finally
+        {
+            Gst.gst_object_unref(handle);
+        }
+    }
+
+    // Sets a property of any GObject: the element or one of its pads. `label` names it in a message.
+    private static void SetOn(void* target, string label, string property, object value)
+    {
+        var type = PropertyTypeOf(target, label, property);
         var storage = stackalloc byte[GstSignals.ValueSize];
         new Span<byte>(storage, GstSignals.ValueSize).Clear();
         Gst.g_value_init(storage, type);
@@ -101,7 +136,7 @@ public sealed unsafe class GStreamerElement : IDisposable
             if (value is string text && (uint)Gst.g_type_fundamental(type) is GstSignals.TypeEnum or GstSignals.TypeFlags)
             {
                 // Enums and flags are named by text more often than by number; GStreamer parses either.
-                Gst.SetProperty(_element, property, text);
+                Gst.SetProperty(target, property, text);
                 return;
             }
 
@@ -113,13 +148,13 @@ public sealed unsafe class GStreamerElement : IDisposable
             {
                 throw new MediaToolkitNetException(
                     GstConstants.BackendName,
-                    $"the property {property} of {Name} is a {Utf8.ToManagedOrEmpty(Gst.g_type_name(type))}, and {value} ({value.GetType().Name}) does not fit: {ex.Message}",
+                    $"the property {property} of {label} is a {Utf8.ToManagedOrEmpty(Gst.g_type_name(type))}, and {value} ({value.GetType().Name}) does not fit: {ex.Message}",
                     0);
             }
 
             Span<byte> scratch = stackalloc byte[Utf8Scoped.StackThreshold];
             using var utf8 = new Utf8Scoped(property, scratch);
-            Gst.g_object_set_property(_element, utf8.Pointer, storage);
+            Gst.g_object_set_property(target, utf8.Pointer, storage);
         }
         finally
         {
@@ -192,15 +227,17 @@ public sealed unsafe class GStreamerElement : IDisposable
     public T Get<T>(string property) => (T)GetValue(property)!;
 
     // The type of a property is the type of its default value; GParamSpec::value_type has no accessor.
-    private nuint PropertyType(string property)
+    private nuint PropertyType(string property) => PropertyTypeOf(_element, Name, property);
+
+    private static nuint PropertyTypeOf(void* target, string label, string property)
     {
         GstLayout.Require();
         Span<byte> scratch = stackalloc byte[Utf8Scoped.StackThreshold];
         using var utf8 = new Utf8Scoped(property, scratch);
-        var spec = Gst.g_object_class_find_property(GstLayout.ClassOf(_element), utf8.Pointer);
+        var spec = Gst.g_object_class_find_property(GstLayout.ClassOf(target), utf8.Pointer);
         if (spec is null)
         {
-            throw new MediaToolkitNetException(GstConstants.BackendName, $"the element {Name} has no property named {property}.", 0);
+            throw new MediaToolkitNetException(GstConstants.BackendName, $"the element {label} has no property named {property}.", 0);
         }
 
         return *(nuint*)Gst.g_param_spec_get_default_value(spec);

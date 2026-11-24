@@ -255,6 +255,23 @@ player.Seek(TimeSpan.FromSeconds(30));
 player.Play();
 ```
 
+`GStreamerCompositor` lays video layers over each other into one `Bgra32` picture with `compositor`: a camera in the corner of a
+screen capture, a tiled wall, a logo with some alpha. Each layer is pushed frame by frame and has a place, a size, an alpha and a
+stacking order, all of which can be changed while it runs; what comes out goes on to a `GStreamerRecorder` or wherever you like:
+
+```csharp
+using var compositor = new GStreamerCompositor(new VideoFormat(1280, 720, PixelFormat.Bgra32, new Rational(30, 1)));
+var screen = compositor.AddLayer(screenFormat);
+var camera = compositor.AddLayer(cameraFormat, x: 960, y: 520, width: 300, height: 180, alpha: 0.9);
+compositor.FrameComposed += (in VideoFrame frame) => recorder.WriteVideo(video, in frame);
+compositor.Start();
+compositor.Push(screen, screenFrame);                      // every layer on the same clock: timestamps pick which frames are laid together
+compositor.Push(camera, cameraFrame);
+compositor.SetPosition(camera, 20, 20);                    // applies to the frames pushed after
+```
+
+`GStreamerElement.SetPadValue` is the general form of the same thing (an `audiomixer` input's `volume`, for one).
+
 `GStreamerScreenCapture` is an `IVideoCapture` for X11 desktops (`ximagesrc`; a Wayland session reaches it through XWayland and sees
 what runs there): the whole screen, a region, or one window by its X11 id, as `Bgra32` at the frame rate asked for.
 
