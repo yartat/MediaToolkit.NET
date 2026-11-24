@@ -255,6 +255,24 @@ player.Seek(TimeSpan.FromSeconds(30));
 player.Play();
 ```
 
+`GStreamerScreenCapture` is an `IVideoCapture` for X11 desktops (`ximagesrc`; a Wayland session reaches it through XWayland and sees
+what runs there): the whole screen, a region, or one window by its X11 id, as `Bgra32` at the frame rate asked for.
+
+```csharp
+using var capture = GStreamerScreenCapture.ForWindow(xid, frameRate: 30);     // or ForScreen(), ForRegion(x, y, w, h)
+capture.FrameCaptured += (in VideoFrame frame) => Encode(frame);              // Format has the real size, learned from the first frame
+capture.Failed += (_, e) => Console.WriteLine(e.Message);                     // the window closed, for instance
+capture.Start();
+capture.TryGrab(TimeSpan.FromSeconds(1), (in VideoFrame frame) => Screenshot(frame));   // or one frame (not while running)
+```
+
+`ximagesrc` ends the process on an error of the X server (a window that closed, one that does not exist, a root window the
+session does not allow), because Xlib's default handler calls `exit`. While a capture exists the library takes those errors
+of its own requests and reports them through `Failed`, which stops the capture; errors of other requests still go to the handler
+the application had. The handler is process-wide, so with several captures open each is told of an error. The first frame of a window that has only
+just appeared can be blank. `gst-screen` in the
+sample tries it.
+
 ## Windows features
 
 `MediaToolkitNet.Windows` has Windows-only classes next to the shared capture and recording ones.

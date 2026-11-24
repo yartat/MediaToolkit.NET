@@ -367,7 +367,11 @@ public sealed unsafe class GStreamerPlayer : IMediaPlayer
         PlaybackState previous;
         lock (_gate)
         {
-            if (_state == next || (_state == PlaybackState.Closed && _disposed && next != PlaybackState.Closed))
+            // A fault is final until the media is opened again, which passes through Closed first. The error of a failing sink can
+            // reach the bus before Play has returned, and the Playing it then sets must not hide it.
+            if (_state == next
+                || (_state == PlaybackState.Closed && _disposed && next != PlaybackState.Closed)
+                || (_state == PlaybackState.Faulted && next != PlaybackState.Closed))
             {
                 return;
             }

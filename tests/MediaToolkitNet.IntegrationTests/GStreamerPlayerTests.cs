@@ -328,6 +328,35 @@ public class GStreamerPlayerTests
     }
 
     [GStreamerFact]
+    public void AFaultThatComesWhilePlayIsStillRunningIsNotHiddenByIt()
+    {
+        // The sink fails on the buffer after the one it prerolled on, so Open succeeds and the error comes in the first moments of
+        // Play, which can put it on the bus before Play has returned and set Playing. The window is narrow: the race failed one full
+        // run in about twenty before the state was guarded, and this loop does not reproduce it on demand, but it holds the outcome.
+        using var media = new TestMedia();
+        var file = media.WriteVideoAndAudio("movie.mkv");
+        for (var i = 0; i < 20; i++)
+        {
+            using var player = new GStreamerPlayer { VideoSink = "identity error-after=2 ! fakesink", AudioSink = "fakesink" };
+            var faulted = new ManualResetEventSlim();
+            player.StateChanged += (_, e) =>
+            {
+                if (e.Current == PlaybackState.Faulted)
+                {
+                    faulted.Set();
+                }
+            };
+            player.Open(file);
+
+            player.Play();
+            faulted.Wait(TimeSpan.FromSeconds(10)).Should().BeTrue();
+            Thread.Sleep(20);
+
+            player.State.Should().Be(PlaybackState.Faulted, $"round {i}: nothing sets Playing again over a fault");
+        }
+    }
+
+    [GStreamerFact]
     public void AStreamWithNoLengthCannotSeekOrStartOverAtItsEnd()
     {
         using var media = new TestMedia();

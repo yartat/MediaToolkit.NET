@@ -43,6 +43,8 @@ static int Usage()
           gst-run <pipeline> [seconds] run a gst-launch pipeline (Linux only)
           gst-play <file|URL> [seconds] [--video-sink ximagesink] [--audio-sink pulsesink] [--window <X11 id>]
                                play with GStreamer's playbin3: count the frames it hands back, or render them (Linux only)
+          gst-screen [seconds] [--window <X11 id>] [--region x,y,w,h]
+                               capture the X screen, a region or a window with ximagesrc and count the frames (Linux only)
           gst-rec <file> [seconds] [encoder]  record a test picture and tone with GStreamer; an encoder such as nvh264enc names the element
         """);
     Console.Write(TranscodeCommand.Usage);
@@ -82,6 +84,7 @@ static int Run(string[] args)
             "gst-elements" => ListGStreamerElements(args.Length > 1 ? args[1] : null),
             "gst-run" => RunGStreamerPipeline(Argument(args, 1, "pipeline"), Seconds(args, 2, 10)),
             "gst-play" => PlayWithGStreamer(Argument(args, 1, "file or URL"), Seconds(args, 2, 10), args),
+            "gst-screen" => CaptureScreenWithGStreamer(Seconds(args, 1, 3), args),
             "gst-rec" => RecordWithGStreamer(Argument(args, 1, "output file path"), Seconds(args, 2, 3), args.Length > 3 ? args[3] : null),
             "rec-audio-file" => RecordAudioToFile(Seconds(args, 1, 3), Argument(args, 2, "output file path")),
             "rec-file" => RecordToFile(Seconds(args, 1, 3), Argument(args, 2, "output file path"),
@@ -776,6 +779,31 @@ static int ListGStreamerElements(string? contains)
 
     Console.WriteLine($"{shown} of {elements.Count} elements, {MediaToolkitNet.GStreamer.GStreamerBackend.Version}.");
     return 0;
+}
+
+static int CaptureScreenWithGStreamer(int seconds, string[] args)
+{
+    if (!OperatingSystem.IsLinux())
+    {
+        Console.Error.WriteLine("The GStreamer backend binds the Linux library names; run this on Linux.");
+        return 2;
+    }
+
+    string? Option(string name) => Array.IndexOf(args, name) is var at and >= 0 && at + 1 < args.Length ? args[at + 1] : null;
+    using var capture = Option("--window") is { } id
+        ? MediaToolkitNet.GStreamer.GStreamerScreenCapture.ForWindow(nuint.Parse(id.Replace("0x", string.Empty), System.Globalization.NumberStyles.HexNumber))
+        : Option("--region")?.Split(',').Select(int.Parse).ToArray() is [var x, var y, var w, var h]
+            ? MediaToolkitNet.GStreamer.GStreamerScreenCapture.ForRegion(x, y, w, h)
+            : MediaToolkitNet.GStreamer.GStreamerScreenCapture.ForScreen();
+    Console.WriteLine($"capturing {capture.Format.Width}x{capture.Format.Height} {capture.Format.PixelFormat} at {capture.Format.FrameRate.Value:0} fps");
+    long frames = 0;
+    capture.FrameCaptured += (in VideoFrame _) => frames++;
+    capture.Failed += (_, e) => Console.Error.WriteLine($"failed: {e.Message}");
+    capture.Start();
+    Thread.Sleep(TimeSpan.FromSeconds(seconds));
+    capture.Stop();
+    Console.WriteLine($"{frames} frames in {seconds} s");
+    return frames > 0 ? 0 : 1;
 }
 
 static int PlayWithGStreamer(string source, int seconds, string[] args)

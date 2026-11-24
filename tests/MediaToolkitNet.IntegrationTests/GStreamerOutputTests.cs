@@ -308,6 +308,10 @@ internal static partial class ScreenReader
         return null;
     }
 
+    /// <summary>True when the window is mapped and so can be drawn on and read.</summary>
+    public static bool IsViewable(string window) =>
+        Run("xwininfo", $"-id 0x{window.Replace("0x", string.Empty)}")?.Contains("IsViewable", StringComparison.Ordinal) == true;
+
     /// <summary>The colour of one pixel of a window, as the X server holds it; black when the window cannot be read.</summary>
     public static (int R, int G, int B) Pixel(string window, int x, int y)
     {
@@ -352,7 +356,7 @@ internal sealed partial class XWindow : IDisposable
 {
     private readonly nint _display;
 
-    public XWindow(int width, int height)
+    public XWindow(int width, int height, uint background = 0)
     {
         _display = XOpenDisplay(0);
         if (_display == 0)
@@ -360,12 +364,27 @@ internal sealed partial class XWindow : IDisposable
             throw new InvalidOperationException("The X display could not be opened.");
         }
 
-        Id = XCreateSimpleWindow(_display, XDefaultRootWindow(_display), 0, 0, (uint)width, (uint)height, 0, 0, 0);
+        Id = XCreateSimpleWindow(_display, XDefaultRootWindow(_display), 0, 0, (uint)width, (uint)height, 0, 0, background);
         XMapWindow(_display, Id);
         XSync(_display, 0);
+
+        // The window manager maps it a moment later; a window that is not viewable cannot be captured or drawn into yet.
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (DateTime.UtcNow < deadline && !ScreenReader.IsViewable(Id.ToString("x", System.Globalization.CultureInfo.InvariantCulture)))
+        {
+            Thread.Sleep(20);
+        }
     }
 
     public nuint Id { get; }
+
+    /// <summary>Paints the whole window one colour (0xRRGGBB), as the X server draws it.</summary>
+    public void Fill(uint colour)
+    {
+        XSetWindowBackground(_display, Id, colour);
+        XClearWindow(_display, Id);
+        XSync(_display, 0);
+    }
 
     public void Dispose()
     {
@@ -393,6 +412,12 @@ internal sealed partial class XWindow : IDisposable
 
     [LibraryImport("libX11.so.6")]
     private static partial int XSync(nint display, int discard);
+
+    [LibraryImport("libX11.so.6")]
+    private static partial int XSetWindowBackground(nint display, nuint window, nuint colour);
+
+    [LibraryImport("libX11.so.6")]
+    private static partial int XClearWindow(nint display, nuint window);
 }
 
 /// <summary>Records the monitor of WSLg's sound output and reports how loud it has been, in decibels.</summary>

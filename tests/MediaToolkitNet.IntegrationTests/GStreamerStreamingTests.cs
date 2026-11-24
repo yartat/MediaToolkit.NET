@@ -49,7 +49,8 @@ public unsafe class GStreamerStreamingTests
         text.Should().Contain("#EXTM3U").And.Contain("#EXT-X-ENDLIST", "the recording is finished, so the playlist says so");
         var durations = Regex.Matches(text, @"#EXTINF:([\d.]+)").Select(m => double.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture)).ToList();
         durations.Count.Should().BeInRange(3, 4, "six seconds in segments of about two");
-        durations.Should().OnlyContain(d => d > 1.0 && d < 3.5);
+        durations.SkipLast(1).Should().OnlyContain(d => d > 1.0 && d < 3.5, "every segment but the last, which holds what is left, is about two seconds");
+        durations.Last().Should().BeInRange(0.1, 3.5);
         durations.Sum().Should().BeApproximately(6.0, 0.5);
         Directory.GetFiles(media.PathTo(string.Empty), "live_*.ts").Should().HaveCount(durations.Count);
 
