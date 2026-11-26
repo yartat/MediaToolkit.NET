@@ -44,6 +44,7 @@ static int Usage()
           gst-run <pipeline> [seconds] run a gst-launch pipeline (Linux only)
           gst-play <file|URL> [seconds] [--video-sink ximagesink] [--audio-sink pulsesink] [--window <X11 id>]
                                play with GStreamer's playbin3: count the frames it hands back, or render them (Linux only)
+          gst-mix <file.flac|.m4a> [seconds]  mix two tones with GStreamer, a quiet one over a louder one, and record the mix (Linux only)
           gst-compose <file> [seconds] compose a square moving over a background with GStreamer and record the picture (Linux only)
           gst-screen [seconds] [--window <X11 id>] [--region x,y,w,h]
                                capture the X screen, a region or a window with ximagesrc and count the frames (Linux only)
@@ -87,6 +88,7 @@ static int Run(string[] args)
             "gst-dot" => DumpGStreamerGraph(Argument(args, 1, "pipeline"), Argument(args, 2, "output file path"), Seconds(args, 3, 1)),
             "gst-run" => RunGStreamerPipeline(Argument(args, 1, "pipeline"), Seconds(args, 2, 10)),
             "gst-play" => PlayWithGStreamer(Argument(args, 1, "file or URL"), Seconds(args, 2, 10), args),
+            "gst-mix" => MixWithGStreamer(Argument(args, 1, "output file path"), Seconds(args, 2, 3)),
             "gst-compose" => ComposeWithGStreamer(Argument(args, 1, "output file path"), Seconds(args, 2, 3)),
             "gst-screen" => CaptureScreenWithGStreamer(Seconds(args, 1, 3), args),
             "gst-rec" => RecordWithGStreamer(Argument(args, 1, "output file path"), Seconds(args, 2, 3), args.Length > 3 ? args[3] : null),
@@ -783,6 +785,65 @@ static int ListGStreamerElements(string? contains)
 
     Console.WriteLine($"{shown} of {elements.Count} elements, {MediaToolkitNet.GStreamer.GStreamerBackend.Version}.");
     return 0;
+}
+
+static unsafe int MixWithGStreamer(string output, int seconds)
+{
+    if (!OperatingSystem.IsLinux())
+    {
+        Console.Error.WriteLine("The GStreamer backend binds the Linux library names; run this on Linux.");
+        return 2;
+    }
+
+    var input = new AudioFormat(48000, 1, SampleFormat.F32);
+    var mixed = new AudioFormat(48000, 2, SampleFormat.S16);
+    var codec = output.EndsWith(".flac", StringComparison.OrdinalIgnoreCase) ? MediaCodec.Flac : MediaCodec.Aac;
+    using var recorder = new MediaToolkitNet.GStreamer.GStreamerRecorder(output);
+    using var mixer = new MediaToolkitNet.GStreamer.GStreamerAudioMixer(mixed);
+    var audio = recorder.AddAudioStream(new AudioEncodingSettings(mixed, codec));
+    var low = mixer.AddInput(input);
+    var high = mixer.AddInput(input, volume: 0.3);
+    long samples = 0;
+    mixer.FrameMixed += (in AudioFrame frame) =>
+    {
+        // The guard is repeated here: the analyzer does not carry the one above into a lambda.
+        if (OperatingSystem.IsLinux())
+        {
+            recorder.WriteAudio(audio, in frame);
+        }
+
+        Interlocked.Add(ref samples, frame.SampleCount);
+    };
+    recorder.Start();
+    mixer.Start();
+
+    var block = new float[480];
+    fixed (float* p = block)
+    {
+        for (var i = 0; i < seconds * 100; i++)
+        {
+            foreach (var (index, hertz) in new[] { (low, 440), (high, 880) })
+            {
+                for (var n = 0; n < block.Length; n++)
+                {
+                    block[n] = (float)(0.4 * Math.Sin(2 * Math.PI * hertz * ((i * 480) + n) / 48000));
+                }
+
+                mixer.Push(index, new AudioFrame(input, TimeSpan.FromMilliseconds(i * 10), block.Length, (byte*)p));
+            }
+        }
+    }
+
+    mixer.EndOfStream();
+    var deadline = DateTime.UtcNow.AddSeconds(5);
+    while (DateTime.UtcNow < deadline && Interlocked.Read(ref samples) < (seconds * 48000) - 480)
+    {
+        Thread.Sleep(20);
+    }
+
+    recorder.Stop();
+    Console.WriteLine($"mixed {samples} samples into {output}");
+    return samples > 0 ? 0 : 1;
 }
 
 static unsafe int ComposeWithGStreamer(string output, int seconds)

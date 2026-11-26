@@ -265,6 +265,21 @@ File.WriteAllText("pipeline.dot", pipeline.ToDot());               // dot -Tpng 
 
 `gst-dot` in the sample does it for a description.
 
+`GStreamerAudioMixer` adds audio inputs into one stream with `audiomixer`: a microphone over a music track, two sources
+recorded together. Each input is pushed in its own format (converted and resampled to the mix's) and has a volume and a mute
+that can be changed while it runs; a sum above full scale clips instead of wrapping around.
+
+```csharp
+using var mixer = new GStreamerAudioMixer(new AudioFormat(48000, 2, SampleFormat.S16));
+var voice = mixer.AddInput(microphoneFormat);
+var music = mixer.AddInput(musicFormat, volume: 0.25);
+mixer.FrameMixed += (in AudioFrame block) => recorder.WriteAudio(audio, in block);
+mixer.Start();
+mixer.Push(voice, voiceBlock);                             // every input on the same clock: timestamps pick what is added
+mixer.Push(music, musicBlock);
+mixer.SetVolume(music, 0.1);                               // applies to what is pushed after
+```
+
 `GStreamerCompositor` lays video layers over each other into one `Bgra32` picture with `compositor`: a camera in the corner of a
 screen capture, a tiled wall, a logo with some alpha. Each layer is pushed frame by frame and has a place, a size, an alpha and a
 stacking order, all of which can be changed while it runs; what comes out goes on to a `GStreamerRecorder` or wherever you like:
