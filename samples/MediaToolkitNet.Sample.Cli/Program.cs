@@ -40,6 +40,7 @@ static int Usage()
           av-filters [text]            list the libavfilter filters, optionally matching text
           av-filter <chain>            build a libavfilter graph and print it
           gst-elements [text]          list the GStreamer element factories (Linux only)
+          gst-dot <pipeline> <file.dot> [seconds]  run a pipeline for a while and write its graph (Linux only)
           gst-run <pipeline> [seconds] run a gst-launch pipeline (Linux only)
           gst-play <file|URL> [seconds] [--video-sink ximagesink] [--audio-sink pulsesink] [--window <X11 id>]
                                play with GStreamer's playbin3: count the frames it hands back, or render them (Linux only)
@@ -83,6 +84,7 @@ static int Run(string[] args)
             "av-filters" => ListFFmpegFilters(args.Length > 1 ? args[1] : null),
             "av-filter" => ShowFFmpegFilterGraph(Argument(args, 1, "filter chain")),
             "gst-elements" => ListGStreamerElements(args.Length > 1 ? args[1] : null),
+            "gst-dot" => DumpGStreamerGraph(Argument(args, 1, "pipeline"), Argument(args, 2, "output file path"), Seconds(args, 3, 1)),
             "gst-run" => RunGStreamerPipeline(Argument(args, 1, "pipeline"), Seconds(args, 2, 10)),
             "gst-play" => PlayWithGStreamer(Argument(args, 1, "file or URL"), Seconds(args, 2, 10), args),
             "gst-compose" => ComposeWithGStreamer(Argument(args, 1, "output file path"), Seconds(args, 2, 3)),
@@ -979,6 +981,22 @@ static unsafe int RecordWithGStreamer(string output, int seconds, string? encode
 
     recorder.Stop();
     Console.WriteLine($"wrote {output}, {recorder.Elapsed.TotalSeconds:0.0} s");
+    return 0;
+}
+
+static int DumpGStreamerGraph(string description, string output, int seconds)
+{
+    if (!OperatingSystem.IsLinux())
+    {
+        Console.Error.WriteLine("The GStreamer backend binds the Linux library names; run this on Linux.");
+        return 2;
+    }
+
+    using var pipeline = MediaToolkitNet.GStreamer.GStreamerPipeline.Parse(description);
+    pipeline.Play();
+    pipeline.WaitForCompletion(TimeSpan.FromSeconds(seconds));
+    File.WriteAllText(output, pipeline.ToDot());
+    Console.WriteLine($"wrote {output}; render it with: dot -Tpng {output} -o graph.png");
     return 0;
 }
 

@@ -417,6 +417,9 @@ public static unsafe class Gst
     /// <summary><c>GstElement *gst_parse_bin_from_description(const gchar *, gboolean ghost_unlinked_pads, GError **)</c>, floating.</summary>
     public static delegate* unmanaged[Cdecl]<byte*, int, void**, void*> gst_parse_bin_from_description;
 
+    /// <summary><c>gchar *gst_debug_bin_to_dot_data(GstBin *, GstDebugGraphDetails)</c>, which the caller frees.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, int, byte*> gst_debug_bin_to_dot_data;
+
     /// <summary><c>gpointer gst_object_ref(gpointer)</c></summary>
     public static delegate* unmanaged[Cdecl]<void*, void*> gst_object_ref;
 
@@ -726,6 +729,7 @@ public static unsafe class Gst
         g_value_set_object = (delegate* unmanaged[Cdecl]<byte*, void*, void>)GObject.GetExport(nameof(g_value_set_object));
         gst_parse_bin_from_description = (delegate* unmanaged[Cdecl]<byte*, int, void**, void*>)Core.GetExport(nameof(gst_parse_bin_from_description));
         gst_object_ref = (delegate* unmanaged[Cdecl]<void*, void*>)Core.GetExport(nameof(gst_object_ref));
+        gst_debug_bin_to_dot_data = (delegate* unmanaged[Cdecl]<void*, int, byte*>)Core.GetExport(nameof(gst_debug_bin_to_dot_data));
         g_object_set_property = (delegate* unmanaged[Cdecl]<void*, byte*, byte*, void>)GObject.GetExport(nameof(g_object_set_property));
         g_object_get_property = (delegate* unmanaged[Cdecl]<void*, byte*, byte*, void>)GObject.GetExport(nameof(g_object_get_property));
         g_param_spec_get_default_value = (delegate* unmanaged[Cdecl]<void*, byte*>)GObject.GetExport(nameof(g_param_spec_get_default_value));

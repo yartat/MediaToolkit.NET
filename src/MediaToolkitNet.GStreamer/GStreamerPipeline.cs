@@ -125,6 +125,18 @@ public sealed unsafe class GStreamerPipeline : IDisposable
         return wrapper;
     }
 
+    /// <summary>
+    /// The pipeline's graph in Graphviz <c>dot</c> text: every element, bins with what is inside them, the links between them and,
+    /// as <paramref name="details"/> asks, the negotiated caps, the properties that were changed and the states. Render it with
+    /// <c>dot -Tpng graph.dot -o graph.png</c>. Caps appear once the pipeline has negotiated, from PAUSED onwards.
+    /// </summary>
+    /// <param name="details">What to show; <see cref="GstGraphDetails.All"/> by default.</param>
+    public string ToDot(GstGraphDetails details = GstGraphDetails.All)
+    {
+        EnsureAlive();
+        return Gst.TakeString(Gst.gst_debug_bin_to_dot_data(_pipeline, (int)details));
+    }
+
     /// <summary>The pipeline itself as an element, for the properties and signals of a bin such as <c>playbin3</c>.</summary>
     /// <remarks>The pipeline owns the result and disposes it with itself.</remarks>
     public GStreamerElement AsElement()

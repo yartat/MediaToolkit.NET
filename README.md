@@ -255,6 +255,16 @@ player.Seek(TimeSpan.FromSeconds(30));
 player.Play();
 ```
 
+`pipeline.ToDot()` returns the pipeline's graph as Graphviz text (elements, bins, links, and by default the negotiated caps,
+changed properties and states; `GstGraphDetails` picks), the quickest way to see why something does not link or negotiate:
+
+```csharp
+pipeline.Pause();                                                  // caps are there once it has negotiated
+File.WriteAllText("pipeline.dot", pipeline.ToDot());               // dot -Tpng pipeline.dot -o pipeline.png
+```
+
+`gst-dot` in the sample does it for a description.
+
 `GStreamerCompositor` lays video layers over each other into one `Bgra32` picture with `compositor`: a camera in the corner of a
 screen capture, a tiled wall, a logo with some alpha. Each layer is pushed frame by frame and has a place, a size, an alpha and a
 stacking order, all of which can be changed while it runs; what comes out goes on to a `GStreamerRecorder` or wherever you like:

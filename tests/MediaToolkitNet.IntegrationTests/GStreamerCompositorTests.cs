@@ -148,7 +148,8 @@ public unsafe class GStreamerCompositorTests
         compositor.EndOfStream(above);
         Push(compositor, below, Output, Orange, frames: 25);
         compositor.EndOfStream(below);
-        result.WaitForFrames(20);
+        // Wait for the lower bound before counting: waiting for fewer and then asking for more raced the frames still coming.
+        result.WaitForFrames(23);
 
         result.Count.Should().BeInRange(23, 26, "twenty-five frames of the base layer at 25 a second");
         result.Format.Should().Be(Output);

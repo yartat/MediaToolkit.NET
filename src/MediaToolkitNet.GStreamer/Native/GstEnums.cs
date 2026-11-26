@@ -120,6 +120,35 @@ public enum GstFormat
     Time = 3,
 }
 
+/// <summary><c>GstDebugGraphDetails</c>: what a pipeline's graph dump shows (<c>gstdebugutils.h</c>).</summary>
+[Flags]
+public enum GstGraphDetails
+{
+    /// <summary>The elements and their links only.</summary>
+    None = 0,
+
+    /// <summary>The media type on each link.</summary>
+    MediaType = 1 << 0,
+
+    /// <summary>The fields of the caps on each link.</summary>
+    CapsDetails = 1 << 1,
+
+    /// <summary>The properties of each element that are not at their default.</summary>
+    NonDefaultParams = 1 << 2,
+
+    /// <summary>The states of the elements and pads.</summary>
+    States = 1 << 3,
+
+    /// <summary>Every property, whatever its value; long, and not part of <see cref="All"/>.</summary>
+    FullParams = 1 << 4,
+
+    /// <summary>Media type, caps, changed properties and states (<c>GST_DEBUG_GRAPH_SHOW_ALL</c>).</summary>
+    All = MediaType | CapsDetails | NonDefaultParams | States,
+
+    /// <summary>Everything GStreamer can show (<c>GST_DEBUG_GRAPH_SHOW_VERBOSE</c>).</summary>
+    Verbose = -1,
+}
+
 /// <summary>GstMapFlags.</summary>
 [Flags]
 public enum GstMapFlags

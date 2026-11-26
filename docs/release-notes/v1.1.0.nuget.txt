@@ -20,7 +20,7 @@ MediaFoundationTranscoder (WindowsBackend now declares Probing and Transcoding).
 ADDED TO MediaToolkitNet.GStreamer: a message bus with a mask (pipeline.Bus), handlers for any signal
 (GStreamerElement.Connect), appsrc (GStreamerSource: PushVideo, PushAudio, Push, EndOfStream), typed properties
 (SetValue, GetValue), GStreamerRecorder (an IMediaRecorder; EncoderName picks a hardware encoder, SegmentDuration cuts
-the recording into files, and the output can be an HLS playlist or an srt:// stream) GStreamerCompositor (layers with place, size, alpha and order, changeable while it runs; SetPadValue sets a pad's property),
+the recording into files, and the output can be an HLS playlist or an srt:// stream) GStreamerPipeline.ToDot (the graph as Graphviz text), GStreamerCompositor (layers with place, size, alpha and order, changeable while it runs; SetPadValue sets a pad's property),
 GStreamerScreenCapture (an IVideoCapture for X11: screen, region or window; an X server error is reported through Failed instead of ending
 the process) and GStreamerPlayer (an IMediaPlayer on playbin3 that hands frames back, or draws into a window
 and plays to the sound server through VideoSink, AudioSink and VideoWindowHandle).
