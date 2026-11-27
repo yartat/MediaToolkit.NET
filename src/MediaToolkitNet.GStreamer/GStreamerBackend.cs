@@ -16,11 +16,12 @@ namespace MediaToolkitNet.GStreamer;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The backend does not implement the capture and playback interfaces: what it
-/// offers is the pipeline itself, through <see cref="GStreamerPipeline"/>, which
-/// covers all of them and more in GStreamer's own terms. Of the shared roles it
-/// takes probing, through <c>GstDiscoverer</c>, and transcoding, which it runs
-/// as one pipeline built from the request.
+/// Of the shared roles the backend takes probing, through <c>GstDiscoverer</c>,
+/// transcoding, which it runs as one pipeline built from the request, recording
+/// (<see cref="GStreamerRecorder"/>) and playback (<see cref="GStreamerPlayer"/>).
+/// It creates no capture or renderer through this interface and enumerates no
+/// devices: <see cref="GStreamerScreenCapture"/> is used directly, and anything
+/// else is built in GStreamer's own terms with <see cref="GStreamerPipeline"/>.
 /// </para>
 /// <para>
 /// <see cref="IsAvailable"/> is false on every platform other than Linux and

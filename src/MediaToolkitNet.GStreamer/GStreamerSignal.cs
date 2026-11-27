@@ -22,7 +22,8 @@ public delegate void GStreamerSignalHandler(GStreamerSignalArgs args);
 /// <remarks>
 /// Values are <see cref="bool"/>, <see cref="int"/>, <see cref="uint"/>, <see cref="long"/>, <see cref="ulong"/>,
 /// <see cref="float"/>, <see cref="double"/> and <see cref="string"/> as they are; enums are <see cref="int"/> and flags
-/// <see cref="uint"/>; objects, pointers and boxed values (a pad, a buffer, a sample, caps) are <see cref="nint"/>
+/// <see cref="uint"/>; caps are <see cref="GStreamerCaps"/> and a structure is a <see cref="GStreamerStructure"/>, copies
+/// to keep; objects, pointers and other boxed values (a pad, a buffer, a sample) are <see cref="nint"/>
 /// and belong to the emitter for the length of the call. Anything a handler wants to keep it must copy or take its own
 /// reference to.
 /// </remarks>
@@ -239,9 +240,25 @@ internal static unsafe class GstSignals
             TypeObject => (nint)Gst.g_value_get_object(value),
             TypeParam => (nint)Gst.g_value_get_param(value),
             TypePointer => (nint)Gst.g_value_get_pointer(value),
-            TypeBoxed => (nint)Gst.g_value_get_boxed(value),
+            TypeBoxed => Boxed(*(nuint*)value, Gst.g_value_get_boxed(value)),
             _ => null,
         };
+    }
+
+    // Caps and structures are copied into managed values; other boxed values stay the pointer they are.
+    private static object? Boxed(nuint type, void* boxed)
+    {
+        if (type == Gst.gst_caps_get_type())
+        {
+            return boxed is null ? null : GStreamerCaps.From(boxed);
+        }
+
+        if (type == Gst.gst_structure_get_type())
+        {
+            return boxed is null ? null : GStreamerStructure.From(boxed);
+        }
+
+        return (nint)boxed;
     }
 
     // Writes a managed value into a GValue already initialised to `type`, converting as the type needs; what cannot
@@ -283,6 +300,22 @@ internal static unsafe class GstSignals
                     Span<byte> scratch = stackalloc byte[Utf8Scoped.StackThreshold];
                     using var text = new Utf8Scoped(Convert.ToString(managed, culture)!, scratch);
                     Gst.g_value_set_string(value, text.Pointer);
+                    break;
+                }
+
+            case TypeBoxed when type == Gst.gst_caps_get_type() && managed is GStreamerCaps caps:
+                {
+                    var native = GStreamerCaps.Create(caps.ToString());
+                    Gst.g_value_set_boxed(value, native);
+                    Gst.gst_mini_object_unref(native);
+                    break;
+                }
+
+            case TypeBoxed when type == Gst.gst_structure_get_type() && managed is GStreamerStructure structure:
+                {
+                    var native = GStreamerStructure.Create(structure.ToString());
+                    Gst.g_value_set_boxed(value, native);
+                    Gst.gst_structure_free(native);
                     break;
                 }
 

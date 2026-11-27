@@ -3,6 +3,7 @@
 // Licensed under the MIT License. See LICENSE in the repository root for details.
 #endregion
 
+using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using MediaToolkitNet.Abstractions;
 using MediaToolkitNet.GStreamer.Native;
@@ -21,6 +22,7 @@ namespace MediaToolkitNet.GStreamer;
 public sealed unsafe class GStreamerElement : IDisposable
 {
     private readonly List<GStreamerSignalConnection> _connections = [];
+    private readonly List<GStreamerProbe> _probes = [];
     private void* _element;
     private bool _disposed;
 
@@ -47,6 +49,138 @@ public sealed unsafe class GStreamerElement : IDisposable
             Gst.gst_element_get_state(_element, &current, &pending, 0);
             return (GstState)current;
         }
+    }
+
+    /// <summary>
+    /// Links this element's output to <paramref name="downstream"/>'s input. Without pad names GStreamer picks a
+    /// compatible pair, requesting one from an element such as <c>tee</c> that makes them on demand. Name the pad to link
+    /// one that <c>pad-added</c> announced.
+    /// </summary>
+    /// <param name="downstream">The element to feed, in the same pipeline.</param>
+    /// <param name="pad">The output pad of this element, or null.</param>
+    /// <param name="downstreamPad">The input pad of <paramref name="downstream"/>, or null.</param>
+    /// <exception cref="MediaToolkitNetException">
+    /// The two cannot be linked: no such pad, a pad already linked, or no format both accept.
+    /// </exception>
+    public void Link(GStreamerElement downstream, string? pad = null, string? downstreamPad = null)
+    {
+        ArgumentNullException.ThrowIfNull(downstream);
+        EnsureAlive();
+        downstream.EnsureAlive();
+
+        Span<byte> padScratch = stackalloc byte[Utf8Scoped.StackThreshold];
+        Span<byte> downstreamScratch = stackalloc byte[Utf8Scoped.StackThreshold];
+        using var padUtf8 = new Utf8Scoped(pad, padScratch);
+        using var downstreamUtf8 = new Utf8Scoped(downstreamPad, downstreamScratch);
+
+        if (Gst.gst_element_link_pads(_element, padUtf8.Pointer, downstream._element, downstreamUtf8.Pointer) == 0)
+        {
+            throw new MediaToolkitNetException(
+                GstConstants.BackendName,
+                $"could not link {Name}{(pad is null ? "" : ":" + pad)} to {downstream.Name}{(downstreamPad is null ? "" : ":" + downstreamPad)}.",
+                0);
+        }
+    }
+
+    /// <summary>
+    /// Undoes every link from this element to <paramref name="downstream"/>; elements that are not linked are left as
+    /// they are. A pad requested from an element such as <c>tee</c> stays on it until <see cref="ReleasePad"/>. In a
+    /// playing pipeline do it from an idle probe on the pad (<see cref="AddProbe"/>).
+    /// </summary>
+    /// <param name="downstream">The element this one feeds.</param>
+    public void Unlink(GStreamerElement downstream)
+    {
+        ArgumentNullException.ThrowIfNull(downstream);
+        EnsureAlive();
+        downstream.EnsureAlive();
+        Gst.gst_element_unlink(_element, downstream._element);
+    }
+
+    /// <summary>
+    /// Watches, drops or blocks what passes one of the element's pads. With <see cref="GstPadProbeType.Idle"/> the handler
+    /// runs as soon as nothing is passing, which is when a pad of a playing pipeline can be unlinked safely; it can then
+    /// run before this call returns.
+    /// </summary>
+    /// <param name="pad">The pad's name; a request pad has to exist already.</param>
+    /// <param name="mask">What to be called for.</param>
+    /// <param name="handler">Called on the thread that carries the data; a handler that throws is reported through <see cref="Failed"/>.</param>
+    /// <returns>The probe; dispose it to take it off. Disposing the element or its pipeline does so too.</returns>
+    /// <exception cref="MediaToolkitNetException">The element has no such pad.</exception>
+    public GStreamerProbe AddProbe(string pad, GstPadProbeType mask, GStreamerProbeHandler handler)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(pad);
+        ArgumentNullException.ThrowIfNull(handler);
+        var handle = RequirePad(pad);
+        var probe = GStreamerProbe.Install(handle, mask, handler, ex => SafeEvents.RaiseFailed(
+            Failed, this, new MediaToolkitNetException(GstConstants.BackendName, $"a probe on {Name}:{pad} threw: {ex.Message}", 0)));
+        lock (_probes)
+        {
+            _probes.Add(probe);
+        }
+
+        return probe;
+    }
+
+    /// <summary>
+    /// Sends the end of the stream into one input pad, so that what follows it finishes its work while the rest of the
+    /// pipeline goes on: how a recording branch is closed. Unlink the pad first.
+    /// </summary>
+    /// <param name="pad">The input pad.</param>
+    /// <returns>False when the pad did not take it.</returns>
+    /// <exception cref="MediaToolkitNetException">The element has no such pad.</exception>
+    public bool EndOfStream(string pad)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(pad);
+        var handle = RequirePad(pad);
+        try
+        {
+            return Gst.gst_pad_send_event(handle, Gst.gst_event_new_eos()) != 0;
+        }
+        finally
+        {
+            Gst.gst_object_unref(handle);
+        }
+    }
+
+    /// <summary>
+    /// Gives back a pad requested from an element such as <c>tee</c>. Name the pad when linking (<c>src_1</c>) to know
+    /// which to give back.
+    /// </summary>
+    /// <param name="pad">The request pad's name.</param>
+    /// <exception cref="MediaToolkitNetException">The element has no such pad.</exception>
+    public void ReleasePad(string pad)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(pad);
+        var handle = RequirePad(pad);
+        try
+        {
+            Gst.gst_element_release_request_pad(_element, handle);
+        }
+        finally
+        {
+            Gst.gst_object_unref(handle);
+        }
+    }
+
+    /// <summary>
+    /// Brings an element added to a running pipeline to the pipeline's state. Link it first, and bring up a new branch
+    /// from its sink backwards; give a new sink <c>async=false</c> so that the pipeline does not wait for it to preroll.
+    /// </summary>
+    /// <exception cref="MediaToolkitNetException">The element refused the state.</exception>
+    public void SyncStateWithPipeline()
+    {
+        EnsureAlive();
+        if (Gst.gst_element_sync_state_with_parent(_element) == 0)
+        {
+            throw Refused($"the element {Name} could not be brought to the pipeline's state.");
+        }
+    }
+
+    // A static or already requested pad, as a reference the caller owns.
+    private void* RequirePad(string pad)
+    {
+        var handle = GetStaticPad(pad);
+        return handle is not null ? handle : throw Refused($"the element {Name} has no pad named {pad}.");
     }
 
     /// <summary>
@@ -79,7 +213,8 @@ public sealed unsafe class GStreamerElement : IDisposable
 
     /// <summary>
     /// Sets a property from a managed value of the type the property has: <see cref="bool"/>, an integer, a
-    /// <see cref="float"/> or <see cref="double"/>, a <see cref="string"/>, or for an enum or flags property the
+    /// <see cref="float"/> or <see cref="double"/>, a <see cref="string"/>, <see cref="GStreamerCaps"/> or
+    /// <see cref="GStreamerStructure"/>, or for an enum or flags property the
     /// integer value (or its text, as <see cref="Set"/> takes it).
     /// </summary>
     /// <exception cref="MediaToolkitNetException">
@@ -165,10 +300,11 @@ public sealed unsafe class GStreamerElement : IDisposable
     /// <summary>
     /// Reads a property as a managed value: <see cref="bool"/>, <see cref="int"/>, <see cref="uint"/>, <see cref="long"/>,
     /// <see cref="ulong"/>, <see cref="float"/>, <see cref="double"/> or <see cref="string"/>; an enum is its
-    /// <see cref="int"/> value and flags are a <see cref="uint"/>.
+    /// <see cref="int"/> value and flags are a <see cref="uint"/>. Caps are <see cref="GStreamerCaps"/> and a structure
+    /// is a <see cref="GStreamerStructure"/>, copied; <see langword="null"/> when the property holds none.
     /// </summary>
     /// <exception cref="MediaToolkitNetException">
-    /// The element has no such property, or it holds an object or a structure: a reference read here could be
+    /// The element has no such property, or it holds an object or another boxed value: a reference read here could be
     /// released by the element before the caller used it.
     /// </exception>
     public object? GetValue(string property)
@@ -178,7 +314,8 @@ public sealed unsafe class GStreamerElement : IDisposable
 
         var type = PropertyType(property);
         var fundamental = (uint)Gst.g_type_fundamental(type);
-        if (fundamental is GstSignals.TypeObject or GstSignals.TypeBoxed or GstSignals.TypeParam)
+        var copied = type == Gst.gst_caps_get_type() || type == Gst.gst_structure_get_type();
+        if (fundamental is GstSignals.TypeObject or GstSignals.TypeParam || (fundamental == GstSignals.TypeBoxed && !copied))
         {
             throw new MediaToolkitNetException(
                 GstConstants.BackendName,
@@ -282,6 +419,158 @@ public sealed unsafe class GStreamerElement : IDisposable
         return connection;
     }
 
+    /// <summary>
+    /// Emits one of the element's action signals, such as <c>split-now</c> of <c>splitmuxsink</c> or <c>get-stats</c> of
+    /// <c>multiudpsink</c>, and returns what it answers.
+    /// </summary>
+    /// <param name="signal">The signal's name.</param>
+    /// <param name="arguments">
+    /// One value for each parameter, of the types <see cref="SetValue"/> takes; for an object a
+    /// <see cref="GStreamerElement"/> or its pointer, for another boxed value its pointer, and null for none.
+    /// </param>
+    /// <returns>
+    /// Null for a signal that returns nothing; otherwise a value as <see cref="GetValue"/> gives it, an enum such as
+    /// <c>GstFlowReturn</c> being its number.
+    /// </returns>
+    /// <exception cref="MediaToolkitNetException">
+    /// There is no such action signal, the arguments do not fit it, or it returns a reference (a sample, a pad), which
+    /// this call cannot hand over safely.
+    /// </exception>
+    public object? Emit(string signal, params object?[] arguments)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(signal);
+        ArgumentNullException.ThrowIfNull(arguments);
+        EnsureAlive();
+
+        Span<byte> scratch = stackalloc byte[Utf8Scoped.StackThreshold];
+        using var utf8 = new Utf8Scoped(signal, scratch);
+        var instanceType = Gst.g_type_from_name(Gst.g_type_name_from_instance(_element));
+        var id = Gst.g_signal_lookup(utf8.Pointer, instanceType);
+        if (id == 0)
+        {
+            throw Refused($"the element {Name} has no signal named {signal}.");
+        }
+
+        var query = stackalloc byte[GstLayout.SignalQuerySize];
+        new Span<byte>(query, GstLayout.SignalQuerySize).Clear();
+        Gst.g_signal_query(id, query);
+        if (*(uint*)query != id)
+        {
+            throw Refused("GSignalQuery is not laid out as expected.");
+        }
+
+        if ((*(uint*)(query + GstLayout.SignalQueryFlags) & GstLayout.SignalActionFlag) == 0)
+        {
+            throw Refused($"{signal} on {Name} is not an action signal: the element emits it, and Connect listens to it.");
+        }
+
+        var count = (int)*(uint*)(query + GstLayout.SignalQueryParameterCount);
+        if (arguments.Length != count)
+        {
+            throw Refused($"{signal} on {Name} takes {count} arguments, not {arguments.Length}.");
+        }
+
+        // The low bit of a type here is G_SIGNAL_TYPE_STATIC_SCOPE, not part of the type.
+        var types = *(nuint**)(query + GstLayout.SignalQueryParameterTypes);
+        var returnType = *(nuint*)(query + GstLayout.SignalQueryReturnType) & ~(nuint)1;
+        var answers = returnType != GstLayout.TypeNone;
+        if (answers)
+        {
+            var fundamental = (uint)Gst.g_type_fundamental(returnType);
+            var copied = returnType == Gst.gst_caps_get_type() || returnType == Gst.gst_structure_get_type();
+            if (fundamental is GstSignals.TypeObject or GstSignals.TypeParam or GstSignals.TypePointer ||
+                (fundamental == GstSignals.TypeBoxed && !copied))
+            {
+                throw Refused($"{signal} on {Name} returns a {Utf8.ToManagedOrEmpty(Gst.g_type_name(returnType))}, which Emit does not hand over.");
+            }
+        }
+
+        // The instance, the arguments, and last the return value.
+        var values = (byte*)NativeMemory.AllocZeroed((nuint)(count + 2), GstSignals.ValueSize);
+        var initialized = 0;
+        try
+        {
+            Gst.g_value_init(values, instanceType);
+            initialized = 1;
+            Gst.g_value_set_object(values, _element);
+
+            for (var i = 0; i < count; i++)
+            {
+                var value = values + ((i + 1) * GstSignals.ValueSize);
+                Gst.g_value_init(value, types[i] & ~(nuint)1);
+                initialized++;
+                Fill(value, types[i] & ~(nuint)1, arguments[i], signal, i);
+            }
+
+            var result = values + ((count + 1) * GstSignals.ValueSize);
+            if (answers)
+            {
+                Gst.g_value_init(result, returnType);
+            }
+
+            Gst.g_signal_emitv(values, id, 0, answers ? result : null);
+
+            if (!answers)
+            {
+                return null;
+            }
+
+            try
+            {
+                return GstSignals.ToManaged(result);
+            }
+            finally
+            {
+                Gst.g_value_unset(result);
+            }
+        }
+        finally
+        {
+            for (var i = 0; i < initialized; i++)
+            {
+                Gst.g_value_unset(values + (i * GstSignals.ValueSize));
+            }
+
+            NativeMemory.Free(values);
+        }
+    }
+
+    private void Fill(byte* value, nuint type, object? argument, string signal, int index)
+    {
+        if (argument is null)
+        {
+            return;
+        }
+
+        var fundamental = (uint)Gst.g_type_fundamental(type);
+        if (argument is GStreamerElement element && fundamental == GstSignals.TypeObject)
+        {
+            Gst.g_value_set_object(value, element.Handle);
+        }
+        else if (argument is nint pointer && fundamental == GstSignals.TypeObject)
+        {
+            Gst.g_value_set_object(value, (void*)pointer);
+        }
+        else if (argument is nint boxed && fundamental == GstSignals.TypeBoxed)
+        {
+            Gst.g_value_set_boxed(value, (void*)boxed);
+        }
+        else
+        {
+            try
+            {
+                GstSignals.Store(value, type, argument);
+            }
+            catch (Exception ex) when (ex is FormatException or InvalidCastException or OverflowException or NotSupportedException)
+            {
+                throw Refused(
+                    $"argument {index} of {signal} on {Name} is a {Utf8.ToManagedOrEmpty(Gst.g_type_name(type))}, and {argument} ({argument.GetType().Name}) does not fit: {ex.Message}");
+            }
+        }
+    }
+
+    private static MediaToolkitNetException Refused(string message) => new(GstConstants.BackendName, message, 0);
+
     /// <summary>A static pad of the element, as a reference the caller owns, or null.</summary>
     internal void* GetStaticPad(string name)
     {
@@ -310,6 +599,16 @@ public sealed unsafe class GStreamerElement : IDisposable
         }
 
         _disposed = true;
+
+        lock (_probes)
+        {
+            foreach (var probe in _probes)
+            {
+                probe.Dispose();
+            }
+
+            _probes.Clear();
+        }
 
         // Handlers go before the element does: a connection holds no reference of its own to what it is connected to.
         lock (_connections)

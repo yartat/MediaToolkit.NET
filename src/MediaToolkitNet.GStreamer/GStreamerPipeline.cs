@@ -42,7 +42,7 @@ public sealed unsafe class GStreamerPipeline : IDisposable
         Bus = new GStreamerBus(Gst.gst_element_get_bus(pipeline), pipeline);
     }
 
-    /// <summary>The description this pipeline was built from.</summary>
+    /// <summary>The description this pipeline was built from; empty for one built with <see cref="Create"/>.</summary>
     public string Description { get; }
 
     /// <summary>
@@ -104,7 +104,144 @@ public sealed unsafe class GStreamerPipeline : IDisposable
         return new GStreamerPipeline(pipeline, description);
     }
 
-    /// <summary>The element the description gave that name, or <see langword="null"/>.</summary>
+    /// <summary>
+    /// An empty pipeline to build by hand: <see cref="Add"/> its elements, then join them with
+    /// <see cref="GStreamerElement.Link"/>.
+    /// </summary>
+    public static GStreamerPipeline Create()
+    {
+        Gst.EnsureLoaded();
+        GstLayout.Require();
+
+        var pipeline = Gst.gst_pipeline_new(null);
+        if (pipeline is null)
+        {
+            throw new MediaToolkitNetException(GstConstants.BackendName, "gst_pipeline_new failed.", 0);
+        }
+
+        Gst.gst_object_ref_sink(pipeline);
+        return new GStreamerPipeline(pipeline, string.Empty);
+    }
+
+    /// <summary>
+    /// Makes an element and puts it in the pipeline. One added to a running pipeline stays stopped until it is linked
+    /// and <see cref="GStreamerElement.SyncStateWithPipeline"/> is called.
+    /// </summary>
+    /// <param name="factory">The element's kind, such as <c>videoconvert</c>.</param>
+    /// <param name="name">Its name in the pipeline; GStreamer makes one up without it.</param>
+    /// <remarks>The pipeline owns the result and disposes it with itself.</remarks>
+    /// <exception cref="MediaToolkitNetException">
+    /// No installed plugin provides the element, or the pipeline already has an element of that name.
+    /// </exception>
+    public GStreamerElement Add(string factory, string? name = null)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(factory);
+        EnsureAlive();
+
+        Span<byte> factoryScratch = stackalloc byte[Utf8Scoped.StackThreshold];
+        Span<byte> nameScratch = stackalloc byte[Utf8Scoped.StackThreshold];
+        using var factoryUtf8 = new Utf8Scoped(factory, factoryScratch);
+        using var nameUtf8 = new Utf8Scoped(name, nameScratch);
+
+        var element = Gst.gst_element_factory_make(factoryUtf8.Pointer, nameUtf8.Pointer);
+        if (element is null)
+        {
+            throw new MediaToolkitNetException(
+                GstConstants.BackendName, $"no element {factory} could be made; is its plugin installed?", 0);
+        }
+
+        // Sunk first, so this reference is ours whether or not the pipeline takes the element.
+        Gst.gst_object_ref_sink(element);
+        return Take(element, name ?? factory);
+    }
+
+    /// <summary>
+    /// Builds a bin from a part of a <c>gst-launch</c> description and puts it in the pipeline. The bin links like one
+    /// element: the input and the output its description leaves open become its pads.
+    /// </summary>
+    /// <param name="description">What is inside, for example <c>videoconvert ! videoscale</c>.</param>
+    /// <param name="name">The bin's name in the pipeline; GStreamer makes one up without it.</param>
+    /// <remarks>
+    /// The pipeline owns the result and disposes it with itself. The elements inside are found by
+    /// <see cref="FindElement"/> like any other.
+    /// </remarks>
+    /// <exception cref="MediaToolkitNetException">
+    /// The description cannot be built in full, or the pipeline already has an element of that name.
+    /// </exception>
+    public GStreamerElement AddBin(string description, string? name = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        EnsureAlive();
+
+        Span<byte> descriptionScratch = stackalloc byte[Utf8Scoped.StackThreshold];
+        Span<byte> nameScratch = stackalloc byte[Utf8Scoped.StackThreshold];
+        using var descriptionUtf8 = new Utf8Scoped(description, descriptionScratch);
+        using var nameUtf8 = new Utf8Scoped(name, nameScratch);
+
+        void* error = null;
+        var bin = Gst.gst_parse_bin_from_description(descriptionUtf8.Pointer, 1, &error);
+        if (bin is not null)
+        {
+            Gst.gst_object_ref_sink(bin);
+        }
+
+        // The parser can return a bin that lacks what it could not make, and say so only in the error.
+        if (bin is null || error is not null)
+        {
+            var reason = error is null ? "no reason given" : Gst.TakeError(error);
+            if (bin is not null)
+            {
+                Gst.gst_object_unref(bin);
+            }
+
+            throw new MediaToolkitNetException(GstConstants.BackendName, $"the bin could not be built: {reason}", 0);
+        }
+
+        if (nameUtf8.Pointer is not null)
+        {
+            Gst.gst_object_set_name(bin, nameUtf8.Pointer);
+        }
+
+        return Take(bin, name ?? description);
+    }
+
+    /// <summary>
+    /// Takes an element or a bin out of the pipeline, unlinking it from its neighbours, and stops it. In a playing
+    /// pipeline unlink it from an idle probe first, and do not call this from one of the element's own threads.
+    /// </summary>
+    /// <param name="element">One that this pipeline holds directly, not inside a bin of it.</param>
+    /// <remarks>The wrapper stays usable until the pipeline is disposed, but the element is no longer part of it.</remarks>
+    /// <exception cref="MediaToolkitNetException">The pipeline does not hold the element.</exception>
+    public void Remove(GStreamerElement element)
+    {
+        ArgumentNullException.ThrowIfNull(element);
+        EnsureAlive();
+
+        if (Gst.gst_bin_remove(_pipeline, element.Handle) == 0)
+        {
+            throw new MediaToolkitNetException(
+                GstConstants.BackendName, $"the pipeline does not hold the element {element.Name}.", 0);
+        }
+
+        Gst.gst_element_set_state(element.Handle, (int)GstState.Null);
+    }
+
+    // Puts a sunk element into the pipeline; the reference goes to the wrapper, or is dropped on refusal.
+    private GStreamerElement Take(void* element, string label)
+    {
+        if (Gst.gst_bin_add(_pipeline, element) == 0)
+        {
+            Gst.gst_object_unref(element);
+            throw new MediaToolkitNetException(
+                GstConstants.BackendName, $"the pipeline refused the element {label}; is the name taken?", 0);
+        }
+
+        var wrapper = new GStreamerElement(element, Gst.TakeString(Gst.gst_object_get_name(element)));
+        _tracked.Add(wrapper);
+        return wrapper;
+    }
+
+    /// <summary>The element of that name, or <see langword="null"/>.</summary>
     /// <remarks>The pipeline owns the result and disposes it with itself.</remarks>
     public GStreamerElement? FindElement(string name)
     {

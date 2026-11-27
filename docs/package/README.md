@@ -26,7 +26,7 @@ single backend instead when you do not want the rest:
 | `MediaToolkitNet.Mpv` | libmpv client API: playback, filter chains, probing, and its encoding mode as a transcoder |
 | `MediaToolkitNet.Windows` | Media Foundation, WASAPI, DirectShow (devices, graph, Sample Grabber) |
 | `MediaToolkitNet.Linux` | V4L2, ALSA, PulseAudio |
-| `MediaToolkitNet.GStreamer` | GStreamer 1.x on Linux: pipelines, appsink, GstDiscoverer probing, transcoding |
+| `MediaToolkitNet.GStreamer` | GStreamer 1.x on Linux: pipelines, probing, transcoding, recording, playback, screen capture, mixer, compositor |
 | `MediaToolkitNet.MacOS` | AVFoundation, CoreAudio |
 
 ## Quick start
@@ -202,6 +202,17 @@ using var pipeline = GStreamerPipeline.Parse(
 var sink = pipeline.GetSink("sink");
 ```
 
+```csharp
+// The same by hand, and a clean end for a live pipeline.
+using var live = GStreamerPipeline.Create();
+var source = live.Add("videotestsrc");
+var output = live.Add("fakesink");
+source.Link(output);
+live.Play();
+live.EndOfStream();
+live.WaitForCompletion(TimeSpan.FromSeconds(5));
+```
+
 ## New in FFmpeg 8.x and 9.x
 
 When the FFmpeg libraries are new enough, `MediaToolkitNet.FFmpeg` also exposes what they added after 7.1:
@@ -227,19 +238,19 @@ foreach (var group in demuxer.StreamGroups)          // tiles of a picture, IAMF
 | Capability | Windows | Linux | macOS | FFmpeg | mpv |
 |---|:---:|:---:|:---:|:---:|:---:|
 | Device enumeration | MF + WASAPI + DShow | ALSA + V4L2 | CoreAudio + AVF | avdevice | — |
-| Video capture | `IMFSourceReader` | V4L2 mmap | `AVCaptureSession` | — | — |
+| Video capture | `IMFSourceReader` | V4L2 mmap; X11 screen (GStreamer) | `AVCaptureSession` | — | — |
 | Audio capture | WASAPI (+ loopback) | ALSA / PulseAudio | AudioQueue | — | — |
 | Audio render | WASAPI | ALSA / PulseAudio | AudioQueue | — | — |
-| Playback | — | — | `AVPlayer` | decode to frames | full |
-| Recording to file | `IMFSinkWriter` | — | — | encode + mux | — |
+| Playback | — | GStreamer `playbin3` | `AVPlayer` | decode to frames | full |
+| Recording to file | `IMFSinkWriter` | GStreamer | — | encode + mux | — |
 | Filter graph | DirectShow + Sample Grabber | GStreamer pipeline | — | libavfilter | `vf` / `af` chains |
-| Probing a file | — | GstDiscoverer | — | libavformat | track list |
-| Transcoding | — | GStreamer pipeline | — | full | encoding mode |
+| Probing a file | Media Foundation | GstDiscoverer | — | libavformat | track list |
+| Transcoding | Media Foundation | GStreamer pipeline | — | full | encoding mode |
 | Reading frames from a file | — | — | — | `FFmpegMediaReader` | — |
 
 A dash means the backend does not take that role: FFmpeg owns no audio output,
-mpv never hands frames back, and on Linux and macOS writing files is the FFmpeg
-backend's job.
+mpv never hands frames back, and on macOS writing files is the FFmpeg backend's
+job.
 
 ## Requirements
 
@@ -278,7 +289,9 @@ Exercised against real hardware:
   against FFmpeg 9.0.1 on Windows 11, with every struct offset checked against
   the library actually installed;
 - libavfilter, FFmpeg transcoding and the frame reader, and probing and
-  transcoding through GStreamer 1.26.2 and libmpv 2.5, on Debian 13.
+  transcoding through GStreamer 1.26.2 and libmpv 2.5, on Debian 13;
+- GStreamer pipelines, recording, playback and screen capture on Debian 13 under
+  WSL.
 
 **Not run yet**: mpv playback, FFmpeg 8 and 9 transcoding, the macOS backend,
 and the V4L2, ALSA and PulseAudio paths on Linux. They compile and are guarded

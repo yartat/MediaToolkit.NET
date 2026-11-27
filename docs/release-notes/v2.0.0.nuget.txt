@@ -1,7 +1,12 @@
-MediaToolkit.NET 1.1.0 - new features in the FFmpeg, mpv, Windows and GStreamer backends.
+MediaToolkit.NET 2.0.0 - new features in the FFmpeg, mpv, Windows and GStreamer backends.
 
 The shared interfaces are unchanged. Every feature is checked at run time (FFmpegFeatures for FFmpeg), so the package
 still runs on FFmpeg 7.1.
+
+UPGRADING FROM 1.0.0 (there is no 1.1.0 release):
+- FFmpegDecoder.Open has a new optional parameter, nativeDsd: recompile assemblies built against 1.0.0.
+- WindowsBackend now declares Probing and Transcoding, GStreamerBackend now declares Recording and Playback.
+- A file mpv cannot play now raises MpvPlayer.Failed.
 
 ADDED TO MediaToolkitNet.FFmpeg (FFmpeg 8.x, 9.0 and 9.1 API):
 frame side data and EXIF, MIME codec strings, synchronous decoding, encoder reconfiguration (9.1), bitstream
@@ -17,7 +22,8 @@ with Windows.Graphics.Capture), WasapiCapture.ForProcess (the sound of one proce
 AudioDeviceNotifications, camera controls on MediaFoundationVideoCapture, and MediaFoundationProber and
 MediaFoundationTranscoder (WindowsBackend now declares Probing and Transcoding).
 
-ADDED TO MediaToolkitNet.GStreamer: a message bus with a mask (pipeline.Bus), handlers for any signal
+ADDED TO MediaToolkitNet.GStreamer: pipelines built by hand (GStreamerPipeline.Create, Add, AddBin and Remove, GStreamerElement.Link and Unlink),
+pad probes (AddProbe) and changes to a playing pipeline (SyncStateWithPipeline, ReleasePad), typed GStreamerCaps and GStreamerStructure, action signals (GStreamerElement.Emit), GStreamerPipeline.EndOfStream, a message bus with a mask (pipeline.Bus), handlers for any signal
 (GStreamerElement.Connect), appsrc (GStreamerSource: PushVideo, PushAudio, Push, EndOfStream), typed properties
 (SetValue, GetValue), GStreamerRecorder (an IMediaRecorder; EncoderName picks a hardware encoder, SegmentDuration cuts
 the recording into files, and the output can be an HLS playlist or an srt:// stream) GStreamerAudioMixer (audiomixer: inputs with their own volume and mute), GStreamerPipeline.ToDot (the graph as Graphviz text), GStreamerCompositor (layers with place, size, alpha and order, changeable while it runs; SetPadValue sets a pad's property),
@@ -33,6 +39,7 @@ GStreamer 1.26.2 (WSL). Every new struct layout is confirmed at run time. GStrea
 the pixels of a window from the X server, and the sound from the sound server's monitor; nvh264enc ran on an RTX 4070.
 
 KNOWN LIMITS
+- GStreamer changes to a playing pipeline are low level; only adding and removing a tee branch was tried.
 - Reconfigure accepts only options FFmpeg marks as changeable at run time; FFmpeg 9.1 crashes on the others, so they
   are refused first.
 - A bitstream filter graph takes graph filters only (lcevc_merge, source, sink).

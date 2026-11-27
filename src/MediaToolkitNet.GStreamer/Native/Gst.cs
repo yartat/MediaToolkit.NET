@@ -154,6 +154,102 @@ public static unsafe class Gst
     /// <summary><c>gchar *gst_object_get_name(GstObject *)</c>, which the caller frees.</summary>
     public static delegate* unmanaged[Cdecl]<void*, byte*> gst_object_get_name;
 
+    /// <summary><c>GstElement *gst_pipeline_new(const gchar *name)</c>, with a floating reference.</summary>
+    public static delegate* unmanaged[Cdecl]<byte*, void*> gst_pipeline_new;
+
+    /// <summary><c>gboolean gst_bin_add(GstBin *, GstElement *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, void*, int> gst_bin_add;
+
+    /// <summary><c>gboolean gst_element_link_pads(GstElement *, const gchar *, GstElement *, const gchar *)</c>; a null name lets GStreamer pick.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, byte*, void*, byte*, int> gst_element_link_pads;
+
+    /// <summary><c>gboolean gst_bin_remove(GstBin *, GstElement *)</c>, which unlinks the element and drops the bin's reference.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, void*, int> gst_bin_remove;
+
+    /// <summary><c>void gst_element_unlink(GstElement *, GstElement *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, void*, void> gst_element_unlink;
+
+    /// <summary><c>gboolean gst_object_set_name(GstObject *, const gchar *)</c>, only before the object has a parent.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, byte*, int> gst_object_set_name;
+
+    /// <summary><c>GstStructure *gst_structure_from_string(const gchar *, gchar **end)</c>, which the caller frees.</summary>
+    public static delegate* unmanaged[Cdecl]<byte*, byte**, void*> gst_structure_from_string;
+
+    /// <summary><c>void gst_structure_free(GstStructure *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, void> gst_structure_free;
+
+    /// <summary><c>gint gst_structure_n_fields(const GstStructure *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, int> gst_structure_n_fields;
+
+    /// <summary><c>const gchar *gst_structure_nth_field_name(const GstStructure *, guint)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, uint, byte*> gst_structure_nth_field_name;
+
+    /// <summary><c>const GValue *gst_structure_get_value(const GstStructure *, const gchar *)</c>, borrowed.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, byte*, byte*> gst_structure_get_value;
+
+    /// <summary><c>GType gst_structure_get_type(void)</c></summary>
+    public static delegate* unmanaged[Cdecl]<nuint> gst_structure_get_type;
+
+    /// <summary><c>guint gst_caps_get_size(const GstCaps *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, uint> gst_caps_get_size;
+
+    /// <summary><c>GType gst_caps_get_type(void)</c></summary>
+    public static delegate* unmanaged[Cdecl]<nuint> gst_caps_get_type;
+
+    /// <summary><c>GType gst_fraction_get_type(void)</c></summary>
+    public static delegate* unmanaged[Cdecl]<nuint> gst_fraction_get_type;
+
+    /// <summary><c>GType gst_value_list_get_type(void)</c></summary>
+    public static delegate* unmanaged[Cdecl]<nuint> gst_value_list_get_type;
+
+    /// <summary><c>GType gst_value_array_get_type(void)</c></summary>
+    public static delegate* unmanaged[Cdecl]<nuint> gst_value_array_get_type;
+
+    /// <summary><c>guint gst_value_list_get_size(const GValue *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<byte*, uint> gst_value_list_get_size;
+
+    /// <summary><c>const GValue *gst_value_list_get_value(const GValue *, guint)</c></summary>
+    public static delegate* unmanaged[Cdecl]<byte*, uint, byte*> gst_value_list_get_value;
+
+    /// <summary><c>guint gst_value_array_get_size(const GValue *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<byte*, uint> gst_value_array_get_size;
+
+    /// <summary><c>const GValue *gst_value_array_get_value(const GValue *, guint)</c></summary>
+    public static delegate* unmanaged[Cdecl]<byte*, uint, byte*> gst_value_array_get_value;
+
+    /// <summary><c>gint gst_value_get_fraction_numerator(const GValue *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<byte*, int> gst_value_get_fraction_numerator;
+
+    /// <summary><c>gint gst_value_get_fraction_denominator(const GValue *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<byte*, int> gst_value_get_fraction_denominator;
+
+    /// <summary><c>gchar *gst_value_serialize(const GValue *)</c>, which the caller frees.</summary>
+    public static delegate* unmanaged[Cdecl]<byte*, byte*> gst_value_serialize;
+
+    /// <summary><c>void g_value_set_boxed(GValue *, gconstpointer)</c>, which copies or references the value.</summary>
+    public static delegate* unmanaged[Cdecl]<byte*, void*, void> g_value_set_boxed;
+
+    /// <summary><c>void g_signal_query(guint, GSignalQuery *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<uint, byte*, void> g_signal_query;
+
+    /// <summary><c>void g_signal_emitv(const GValue *instance_and_params, guint, GQuark, GValue *return_value)</c></summary>
+    public static delegate* unmanaged[Cdecl]<byte*, uint, uint, byte*, void> g_signal_emitv;
+
+    /// <summary><c>void gst_pad_remove_probe(GstPad *, gulong)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, nuint, void> gst_pad_remove_probe;
+
+    /// <summary><c>GstBuffer *gst_pad_probe_info_get_buffer(GstPadProbeInfo *)</c>, borrowed.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, void*> gst_pad_probe_info_get_buffer;
+
+    /// <summary><c>gsize gst_buffer_get_size(GstBuffer *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, nuint> gst_buffer_get_size;
+
+    /// <summary><c>void gst_element_release_request_pad(GstElement *, GstPad *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, void*, void> gst_element_release_request_pad;
+
+    /// <summary><c>gboolean gst_element_sync_state_with_parent(GstElement *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, int> gst_element_sync_state_with_parent;
+
     /// <summary><c>gpointer gst_object_ref_sink(gpointer)</c></summary>
     public static delegate* unmanaged[Cdecl]<void*, void*> gst_object_ref_sink;
 
@@ -641,6 +737,38 @@ public static unsafe class Gst
         gst_element_get_bus = (delegate* unmanaged[Cdecl]<void*, void*>)Core.GetExport(nameof(gst_element_get_bus));
         gst_bin_get_by_name = (delegate* unmanaged[Cdecl]<void*, byte*, void*>)Core.GetExport(nameof(gst_bin_get_by_name));
         gst_object_get_name = (delegate* unmanaged[Cdecl]<void*, byte*>)Core.GetExport(nameof(gst_object_get_name));
+        gst_pipeline_new = (delegate* unmanaged[Cdecl]<byte*, void*>)Core.GetExport(nameof(gst_pipeline_new));
+        gst_bin_add = (delegate* unmanaged[Cdecl]<void*, void*, int>)Core.GetExport(nameof(gst_bin_add));
+        gst_element_link_pads = (delegate* unmanaged[Cdecl]<void*, byte*, void*, byte*, int>)Core.GetExport(nameof(gst_element_link_pads));
+        gst_bin_remove = (delegate* unmanaged[Cdecl]<void*, void*, int>)Core.GetExport(nameof(gst_bin_remove));
+        gst_element_unlink = (delegate* unmanaged[Cdecl]<void*, void*, void>)Core.GetExport(nameof(gst_element_unlink));
+        gst_object_set_name = (delegate* unmanaged[Cdecl]<void*, byte*, int>)Core.GetExport(nameof(gst_object_set_name));
+        gst_structure_from_string = (delegate* unmanaged[Cdecl]<byte*, byte**, void*>)Core.GetExport(nameof(gst_structure_from_string));
+        gst_structure_free = (delegate* unmanaged[Cdecl]<void*, void>)Core.GetExport(nameof(gst_structure_free));
+        gst_structure_n_fields = (delegate* unmanaged[Cdecl]<void*, int>)Core.GetExport(nameof(gst_structure_n_fields));
+        gst_structure_nth_field_name = (delegate* unmanaged[Cdecl]<void*, uint, byte*>)Core.GetExport(nameof(gst_structure_nth_field_name));
+        gst_structure_get_value = (delegate* unmanaged[Cdecl]<void*, byte*, byte*>)Core.GetExport(nameof(gst_structure_get_value));
+        gst_structure_get_type = (delegate* unmanaged[Cdecl]<nuint>)Core.GetExport(nameof(gst_structure_get_type));
+        gst_caps_get_size = (delegate* unmanaged[Cdecl]<void*, uint>)Core.GetExport(nameof(gst_caps_get_size));
+        gst_caps_get_type = (delegate* unmanaged[Cdecl]<nuint>)Core.GetExport(nameof(gst_caps_get_type));
+        gst_fraction_get_type = (delegate* unmanaged[Cdecl]<nuint>)Core.GetExport(nameof(gst_fraction_get_type));
+        gst_value_list_get_type = (delegate* unmanaged[Cdecl]<nuint>)Core.GetExport(nameof(gst_value_list_get_type));
+        gst_value_array_get_type = (delegate* unmanaged[Cdecl]<nuint>)Core.GetExport(nameof(gst_value_array_get_type));
+        gst_value_list_get_size = (delegate* unmanaged[Cdecl]<byte*, uint>)Core.GetExport(nameof(gst_value_list_get_size));
+        gst_value_list_get_value = (delegate* unmanaged[Cdecl]<byte*, uint, byte*>)Core.GetExport(nameof(gst_value_list_get_value));
+        gst_value_array_get_size = (delegate* unmanaged[Cdecl]<byte*, uint>)Core.GetExport(nameof(gst_value_array_get_size));
+        gst_value_array_get_value = (delegate* unmanaged[Cdecl]<byte*, uint, byte*>)Core.GetExport(nameof(gst_value_array_get_value));
+        gst_value_get_fraction_numerator = (delegate* unmanaged[Cdecl]<byte*, int>)Core.GetExport(nameof(gst_value_get_fraction_numerator));
+        gst_value_get_fraction_denominator = (delegate* unmanaged[Cdecl]<byte*, int>)Core.GetExport(nameof(gst_value_get_fraction_denominator));
+        gst_value_serialize = (delegate* unmanaged[Cdecl]<byte*, byte*>)Core.GetExport(nameof(gst_value_serialize));
+        g_value_set_boxed = (delegate* unmanaged[Cdecl]<byte*, void*, void>)GObject.GetExport(nameof(g_value_set_boxed));
+        g_signal_query = (delegate* unmanaged[Cdecl]<uint, byte*, void>)GObject.GetExport(nameof(g_signal_query));
+        g_signal_emitv = (delegate* unmanaged[Cdecl]<byte*, uint, uint, byte*, void>)GObject.GetExport(nameof(g_signal_emitv));
+        gst_pad_remove_probe = (delegate* unmanaged[Cdecl]<void*, nuint, void>)Core.GetExport(nameof(gst_pad_remove_probe));
+        gst_pad_probe_info_get_buffer = (delegate* unmanaged[Cdecl]<void*, void*>)Core.GetExport(nameof(gst_pad_probe_info_get_buffer));
+        gst_buffer_get_size = (delegate* unmanaged[Cdecl]<void*, nuint>)Core.GetExport(nameof(gst_buffer_get_size));
+        gst_element_release_request_pad = (delegate* unmanaged[Cdecl]<void*, void*, void>)Core.GetExport(nameof(gst_element_release_request_pad));
+        gst_element_sync_state_with_parent = (delegate* unmanaged[Cdecl]<void*, int>)Core.GetExport(nameof(gst_element_sync_state_with_parent));
         gst_object_ref_sink = (delegate* unmanaged[Cdecl]<void*, void*>)Core.GetExport(nameof(gst_object_ref_sink));
         gst_object_unref = (delegate* unmanaged[Cdecl]<void*, void>)Core.GetExport(nameof(gst_object_unref));
         gst_util_set_object_arg = (delegate* unmanaged[Cdecl]<void*, byte*, byte*, void>)Core.GetExport(nameof(gst_util_set_object_arg));

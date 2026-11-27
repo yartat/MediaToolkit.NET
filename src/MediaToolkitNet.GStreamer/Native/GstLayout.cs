@@ -38,6 +38,27 @@ public static unsafe class GstLayout
     /// <summary>Offset of <c>GstMapInfo::size</c>.</summary>
     public const int MapInfoSizeField = 24;
 
+    /// <summary>Size of <c>GSignalQuery</c>; its <c>signal_id</c> comes first and is checked after every query.</summary>
+    public const int SignalQuerySize = 56;
+
+    /// <summary>Offset of <c>GSignalQuery::signal_flags</c>.</summary>
+    public const int SignalQueryFlags = 24;
+
+    /// <summary>Offset of <c>GSignalQuery::return_type</c>.</summary>
+    public const int SignalQueryReturnType = 32;
+
+    /// <summary>Offset of <c>GSignalQuery::n_params</c>.</summary>
+    public const int SignalQueryParameterCount = 40;
+
+    /// <summary>Offset of <c>GSignalQuery::param_types</c>.</summary>
+    public const int SignalQueryParameterTypes = 48;
+
+    /// <summary><c>G_SIGNAL_ACTION</c>.</summary>
+    public const uint SignalActionFlag = 1 << 5;
+
+    /// <summary><c>G_TYPE_NONE</c>.</summary>
+    public const int TypeNone = 1 << 2;
+
     /// <summary>Offset of <c>GList::data</c>.</summary>
     public const int ListData = 0;
 

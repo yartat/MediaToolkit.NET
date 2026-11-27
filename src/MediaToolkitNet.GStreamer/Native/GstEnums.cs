@@ -197,6 +197,15 @@ public static class GstConstants
 [Flags]
 public enum GstPadProbeType
 {
+    /// <summary>Call when nothing is passing the pad: the moment to relink it.</summary>
+    Idle = 1 << 0,
+
+    /// <summary>Block the pad at what the rest of the mask names.</summary>
+    Block = 1 << 1,
+
+    /// <summary>Events travelling upstream.</summary>
+    EventUpstream = 1 << 7,
+
     /// <summary>GST_PAD_PROBE_TYPE_BUFFER.</summary>
     Buffer = 1 << 4,
 
@@ -213,6 +222,12 @@ public enum GstPadProbeType
 /// <summary>GstPadProbeReturn.</summary>
 public enum GstPadProbeReturn
 {
+    /// <summary>Take the probe off.</summary>
+    Remove = 2,
+
+    /// <summary>Let this item through a blocked pad.</summary>
+    Pass = 3,
+
     /// <summary>GST_PAD_PROBE_DROP: the data goes no further.</summary>
     Drop = 0,
 

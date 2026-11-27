@@ -24,7 +24,7 @@ remains AOT- and trim-safe.
 | `MediaToolkitNet.Mpv` | libmpv (client API) |
 | `MediaToolkitNet.Windows` | Media Foundation, WASAPI, DirectShow (devices, filter graph, Sample Grabber) |
 | `MediaToolkitNet.Linux` | ALSA, PulseAudio (simple API), V4L2 |
-| `MediaToolkitNet.GStreamer` | GStreamer 1.x: pipeline, element registry, bus and signals, appsrc and appsink, GstDiscoverer, transcoding, recording, playback |
+| `MediaToolkitNet.GStreamer` | GStreamer 1.x: pipeline (parsed or built by hand), element registry, bus and signals, appsrc and appsink, GstDiscoverer, transcoding, recording, playback, screen capture, mixer and compositor |
 | `MediaToolkitNet.MacOS` | AVFoundation through the Objective-C runtime, CoreAudio / AudioQueue |
 | `MediaToolkitNet.All` | Facade: backend registry and per-platform selection |
 | `samples/MediaToolkitNet.Sample.Cli` | Demonstrates every scenario |
@@ -34,19 +34,19 @@ remains AOT- and trim-safe.
 | Capability | Windows | Linux | macOS | FFmpeg | mpv |
 |---|:---:|:---:|:---:|:---:|:---:|
 | Device enumeration | MF + WASAPI + DShow | ALSA + V4L2 | CoreAudio + AVF | avdevice | — |
-| Video capture | `IMFSourceReader` | V4L2 mmap | `AVCaptureSession` | — | — |
+| Video capture | `IMFSourceReader` | V4L2 mmap; X11 screen (GStreamer) | `AVCaptureSession` | — | — |
 | Audio capture | WASAPI (+ loopback) | ALSA / PulseAudio | AudioQueue | — | — |
 | Audio render | WASAPI | ALSA / PulseAudio | AudioQueue | — | — |
-| Playback | — | — | `AVPlayer` | decode to frames | full |
-| Recording to file | `IMFSinkWriter` | — | — | encode + mux | — |
+| Playback | — | GStreamer `playbin3` | `AVPlayer` | decode to frames | full |
+| Recording to file | `IMFSinkWriter` | GStreamer | — | encode + mux | — |
 | Filter graph | DirectShow + Sample Grabber | GStreamer pipeline | — | libavfilter | `vf` / `af` chains |
-| Probing a file | — | GstDiscoverer | — | libavformat | track list |
-| Transcoding | — | GStreamer pipeline | — | full | encoding mode |
+| Probing a file | Media Foundation | GstDiscoverer | — | libavformat | track list |
+| Transcoding | Media Foundation | GStreamer pipeline | — | full | encoding mode |
 | Reading frames from a file | — | — | — | `FFmpegMediaReader` | — |
 
 A dash means the backend does not take that role: FFmpeg owns no audio output,
-mpv never hands frames back, and on Linux and macOS writing files is the FFmpeg
-backend's job.
+mpv never hands frames back, and on macOS writing files is the FFmpeg backend's
+job.
 
 ## Getting started
 
@@ -173,6 +173,96 @@ while (!sink.IsEndOfStream)
     sink.TryPullVideo(TimeSpan.FromMilliseconds(500), (in VideoFrame frame) => Save(frame));
 }
 ```
+
+A pipeline can also be built **by hand**: add the elements, link them, then start it. `Link` takes a request pad from an
+element such as `tee`, and a pad that appears while the pipeline runs is linked by its name:
+
+```csharp
+using var pipeline = GStreamerPipeline.Create();
+var source = pipeline.Add("filesrc");
+var demuxer = pipeline.Add("matroskademux");
+var queue = pipeline.Add("queue");
+var sink = pipeline.Add("appsink", "sink");
+source.SetValue("location", "clip.mkv");
+source.Link(demuxer);
+queue.Link(sink);
+demuxer.Connect("pad-added", args =>
+{
+    var pad = args.NameOf(0)!;
+    if (pad.StartsWith("video")) demuxer.Link(queue, pad, "sink");
+});
+pipeline.Play();
+```
+
+`AddBin` puts a part of a description in as one element, whose open input and output become its pads. `Unlink` and
+`Remove` take a branch out again before the pipeline starts:
+
+```csharp
+using var preview = GStreamerPipeline.Create();
+var camera = preview.Add("videotestsrc");
+var scale = preview.AddBin("videoscale ! video/x-raw,width=640,height=360", "scale");
+var screen = preview.Add("fakesink");
+camera.Link(scale);
+scale.Link(screen);
+
+camera.Unlink(scale);                                      // leave the scaling out after all
+preview.Remove(scale);
+camera.Link(screen);
+```
+
+Caps and structures are typed values too: `GetValue` and signal arguments give `GStreamerCaps` and `GStreamerStructure`,
+and `Parse` makes them from their text. `Emit` calls an **action signal**, the way to ask an element for something:
+
+```csharp
+filter.SetValue("caps", GStreamerCaps.Parse("video/x-raw,width=640,height=360"));
+var width = filter.Get<GStreamerCaps>("caps").Structures[0].Get<int>("width");
+
+var udp = pipeline.FindElement("udp")!;                    // a multiudpsink
+udp.Emit("add", "192.168.1.10", 5000);
+var stats = (GStreamerStructure)udp.Emit("get-stats", "192.168.1.10", 5000)!;
+Console.WriteLine(stats.Get<ulong>("bytes-sent"));
+
+pipeline.FindElement("split")!.Emit("split-now");          // a splitmuxsink starts its next file
+```
+
+`Emit` refuses a signal that answers with a reference, such as `try-pull-sample`; use `GStreamerSink` for samples.
+
+A **playing** pipeline can be changed too. A branch added to a `tee` is brought up with `SyncStateWithPipeline`; it is
+taken out from an idle probe, ended on its own so that its file is finished, and removed while the rest plays on:
+
+```csharp
+// tee already feeds the preview. Add a recording branch:
+var queue = pipeline.Add("queue");
+var encoder = pipeline.Add("jpegenc");
+var muxer = pipeline.Add("qtmux");
+var file = pipeline.Add("filesink");
+file.SetValue("location", "take.mov");
+file.SetValue("async", false);                             // or the pipeline waits for the new sink to preroll
+queue.Link(encoder);
+encoder.Link(muxer);
+muxer.Link(file);
+foreach (var element in new[] { file, muxer, encoder, queue }) element.SyncStateWithPipeline();
+tee.Link(queue, "src_1");                                  // the pad is named, to give it back later
+
+// Stop recording:
+var finished = new ManualResetEventSlim();
+file.AddProbe("sink", GstPadProbeType.EventDownstream, info =>
+{
+    if (info.Event == GstEventType.Eos) finished.Set();
+    return GstPadProbeReturn.Ok;
+});
+tee.AddProbe("src_1", GstPadProbeType.Idle, _ =>           // nothing is passing: safe to unlink
+{
+    tee.Unlink(queue);
+    queue.EndOfStream("sink");
+    return GstPadProbeReturn.Remove;
+});
+finished.Wait();
+foreach (var element in new[] { queue, encoder, muxer, file }) pipeline.Remove(element);
+tee.ReleasePad("src_1");
+```
+
+`AddProbe` also watches, drops or blocks buffers and events on any pad; the handler runs on the streaming thread.
 
 The pipeline's **bus** reports what happens inside it, and an element's **signals** can be handled, with no GLib main loop:
 
@@ -754,7 +844,7 @@ the system search path — so on Windows put the folder holding `libmpv-2.dll` o
 | `MediaToolkitNet.Mpv` | libmpv: playback, filter chains, probing, transcoding |
 | `MediaToolkitNet.Windows` | Media Foundation, WASAPI, DirectShow |
 | `MediaToolkitNet.Linux` | V4L2, ALSA, PulseAudio |
-| `MediaToolkitNet.GStreamer` | GStreamer 1.x on Linux: pipelines, probing, transcoding |
+| `MediaToolkitNet.GStreamer` | GStreamer 1.x on Linux: pipelines, probing, transcoding, recording, playback, screen capture |
 | `MediaToolkitNet.MacOS` | AVFoundation, CoreAudio |
 
 ```bash
@@ -882,9 +972,10 @@ flushed it.
 - `FFmpegPlayer` only decodes: it has no renderer and no audio output.
 - Only the mpv client API is wrapped; the render API (embedding into a host
   OpenGL context) is not covered.
-- The GStreamer backend implements no capture or playback interface: what it
-  offers is the pipeline, which covers those roles in GStreamer's own terms.
-  Of the shared roles it takes probing and transcoding.
+- The GStreamer backend captures the X11 screen only: no camera or microphone, and no
+  device enumeration. Wayland-native windows are not seen.
+- Changing a playing GStreamer pipeline is low level: probes, state and pad release are
+  yours to order. A probe is given a buffer's time and size, not its data.
 - GStreamer 1.26's `matroskamux` writes tag values that contain spaces
   serialised (`"a\ b"`), and it writes the input's chapters whatever the request
   says and with their original times. The transcoder warns about both.
