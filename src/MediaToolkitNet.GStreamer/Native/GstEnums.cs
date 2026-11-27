@@ -349,3 +349,78 @@ public enum GstPadPresence
     /// <summary>When asked for.</summary>
     Request = 2,
 }
+
+/// <summary>How important a line of the debug log is.</summary>
+public enum GstDebugLevel
+{
+    /// <summary>Nothing.</summary>
+    None = 0,
+
+    /// <summary>Something failed.</summary>
+    Error = 1,
+
+    /// <summary>Something is not as it should be.</summary>
+    Warning = 2,
+
+    /// <summary>Something is not implemented.</summary>
+    Fixme = 3,
+
+    /// <summary>Noteworthy.</summary>
+    Info = 4,
+
+    /// <summary>For debugging.</summary>
+    Debug = 5,
+
+    /// <summary>Frequent detail.</summary>
+    Log = 6,
+
+    /// <summary>Every reference and release.</summary>
+    Trace = 7,
+
+    /// <summary>Memory contents.</summary>
+    Memdump = 9,
+}
+
+/// <summary>What stage of an operation a progress message reports.</summary>
+public enum GstProgressType
+{
+    /// <summary>It began.</summary>
+    Start = 0,
+
+    /// <summary>It goes on.</summary>
+    Continue = 1,
+
+    /// <summary>It finished.</summary>
+    Complete = 2,
+
+    /// <summary>It was given up.</summary>
+    Canceled = 3,
+
+    /// <summary>It failed.</summary>
+    Error = 4,
+}
+
+/// <summary>What an entry of a table of contents is.</summary>
+public enum GstTocEntryType
+{
+    /// <summary>A camera angle.</summary>
+    Angle = -3,
+
+    /// <summary>A version of the content.</summary>
+    Version = -2,
+
+    /// <summary>An edition, holding chapters.</summary>
+    Edition = -1,
+
+    /// <summary>Not known.</summary>
+    Invalid = 0,
+
+    /// <summary>A title.</summary>
+    Title = 1,
+
+    /// <summary>A track.</summary>
+    Track = 2,
+
+    /// <summary>A chapter.</summary>
+    Chapter = 3,
+}

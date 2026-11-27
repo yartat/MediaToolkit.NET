@@ -325,6 +325,69 @@ public static unsafe class Gst
     /// <summary><c>void gst_query_parse_buffering_percent(GstQuery *, gboolean *busy, gint *percent)</c></summary>
     public static delegate* unmanaged[Cdecl]<void*, int*, int*, void> gst_query_parse_buffering_percent;
 
+    /// <summary><c>GstPluginFeature *gst_registry_lookup_feature(GstRegistry *, const char *)</c>, a reference the caller owns, or null.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, byte*, void*> gst_registry_lookup_feature;
+
+    /// <summary><c>gboolean gst_registry_scan_path(GstRegistry *, const gchar *)</c>: true when the registry changed.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, byte*, int> gst_registry_scan_path;
+
+    /// <summary><c>guint gst_plugin_feature_get_rank(GstPluginFeature *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, uint> gst_plugin_feature_get_rank;
+
+    /// <summary><c>void gst_plugin_feature_set_rank(GstPluginFeature *, guint)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, uint, void> gst_plugin_feature_set_rank;
+
+    /// <summary><c>void gst_message_parse_qos(GstMessage *, gboolean *live, guint64 *running_time, guint64 *stream_time, guint64 *timestamp, guint64 *duration)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, int*, ulong*, ulong*, ulong*, ulong*, void> gst_message_parse_qos;
+
+    /// <summary><c>void gst_message_parse_qos_values(GstMessage *, gint64 *jitter, gdouble *proportion, gint *quality)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, long*, double*, int*, void> gst_message_parse_qos_values;
+
+    /// <summary><c>void gst_message_parse_qos_stats(GstMessage *, GstFormat *, guint64 *processed, guint64 *dropped)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, int*, ulong*, ulong*, void> gst_message_parse_qos_stats;
+
+    /// <summary><c>void gst_message_parse_progress(GstMessage *, GstProgressType *, gchar **code, gchar **text)</c>; both strings are the caller's.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, int*, byte**, byte**, void> gst_message_parse_progress;
+
+    /// <summary><c>void gst_message_parse_toc(GstMessage *, GstToc **, gboolean *updated)</c>, a reference the caller owns.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, void**, int*, void> gst_message_parse_toc;
+
+    /// <summary><c>gboolean gst_message_parse_group_id(GstMessage *, guint *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, uint*, int> gst_message_parse_group_id;
+
+    /// <summary><c>void gst_debug_add_log_function(GstLogFunction, gpointer, GDestroyNotify)</c></summary>
+    public static delegate* unmanaged[Cdecl]<delegate* unmanaged[Cdecl]<void*, int, byte*, byte*, int, void*, void*, void*, void>, void*, void*, void> gst_debug_add_log_function;
+
+    /// <summary><c>guint gst_debug_remove_log_function(GstLogFunction)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, uint> gst_debug_remove_log_function;
+
+    /// <summary><c>guint gst_debug_remove_log_function_by_data(gpointer)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, uint> gst_debug_remove_log_function_by_data;
+
+    /// <summary><c>void gst_debug_set_threshold_from_string(const gchar *, gboolean reset)</c></summary>
+    public static delegate* unmanaged[Cdecl]<byte*, int, void> gst_debug_set_threshold_from_string;
+
+    /// <summary><c>GstDebugLevel gst_debug_get_default_threshold(void)</c></summary>
+    public static delegate* unmanaged[Cdecl]<int> gst_debug_get_default_threshold;
+
+    /// <summary><c>void gst_debug_set_default_threshold(GstDebugLevel)</c></summary>
+    public static delegate* unmanaged[Cdecl]<int, void> gst_debug_set_default_threshold;
+
+    /// <summary><c>void gst_debug_unset_threshold_for_name(const gchar *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<byte*, void> gst_debug_unset_threshold_for_name;
+
+    /// <summary><c>void gst_debug_set_active(gboolean)</c></summary>
+    public static delegate* unmanaged[Cdecl]<int, void> gst_debug_set_active;
+
+    /// <summary><c>const gchar *gst_debug_category_get_name(GstDebugCategory *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, byte*> gst_debug_category_get_name;
+
+    /// <summary><c>const gchar *gst_debug_message_get(GstDebugMessage *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, byte*> gst_debug_message_get;
+
+    /// <summary>The address of <c>gst_debug_log_default</c>, which prints the log to standard error.</summary>
+    public static nint DefaultLogFunction;
+
     /// <summary><c>gpointer gst_object_ref_sink(gpointer)</c></summary>
     public static delegate* unmanaged[Cdecl]<void*, void*> gst_object_ref_sink;
 
@@ -869,6 +932,27 @@ public static unsafe class Gst
         gst_query_parse_latency = (delegate* unmanaged[Cdecl]<void*, int*, ulong*, ulong*, void>)Core.GetExport(nameof(gst_query_parse_latency));
         gst_query_parse_seeking = (delegate* unmanaged[Cdecl]<void*, int*, int*, long*, long*, void>)Core.GetExport(nameof(gst_query_parse_seeking));
         gst_query_parse_buffering_percent = (delegate* unmanaged[Cdecl]<void*, int*, int*, void>)Core.GetExport(nameof(gst_query_parse_buffering_percent));
+        gst_registry_lookup_feature = (delegate* unmanaged[Cdecl]<void*, byte*, void*>)Core.GetExport(nameof(gst_registry_lookup_feature));
+        gst_registry_scan_path = (delegate* unmanaged[Cdecl]<void*, byte*, int>)Core.GetExport(nameof(gst_registry_scan_path));
+        gst_plugin_feature_get_rank = (delegate* unmanaged[Cdecl]<void*, uint>)Core.GetExport(nameof(gst_plugin_feature_get_rank));
+        gst_plugin_feature_set_rank = (delegate* unmanaged[Cdecl]<void*, uint, void>)Core.GetExport(nameof(gst_plugin_feature_set_rank));
+        gst_message_parse_qos = (delegate* unmanaged[Cdecl]<void*, int*, ulong*, ulong*, ulong*, ulong*, void>)Core.GetExport(nameof(gst_message_parse_qos));
+        gst_message_parse_qos_values = (delegate* unmanaged[Cdecl]<void*, long*, double*, int*, void>)Core.GetExport(nameof(gst_message_parse_qos_values));
+        gst_message_parse_qos_stats = (delegate* unmanaged[Cdecl]<void*, int*, ulong*, ulong*, void>)Core.GetExport(nameof(gst_message_parse_qos_stats));
+        gst_message_parse_progress = (delegate* unmanaged[Cdecl]<void*, int*, byte**, byte**, void>)Core.GetExport(nameof(gst_message_parse_progress));
+        gst_message_parse_toc = (delegate* unmanaged[Cdecl]<void*, void**, int*, void>)Core.GetExport(nameof(gst_message_parse_toc));
+        gst_message_parse_group_id = (delegate* unmanaged[Cdecl]<void*, uint*, int>)Core.GetExport(nameof(gst_message_parse_group_id));
+        gst_debug_add_log_function = (delegate* unmanaged[Cdecl]<delegate* unmanaged[Cdecl]<void*, int, byte*, byte*, int, void*, void*, void*, void>, void*, void*, void>)Core.GetExport(nameof(gst_debug_add_log_function));
+        gst_debug_remove_log_function = (delegate* unmanaged[Cdecl]<void*, uint>)Core.GetExport(nameof(gst_debug_remove_log_function));
+        gst_debug_remove_log_function_by_data = (delegate* unmanaged[Cdecl]<void*, uint>)Core.GetExport(nameof(gst_debug_remove_log_function_by_data));
+        gst_debug_set_threshold_from_string = (delegate* unmanaged[Cdecl]<byte*, int, void>)Core.GetExport(nameof(gst_debug_set_threshold_from_string));
+        gst_debug_get_default_threshold = (delegate* unmanaged[Cdecl]<int>)Core.GetExport(nameof(gst_debug_get_default_threshold));
+        gst_debug_set_default_threshold = (delegate* unmanaged[Cdecl]<int, void>)Core.GetExport(nameof(gst_debug_set_default_threshold));
+        gst_debug_unset_threshold_for_name = (delegate* unmanaged[Cdecl]<byte*, void>)Core.GetExport(nameof(gst_debug_unset_threshold_for_name));
+        gst_debug_set_active = (delegate* unmanaged[Cdecl]<int, void>)Core.GetExport(nameof(gst_debug_set_active));
+        gst_debug_category_get_name = (delegate* unmanaged[Cdecl]<void*, byte*>)Core.GetExport(nameof(gst_debug_category_get_name));
+        gst_debug_message_get = (delegate* unmanaged[Cdecl]<void*, byte*>)Core.GetExport(nameof(gst_debug_message_get));
+        DefaultLogFunction = (nint)Core.GetExport("gst_debug_log_default");
         gst_object_ref_sink = (delegate* unmanaged[Cdecl]<void*, void*>)Core.GetExport(nameof(gst_object_ref_sink));
         gst_object_unref = (delegate* unmanaged[Cdecl]<void*, void>)Core.GetExport(nameof(gst_object_unref));
         gst_util_set_object_arg = (delegate* unmanaged[Cdecl]<void*, byte*, byte*, void>)Core.GetExport(nameof(gst_util_set_object_arg));

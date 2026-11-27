@@ -57,7 +57,7 @@ public sealed unsafe class GStreamerBus : IDisposable
         GstMessageType.Error | GstMessageType.Warning | GstMessageType.Info | GstMessageType.Eos | GstMessageType.Tag |
         GstMessageType.Buffering | GstMessageType.StateChanged | GstMessageType.Application | GstMessageType.Element |
         GstMessageType.AsyncDone | GstMessageType.StreamStart | GstMessageType.DurationChanged | GstMessageType.Latency |
-        GstMessageType.SegmentDone;
+        GstMessageType.SegmentDone | GstMessageType.Progress | GstMessageType.Toc;
 
     /// <summary>
     /// Whether a state change is reported only when the pipeline itself made it (the default), or for every element.
@@ -353,6 +353,35 @@ public sealed unsafe class GStreamerBus : IDisposable
                 return result with { Percent = percent };
             case GstMessageType.Tag:
                 return result with { Tags = TagsOf(message) };
+            case GstMessageType.Qos:
+                return result with { Qos = QosOf(message) };
+            case GstMessageType.Progress:
+                var stage = 0;
+                byte* code = null;
+                byte* text = null;
+                Gst.gst_message_parse_progress(message, &stage, &code, &text);
+                return result with { Progress = new GStreamerProgress((GstProgressType)stage, Gst.TakeString(code), Gst.TakeString(text)) };
+            case GstMessageType.Toc:
+                void* toc = null;
+                var updated = 0;
+                Gst.gst_message_parse_toc(message, &toc, &updated);
+                if (toc is null)
+                {
+                    return result;
+                }
+
+                try
+                {
+                    return result with { Toc = TocEntries(Gst.gst_toc_get_entries(toc)) };
+                }
+                finally
+                {
+                    Gst.gst_mini_object_unref(toc);
+                }
+
+            case GstMessageType.StreamStart:
+                uint group = 0;
+                return Gst.gst_message_parse_group_id(message, &group) != 0 ? result with { GroupId = group } : result;
             default:
                 var structure = Gst.gst_message_get_structure(message);
                 return structure is null
@@ -364,6 +393,64 @@ public sealed unsafe class GStreamerBus : IDisposable
                         Details = GStreamerStructure.From(structure),
                     };
         }
+    }
+
+    private static GStreamerQos QosOf(void* message)
+    {
+        var live = 0;
+        ulong running = 0;
+        ulong stream = 0;
+        ulong timestamp = 0;
+        ulong duration = 0;
+        long jitter = 0;
+        double proportion = 0;
+        var quality = 0;
+        var format = 0;
+        ulong processed = 0;
+        ulong dropped = 0;
+        Gst.gst_message_parse_qos(message, &live, &running, &stream, &timestamp, &duration);
+        Gst.gst_message_parse_qos_values(message, &jitter, &proportion, &quality);
+        Gst.gst_message_parse_qos_stats(message, &format, &processed, &dropped);
+        return new GStreamerQos(
+            live != 0, TimeOf(running), TimeOf(timestamp), new TimeSpan(jitter / GstConstants.NanosecondsPerTick), proportion,
+            processed, dropped);
+
+        static TimeSpan? TimeOf(ulong value) =>
+            value == GstConstants.ClockTimeNone ? null : new TimeSpan((long)(value / GstConstants.NanosecondsPerTick));
+    }
+
+    private static List<GStreamerTocEntry> TocEntries(void* list)
+    {
+        var entries = new List<GStreamerTocEntry>();
+        Span<byte> scratch = stackalloc byte[16];
+        using var name = new Utf8Scoped("title", scratch);
+        for (var node = list; node is not null; node = GstLayout.NextListNode(node))
+        {
+            var entry = GstLayout.DataOfListNode(node);
+            long start = 0;
+            long stop = 0;
+            Gst.gst_toc_entry_get_start_stop_times(entry, &start, &stop);
+
+            string? title = null;
+            var tags = Gst.gst_toc_entry_get_tags(entry);
+            if (tags is not null)
+            {
+                byte* value = null;
+                if (Gst.gst_tag_list_get_string(tags, name.Pointer, &value) != 0)
+                {
+                    title = Gst.TakeString(value);
+                }
+            }
+
+            entries.Add(new GStreamerTocEntry(
+                (GstTocEntryType)Gst.gst_toc_entry_get_entry_type(entry),
+                new TimeSpan(start / GstConstants.NanosecondsPerTick),
+                new TimeSpan(stop / GstConstants.NanosecondsPerTick),
+                title,
+                TocEntries(Gst.gst_toc_entry_get_sub_entries(entry))));
+        }
+
+        return entries;
     }
 
     private static string TextOf(void* message, GstMessageType type, out string? debug)

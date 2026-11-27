@@ -32,7 +32,7 @@ Out of scope here, because they implement shared interfaces: `GStreamerPlayer`, 
 | 15 | Handle signals | Done | Caps and structure arguments arrive typed |
 | 16 | Emit action signals (`split-now`, `get-stats`, ...) | Done | `GStreamerElement.Emit`; signals answering with a reference are refused |
 | 17 | Typed `GstCaps` / `GstStructure` | Done | `GStreamerCaps`, `GStreamerStructure`; made and changed through their text |
-| 18 | Plugin loading, element rank (force or ban a decoder) | No | |
+| 18 | Plugin loading, element rank (force or ban a decoder) | Done | `GetRank`, `SetRank`, `ScanPlugins`; scanning a new plugin was not tried |
 | 19 | Pipeline graph dump | Done | `ToDot` |
 
 ## Bus, diagnostics, data access
@@ -40,9 +40,9 @@ Out of scope here, because they implement shared interfaces: `GStreamerPlayer`, 
 | # | Feature | Status | Notes |
 |---|---|---|---|
 | 20 | Bus messages, application messages | Done | `GStreamerBus` |
-| 21 | Parsed QoS, progress, TOC, stream and latency messages | No | QoS, progress, TOC and stream-start arrive by type only |
+| 21 | Parsed QoS, progress, TOC, stream and latency messages | Partial | QoS, progress, TOC, stream-start; stream collections are not parsed; latency has nothing to parse |
 | 22 | Typed element messages (`level`, `spectrum`, motion) | Done | `GStreamerMessage.Details`; `level` was tried, no per-element wrappers |
-| 23 | GStreamer debug log into .NET | No | |
+| 23 | GStreamer debug log into .NET | Done | `GStreamerLog.Subscribe` |
 | 24 | `appsink` raw video and audio | Done | `GStreamerSink` |
 | 25 | `appsink` encoded data (H.264 packets, buffer flags) | Done | `GStreamerSink.TryPullData` |
 | 26 | `appsrc` raw frames and bytes | Done | `GStreamerSource` |

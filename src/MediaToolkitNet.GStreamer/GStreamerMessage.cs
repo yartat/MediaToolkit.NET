@@ -8,6 +8,32 @@ using MediaToolkitNet.GStreamer.Native;
 
 namespace MediaToolkitNet.GStreamer;
 
+/// <summary>What a quality of service message says.</summary>
+/// <param name="IsLive">Whether a live element posted it.</param>
+/// <param name="RunningTime">The running time of the buffer, or null.</param>
+/// <param name="Timestamp">The buffer's presentation time, or null.</param>
+/// <param name="Jitter">How late the buffer was; negative when it was early.</param>
+/// <param name="Proportion">The rate the element would need to keep up: above 1 it is too slow.</param>
+/// <param name="Processed">Buffers or frames handled so far.</param>
+/// <param name="Dropped">Buffers or frames dropped so far.</param>
+public readonly record struct GStreamerQos(
+    bool IsLive, TimeSpan? RunningTime, TimeSpan? Timestamp, TimeSpan Jitter, double Proportion, ulong Processed, ulong Dropped);
+
+/// <summary>What a progress message says.</summary>
+/// <param name="Type">The stage.</param>
+/// <param name="Code">A short code of the operation, such as <c>open</c> or <c>connect</c>.</param>
+/// <param name="Text">A description for people.</param>
+public readonly record struct GStreamerProgress(GstProgressType Type, string Code, string Text);
+
+/// <summary>One entry of a table of contents.</summary>
+/// <param name="Type">What it is.</param>
+/// <param name="Start">Where it begins.</param>
+/// <param name="Stop">Where it ends.</param>
+/// <param name="Title">Its title tag, or null.</param>
+/// <param name="Entries">What it holds, as an edition holds chapters.</param>
+public sealed record GStreamerTocEntry(
+    GstTocEntryType Type, TimeSpan Start, TimeSpan Stop, string? Title, IReadOnlyList<GStreamerTocEntry> Entries);
+
 /// <summary>
 /// One message from a pipeline's bus, parsed into the parts that kind of message has. A field that does not belong
 /// to the message's <see cref="Type"/> is left at its default.
@@ -50,6 +76,18 @@ public sealed record GStreamerMessage(GstMessageType Type, string? Source, bool 
     /// <c>level</c> element.
     /// </summary>
     public GStreamerStructure? Details { get; init; }
+
+    /// <summary>For a quality of service message: what was late or dropped.</summary>
+    public GStreamerQos? Qos { get; init; }
+
+    /// <summary>For a progress message: what an element is busy with.</summary>
+    public GStreamerProgress? Progress { get; init; }
+
+    /// <summary>For a table of contents message: its entries, chapters among them.</summary>
+    public IReadOnlyList<GStreamerTocEntry> Toc { get; init; } = [];
+
+    /// <summary>For a stream start: the group, equal for the streams that belong together.</summary>
+    public uint? GroupId { get; init; }
 
     /// <inheritdoc />
     public override string ToString() => Type switch

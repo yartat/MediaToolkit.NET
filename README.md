@@ -319,6 +319,22 @@ element.SendEvent(GStreamerStructure.Parse("mark, id=(int)7"));  // probes see i
 
 The live flag of a latency answer is set by any sink that keeps to the clock, so it does not say that the source is live.
 
+Which element `decodebin` and `playbin3` pick is a matter of **rank**, and plugins can be added from a directory (which
+runs their native code, so only one you trust). Quality-of-service, progress and table-of-contents messages arrive
+parsed, and GStreamer's **debug log** can be read in .NET:
+
+```csharp
+GStreamerElements.SetRank("nvh264dec", 512);               // prefer it; 0 keeps an element out
+GStreamerElements.ScanPlugins("/opt/vendor/gstreamer-1.0");
+pipeline.Bus.Mask |= GstMessageType.Qos;                   // not delivered unless asked: there can be many
+pipeline.Bus.MessageReceived += (_, m) =>
+{
+    if (m.Qos is { } qos) Console.WriteLine($"{m.Source}: dropped {qos.Dropped}, late by {qos.Jitter}");
+    foreach (var chapter in m.Toc.SelectMany(edition => edition.Entries)) Console.WriteLine(chapter.Title);
+};
+using var log = GStreamerLog.Subscribe("*:2,decodebin:5", line => Console.WriteLine($"{line.Category}: {line.Message}"));
+```
+
 The pipeline's **bus** reports what happens inside it, and an element's **signals** can be handled, with no GLib main loop:
 
 ```csharp

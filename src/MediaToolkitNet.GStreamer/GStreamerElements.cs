@@ -140,6 +140,81 @@ public static unsafe class GStreamerElements
         return true;
     }
 
+    /// <summary>
+    /// The rank of an element, which decides what <c>decodebin</c> and <c>playbin</c> pick: the higher is tried first and
+    /// 0 never. Null when no installed plugin provides it.
+    /// </summary>
+    public static uint? GetRank(string name)
+    {
+        var feature = Lookup(name);
+        if (feature is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return Gst.gst_plugin_feature_get_rank(feature);
+        }
+        finally
+        {
+            Gst.gst_object_unref(feature);
+        }
+    }
+
+    /// <summary>
+    /// Changes an element's rank for this process: raise it to prefer a hardware decoder, or set 0 to keep an element out
+    /// of automatic pipelines. It affects pipelines built afterwards.
+    /// </summary>
+    /// <returns>False when no installed plugin provides the element.</returns>
+    public static bool SetRank(string name, uint rank)
+    {
+        var feature = Lookup(name);
+        if (feature is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            Gst.gst_plugin_feature_set_rank(feature, rank);
+            return true;
+        }
+        finally
+        {
+            Gst.gst_object_unref(feature);
+        }
+    }
+
+    /// <summary>
+    /// Adds the plugins of a directory to this process. Loading a plugin runs its native code: scan only directories you
+    /// trust as you trust the application itself.
+    /// </summary>
+    /// <returns>True when something new was found.</returns>
+    /// <exception cref="DirectoryNotFoundException">There is no such directory.</exception>
+    public static bool ScanPlugins(string directory)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(directory);
+        Gst.EnsureLoaded();
+        if (!Directory.Exists(directory))
+        {
+            throw new DirectoryNotFoundException($"There is no directory {directory}.");
+        }
+
+        Span<byte> scratch = stackalloc byte[Utf8Scoped.StackThreshold];
+        using var utf8 = new Utf8Scoped(Path.GetFullPath(directory), scratch);
+        return Gst.gst_registry_scan_path(Gst.gst_registry_get(), utf8.Pointer) != 0;
+    }
+
+    private static void* Lookup(string name)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(name);
+        Gst.EnsureLoaded();
+        Span<byte> scratch = stackalloc byte[Utf8Scoped.StackThreshold];
+        using var utf8 = new Utf8Scoped(name, scratch);
+        return Gst.gst_registry_lookup_feature(Gst.gst_registry_get(), utf8.Pointer);
+    }
+
     /// <summary>The properties and pad templates of an element, or null when no installed plugin provides it.</summary>
     /// <param name="name">The factory's name, such as <c>videoconvert</c>.</param>
     public static GStreamerElementDetails? Describe(string name)
