@@ -264,6 +264,46 @@ tee.ReleasePad("src_1");
 
 `AddProbe` also watches, drops or blocks buffers and events on any pad; the handler runs on the streaming thread.
 
+Encoded data leaves an `appsink` as bytes, with its times and flags:
+
+```csharp
+// ... ! x264enc ! h264parse ! appsink name=sink sync=false
+sink.TryPullData(TimeSpan.FromSeconds(1), (in GStreamerData data) =>
+{
+    Send(data.Bytes, data.Timestamp, data.DecodeTimestamp, data.IsKeyFrame);   // valid for the call only
+});
+```
+
+`Seek` can also take a range, a rate and flags. A negative rate plays the range backwards (where the demuxer and decoder
+can), and a segment seek loops without ending the stream:
+
+```csharp
+pipeline.Seek(TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(20), rate: 2.0);
+pipeline.Seek(TimeSpan.Zero, TimeSpan.FromSeconds(5), flags: GstSeekFlags.Flush | GstSeekFlags.Segment);
+pipeline.Bus.MessageReceived += (_, m) =>
+{
+    if (m.Type == GstMessageType.SegmentDone)                // again, without Flush, so there is no gap
+        pipeline.Seek(TimeSpan.Zero, TimeSpan.FromSeconds(5), flags: GstSeekFlags.Segment);
+};
+```
+
+Elements can be **asked about**, as `gst-inspect-1.0` does it, and so can pads, object properties, messages and buffers:
+
+```csharp
+var details = GStreamerElements.Describe("tee")!;          // properties and pad templates
+var volume = mixer.GetPadValue("sink_0", "volume");
+using var sink = player.GetElement("video-sink");          // an element a property holds
+pipeline.Bus.MessageReceived += (_, m) =>
+{
+    if (m.StructureName == "level") Show(m.Details!.Get<object?[]>("rms"));
+};
+decoder.AddDataProbe("src", (in GStreamerData data) =>     // the bytes of every buffer, read only
+{
+    Inspect(data.Bytes);
+    return GstPadProbeReturn.Ok;
+});
+```
+
 The pipeline's **bus** reports what happens inside it, and an element's **signals** can be handled, with no GLib main loop:
 
 ```csharp
@@ -975,7 +1015,7 @@ flushed it.
 - The GStreamer backend captures the X11 screen only: no camera or microphone, and no
   device enumeration. Wayland-native windows are not seen.
 - Changing a playing GStreamer pipeline is low level: probes, state and pad release are
-  yours to order. A probe is given a buffer's time and size, not its data.
+  yours to order. A probe can read a buffer's bytes, not change them.
 - GStreamer 1.26's `matroskamux` writes tag values that contain spaces
   serialised (`"a\ b"`), and it writes the input's chapters whatever the request
   says and with their original times. The transcoder warns about both.

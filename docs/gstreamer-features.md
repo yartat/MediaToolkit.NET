@@ -1,6 +1,6 @@
 # GStreamer-only features
 
-Candidates for `MediaToolkitNet.GStreamer` that need nothing from the shared interfaces. Status as of commit `60e9fb4`, judged from the public API and the bound native functions; nothing was run.
+Candidates for `MediaToolkitNet.GStreamer` that need nothing from the shared interfaces. First judged from the public API as of commit `60e9fb4`; rows built since then were tested in WSL, the rest were not run.
 
 Done = public API exists. Partial = some of it exists, or it only works internally. No = absent.
 
@@ -16,7 +16,7 @@ Out of scope here, because they implement shared interfaces: `GStreamerPlayer`, 
 | 4 | Request pads and linking in `pad-added` | Done | `Link` requests pads and takes pad names |
 | 5 | Add, remove or replace elements while playing (pad blocking) | Done | `AddProbe`, `SyncStateWithPipeline`, `Remove`, `ReleasePad`; only a `tee` branch was tried |
 | 6 | Send EOS to a whole pipeline | Done | `GStreamerPipeline.EndOfStream`, added after that commit and tested in WSL |
-| 7 | Seek with a rate and flags: trick play, reverse, segments, loops | Partial | `Seek(position)` only; the full seek event is used by the transcoder |
+| 7 | Seek with a rate and flags: trick play, reverse, segments, loops | Done | `Seek(start, stop, rate, flags)`; trick-mode flags not tried |
 | 8 | Frame stepping | No | |
 | 9 | Clock, base time, latency, synchronised pipelines | No | |
 | 10 | Queries beyond duration and position (latency, seekable range, buffering) | No | |
@@ -26,9 +26,9 @@ Out of scope here, because they implement shared interfaces: `GStreamerPlayer`, 
 
 | # | Feature | Status | Notes |
 |---|---|---|---|
-| 12 | Element registry | Partial | `GStreamerElements.All` / `Exists`; no pad templates, property list or caps |
-| 13 | Read and write properties | Partial | Scalars, strings, enums, flags, caps, structures; no array or fraction property, no object read |
-| 14 | Pad properties | Partial | `SetPadValue` only, no getter |
+| 12 | Element registry | Done | `GStreamerElements.All`, `Exists`, `Describe` (properties, pad templates); signals are not listed |
+| 13 | Read and write properties | Done | Scalars, strings, enums, flags, fractions, caps, structures, elements (`GetElement`); arrays are read, and written as text |
+| 14 | Pad properties | Done | `SetPadValue`, `GetPadValue` |
 | 15 | Handle signals | Done | Caps and structure arguments arrive typed |
 | 16 | Emit action signals (`split-now`, `get-stats`, ...) | Done | `GStreamerElement.Emit`; signals answering with a reference are refused |
 | 17 | Typed `GstCaps` / `GstStructure` | Done | `GStreamerCaps`, `GStreamerStructure`; made and changed through their text |
@@ -41,12 +41,12 @@ Out of scope here, because they implement shared interfaces: `GStreamerPlayer`, 
 |---|---|---|---|
 | 20 | Bus messages, application messages | Done | `GStreamerBus` |
 | 21 | Parsed QoS, progress, TOC, stream and latency messages | No | QoS, progress, TOC and stream-start arrive by type only |
-| 22 | Typed element messages (`level`, `spectrum`, motion) | Partial | Delivered as a structure string |
+| 22 | Typed element messages (`level`, `spectrum`, motion) | Done | `GStreamerMessage.Details`; `level` was tried, no per-element wrappers |
 | 23 | GStreamer debug log into .NET | No | |
 | 24 | `appsink` raw video and audio | Done | `GStreamerSink` |
-| 25 | `appsink` encoded data (H.264 packets, buffer flags) | No | Throws for anything that is not raw |
+| 25 | `appsink` encoded data (H.264 packets, buffer flags) | Done | `GStreamerSink.TryPullData` |
 | 26 | `appsrc` raw frames and bytes | Done | `GStreamerSource` |
-| 27 | Pad probes: inspect, drop or block buffers and events | Partial | `AddProbe`; a buffer's time and size, not its data |
+| 27 | Pad probes: inspect, drop or block buffers and events | Done | `AddProbe`, `AddDataProbe`; buffers cannot be changed |
 
 ## Processing and streaming
 
@@ -61,7 +61,7 @@ Out of scope here, because they implement shared interfaces: `GStreamerPlayer`, 
 | 34 | Source switching (`input-selector`, fallback source) | No | |
 | 35 | RTSP server (`gst-rtsp-server`) | No | Separate native library |
 | 36 | WebRTC (`webrtcbin`, WHIP, WHEP) | No | Also needs promises and SDP objects |
-| 37 | Network statistics (SRT, RTP, RTSP) | Partial | Readable with `GetValue("stats")` and `Emit`; only `multiudpsink` was tried, no typed wrapper |
+| 37 | Network statistics (SRT, RTP, RTSP) | Partial | `GetValue("stats")` and `Emit`; `multiudpsink` and `srtsrc` tried, RTP and RTSP not |
 | 38 | Device hot-plug monitoring (`GstDeviceMonitor`) | No | Listing devices alone would fit the shared enumerator |
 | 39 | Zero-copy memory (DMABuf, GL, CUDA) | No | |
 | 40 | Editing timeline (GStreamer Editing Services) | No | Separate native library |
@@ -69,5 +69,4 @@ Out of scope here, because they implement shared interfaces: `GStreamerPlayer`, 
 
 ## Suggested order
 
-1. 25 and 7.
-2. 35 and 36, if network delivery is the goal.
+1. 35 and 36, if network delivery is the goal.

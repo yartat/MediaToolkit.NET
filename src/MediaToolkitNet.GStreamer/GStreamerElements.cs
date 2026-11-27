@@ -28,6 +28,30 @@ public readonly record struct GStreamerElementInfo(
     public override string ToString() => $"{Name} — {LongName}";
 }
 
+/// <summary>One property of an element.</summary>
+/// <param name="Name">Its name.</param>
+/// <param name="TypeName">The GLib type, such as <c>gint</c>, <c>gchararray</c> or <c>GstCaps</c>.</param>
+/// <param name="CanRead">Whether it can be read.</param>
+/// <param name="CanWrite">Whether it can be written.</param>
+public readonly record struct GStreamerPropertyInfo(string Name, string TypeName, bool CanRead, bool CanWrite);
+
+/// <summary>One kind of pad an element has or can have.</summary>
+/// <param name="Name">The pad's name, or the pattern of the names, such as <c>src_%u</c>.</param>
+/// <param name="Direction">Which way it carries data.</param>
+/// <param name="Presence">When the element has it.</param>
+/// <param name="Caps">The formats it accepts or produces, as caps text.</param>
+public readonly record struct GStreamerPadTemplate(string Name, GstPadDirection Direction, GstPadPresence Presence, string Caps);
+
+/// <summary>What <c>gst-inspect-1.0</c> says about an element: what it is, its properties and its pads.</summary>
+/// <param name="Info">The factory's description.</param>
+/// <param name="Properties">Its properties.</param>
+/// <param name="PadTemplates">Its kinds of pads.</param>
+[SupportedOSPlatform("linux")]
+public sealed record GStreamerElementDetails(
+    GStreamerElementInfo Info,
+    IReadOnlyList<GStreamerPropertyInfo> Properties,
+    IReadOnlyList<GStreamerPadTemplate> PadTemplates);
+
 /// <summary>
 /// The element factories the installed GStreamer plugins register.
 /// </summary>
@@ -114,6 +138,90 @@ public static unsafe class GStreamerElements
         Gst.gst_object_ref_sink(element);
         Gst.gst_object_unref(element);
         return true;
+    }
+
+    /// <summary>The properties and pad templates of an element, or null when no installed plugin provides it.</summary>
+    /// <param name="name">The factory's name, such as <c>videoconvert</c>.</param>
+    public static GStreamerElementDetails? Describe(string name)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(name);
+        if (!Gst.IsAvailable || !GstLayout.Verified)
+        {
+            return null;
+        }
+
+        Span<byte> scratch = stackalloc byte[Utf8Scoped.StackThreshold];
+        using var utf8 = new Utf8Scoped(name, scratch);
+        var factory = Gst.gst_element_factory_find(utf8.Pointer);
+        if (factory is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            var info = new GStreamerElementInfo(
+                name, Metadata(factory, "long-name"), Metadata(factory, "klass"), Metadata(factory, "description"));
+
+            var templates = new List<GStreamerPadTemplate>();
+            for (var node = Gst.gst_element_factory_get_static_pad_templates(factory); node is not null; node = GstLayout.NextListNode(node))
+            {
+                var template = (byte*)GstLayout.DataOfListNode(node);
+                templates.Add(new GStreamerPadTemplate(
+                    Utf8.ToManagedOrEmpty(*(byte**)(template + GstLayout.PadTemplateName)),
+                    (GstPadDirection)(*(int*)(template + GstLayout.PadTemplateDirection)),
+                    (GstPadPresence)(*(int*)(template + GstLayout.PadTemplatePresence)),
+                    Utf8.ToManagedOrEmpty(*(byte**)(template + GstLayout.PadTemplateCaps))));
+            }
+
+            // The class that lists the properties belongs to an instance, so one is made and let go.
+            var element = Gst.gst_element_factory_make(utf8.Pointer, null);
+            if (element is null)
+            {
+                return null;
+            }
+
+            Gst.gst_object_ref_sink(element);
+            try
+            {
+                return new GStreamerElementDetails(info, PropertiesOf(element), templates);
+            }
+            finally
+            {
+                Gst.gst_object_unref(element);
+            }
+        }
+        finally
+        {
+            Gst.gst_object_unref(factory);
+        }
+    }
+
+    private static List<GStreamerPropertyInfo> PropertiesOf(void* element)
+    {
+        uint count = 0;
+        var specs = Gst.g_object_class_list_properties(GstLayout.ClassOf(element), &count);
+        var properties = new List<GStreamerPropertyInfo>((int)count);
+        try
+        {
+            for (var i = 0; i < count; i++)
+            {
+                var spec = specs[i];
+                var type = *(nuint*)Gst.g_param_spec_get_default_value(spec);
+                var flags = *(uint*)((byte*)spec + GstLayout.ParamSpecFlags);
+                properties.Add(new GStreamerPropertyInfo(
+                    Utf8.ToManagedOrEmpty(Gst.g_param_spec_get_name(spec)),
+                    Utf8.ToManagedOrEmpty(Gst.g_type_name(type)),
+                    (flags & 1) != 0,
+                    (flags & 2) != 0));
+            }
+        }
+        finally
+        {
+            Gst.g_free(specs);
+        }
+
+        return properties;
     }
 
     private static string Metadata(void* factory, string key)

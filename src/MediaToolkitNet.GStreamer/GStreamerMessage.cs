@@ -45,6 +45,12 @@ public sealed record GStreamerMessage(GstMessageType Type, string? Source, bool 
     /// <summary>For an element or application message: the structure in GStreamer's text form, fields included.</summary>
     public string? Structure { get; init; }
 
+    /// <summary>
+    /// For an element or application message: the structure with typed fields, such as the <c>rms</c> levels of the
+    /// <c>level</c> element.
+    /// </summary>
+    public GStreamerStructure? Details { get; init; }
+
     /// <inheritdoc />
     public override string ToString() => Type switch
     {

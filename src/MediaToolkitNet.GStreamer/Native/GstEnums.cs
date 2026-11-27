@@ -49,6 +49,9 @@ public enum GstStateChangeReturn
 [Flags]
 public enum GstMessageType : uint
 {
+    /// <summary>A segment seek reached the end of its range.</summary>
+    SegmentDone = 1 << 17,
+
     /// <summary>GST_MESSAGE_UNKNOWN.</summary>
     Unknown = 0,
 
@@ -164,6 +167,21 @@ public enum GstMapFlags
 [Flags]
 public enum GstSeekFlags
 {
+    /// <summary>Report the end of the range with a segment-done message instead of ending the stream.</summary>
+    Segment = 1 << 3,
+
+    /// <summary>Let elements skip work to keep up with a high rate.</summary>
+    TrickMode = 1 << 4,
+
+    /// <summary>With <c>KeyUnit</c>, go to the key frame after the position.</summary>
+    SnapAfter = 1 << 6,
+
+    /// <summary>Show key frames only.</summary>
+    TrickModeKeyUnits = 1 << 7,
+
+    /// <summary>Decode no audio.</summary>
+    TrickModeNoAudio = 1 << 8,
+
     /// <summary>GST_SEEK_FLAG_NONE.</summary>
     None = 0,
 
@@ -286,4 +304,30 @@ public static class GstTypes
 
     /// <summary>GST_PARSE_FLAG_FATAL_ERRORS: any error, a failed link included, fails the parse.</summary>
     public const int ParseFatalErrors = 1 << 0;
+}
+
+/// <summary>Which way a pad carries data.</summary>
+public enum GstPadDirection
+{
+    /// <summary>Not known.</summary>
+    Unknown = 0,
+
+    /// <summary>Out of the element.</summary>
+    Source = 1,
+
+    /// <summary>Into the element.</summary>
+    Sink = 2,
+}
+
+/// <summary>When an element has a pad.</summary>
+public enum GstPadPresence
+{
+    /// <summary>From the start.</summary>
+    Always = 0,
+
+    /// <summary>When the stream calls for it, announced by <c>pad-added</c>.</summary>
+    Sometimes = 1,
+
+    /// <summary>When asked for.</summary>
+    Request = 2,
 }

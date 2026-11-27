@@ -426,6 +426,46 @@ public sealed unsafe class GStreamerPipeline : IDisposable
     }
 
     /// <summary>
+    /// Seeks to a range, at a rate, the way GStreamer's seek event does it. At a negative rate the range is played from
+    /// <paramref name="stop"/> back to <paramref name="start"/>.
+    /// </summary>
+    /// <param name="start">Where the range begins.</param>
+    /// <param name="stop">Where it ends, or null for the end of the stream.</param>
+    /// <param name="rate">1 is normal speed, 2 twice as fast, 0.5 half, -1 backwards.</param>
+    /// <param name="flags">
+    /// How to seek. With <see cref="GstSeekFlags.Segment"/> the end of the range is a
+    /// <see cref="GstMessageType.SegmentDone"/> message on the bus rather than the end of the stream; seeking again
+    /// without <see cref="GstSeekFlags.Flush"/> then loops it without a gap.
+    /// </param>
+    /// <returns>False when the pipeline cannot do it. Not every demuxer and decoder can play backwards.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">The rate is zero or not a number.</exception>
+    /// <exception cref="ArgumentException">The range ends before it starts.</exception>
+    public bool Seek(TimeSpan start, TimeSpan? stop, double rate = 1.0, GstSeekFlags flags = GstSeekFlags.Flush | GstSeekFlags.Accurate)
+    {
+        if (rate == 0 || !double.IsFinite(rate))
+        {
+            throw new ArgumentOutOfRangeException(nameof(rate), rate, "The rate must be a finite number other than zero.");
+        }
+
+        ArgumentOutOfRangeException.ThrowIfLessThan(start, TimeSpan.Zero);
+        if (stop < start)
+        {
+            throw new ArgumentException("The range ends before it starts.", nameof(stop));
+        }
+
+        EnsureAlive();
+        var seek = Gst.gst_event_new_seek(
+            rate,
+            (int)GstFormat.Time,
+            (int)flags,
+            (int)GstSeekType.Set,
+            start.Ticks * GstConstants.NanosecondsPerTick,
+            (int)(stop is null ? GstSeekType.None : GstSeekType.Set),
+            stop is { } end ? end.Ticks * GstConstants.NanosecondsPerTick : -1);
+        return Gst.gst_element_send_event(_pipeline, seek) != 0;
+    }
+
+    /// <summary>
     /// Tells the sources to end the stream, so that what is already in the pipeline is processed and muxers finish their
     /// files. A live pipeline never ends by itself, and stopping it without this leaves an MP4 that cannot be opened.
     /// </summary>

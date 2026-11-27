@@ -99,41 +99,12 @@ public sealed unsafe class GStreamerStructure
             Gst.TakeString(Gst.gst_structure_to_string(structure)));
     }
 
-    private static object? Convert(byte* value)
+    // A value of a structure or of a list. A pointer, an object or a boxed value of another kind would outlive what
+    // owns it: those, and what has no managed counterpart, are given as text.
+    internal static object? Convert(byte* value)
     {
-        var type = *(nuint*)value;
-        if (type == Gst.gst_fraction_get_type())
-        {
-            return new Rational(Gst.gst_value_get_fraction_numerator(value), Gst.gst_value_get_fraction_denominator(value));
-        }
-
-        if (type == Gst.gst_value_list_get_type())
-        {
-            var items = new object?[Gst.gst_value_list_get_size(value)];
-            for (var i = 0; i < items.Length; i++)
-            {
-                items[i] = Convert(Gst.gst_value_list_get_value(value, (uint)i));
-            }
-
-            return items;
-        }
-
-        if (type == Gst.gst_value_array_get_type())
-        {
-            var items = new object?[Gst.gst_value_array_get_size(value)];
-            for (var i = 0; i < items.Length; i++)
-            {
-                items[i] = Convert(Gst.gst_value_array_get_value(value, (uint)i));
-            }
-
-            return items;
-        }
-
-        // A pointer, an object or a boxed value of another kind would outlive the structure that owns it: those, and
-        // what has no managed counterpart, are given as text.
         var converted = GstSignals.ToManaged(value);
-        var fundamental = (uint)Gst.g_type_fundamental(type);
-        var isText = converted is null && fundamental != GstSignals.TypeString;
+        var isText = converted is null && (uint)Gst.g_type_fundamental(*(nuint*)value) != GstSignals.TypeString;
         return isText || converted is nint ? Gst.TakeString(Gst.gst_value_serialize(value)) : converted;
     }
 }

@@ -250,6 +250,27 @@ public static unsafe class Gst
     /// <summary><c>gboolean gst_element_sync_state_with_parent(GstElement *)</c></summary>
     public static delegate* unmanaged[Cdecl]<void*, int> gst_element_sync_state_with_parent;
 
+    /// <summary><c>gboolean gst_buffer_has_flags(GstBuffer *, GstBufferFlags)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, uint, int> gst_buffer_has_flags;
+
+    /// <summary><c>GType g_value_array_get_type(void)</c></summary>
+    public static delegate* unmanaged[Cdecl]<nuint> g_value_array_get_type;
+
+    /// <summary><c>void gst_value_set_fraction(GValue *, gint, gint)</c></summary>
+    public static delegate* unmanaged[Cdecl]<byte*, int, int, void> gst_value_set_fraction;
+
+    /// <summary><c>GType gst_element_get_type(void)</c></summary>
+    public static delegate* unmanaged[Cdecl]<nuint> gst_element_get_type;
+
+    /// <summary><c>GstElementFactory *gst_element_factory_find(const gchar *)</c>, a reference the caller owns, or null.</summary>
+    public static delegate* unmanaged[Cdecl]<byte*, void*> gst_element_factory_find;
+
+    /// <summary><c>const GList *gst_element_factory_get_static_pad_templates(GstElementFactory *)</c>, borrowed.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, void*> gst_element_factory_get_static_pad_templates;
+
+    /// <summary><c>GParamSpec **g_object_class_list_properties(GObjectClass *, guint *)</c>; the array is the caller's, the specs are not.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, uint*, void**> g_object_class_list_properties;
+
     /// <summary><c>gpointer gst_object_ref_sink(gpointer)</c></summary>
     public static delegate* unmanaged[Cdecl]<void*, void*> gst_object_ref_sink;
 
@@ -769,6 +790,13 @@ public static unsafe class Gst
         gst_buffer_get_size = (delegate* unmanaged[Cdecl]<void*, nuint>)Core.GetExport(nameof(gst_buffer_get_size));
         gst_element_release_request_pad = (delegate* unmanaged[Cdecl]<void*, void*, void>)Core.GetExport(nameof(gst_element_release_request_pad));
         gst_element_sync_state_with_parent = (delegate* unmanaged[Cdecl]<void*, int>)Core.GetExport(nameof(gst_element_sync_state_with_parent));
+        gst_buffer_has_flags = (delegate* unmanaged[Cdecl]<void*, uint, int>)Core.GetExport(nameof(gst_buffer_has_flags));
+        g_value_array_get_type = (delegate* unmanaged[Cdecl]<nuint>)GObject.GetExport(nameof(g_value_array_get_type));
+        gst_value_set_fraction = (delegate* unmanaged[Cdecl]<byte*, int, int, void>)Core.GetExport(nameof(gst_value_set_fraction));
+        gst_element_get_type = (delegate* unmanaged[Cdecl]<nuint>)Core.GetExport(nameof(gst_element_get_type));
+        gst_element_factory_find = (delegate* unmanaged[Cdecl]<byte*, void*>)Core.GetExport(nameof(gst_element_factory_find));
+        gst_element_factory_get_static_pad_templates = (delegate* unmanaged[Cdecl]<void*, void*>)Core.GetExport(nameof(gst_element_factory_get_static_pad_templates));
+        g_object_class_list_properties = (delegate* unmanaged[Cdecl]<void*, uint*, void**>)GObject.GetExport(nameof(g_object_class_list_properties));
         gst_object_ref_sink = (delegate* unmanaged[Cdecl]<void*, void*>)Core.GetExport(nameof(gst_object_ref_sink));
         gst_object_unref = (delegate* unmanaged[Cdecl]<void*, void>)Core.GetExport(nameof(gst_object_unref));
         gst_util_set_object_arg = (delegate* unmanaged[Cdecl]<void*, byte*, byte*, void>)Core.GetExport(nameof(gst_util_set_object_arg));

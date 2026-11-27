@@ -56,7 +56,8 @@ public sealed unsafe class GStreamerBus : IDisposable
     public GstMessageType Mask { get; set; } =
         GstMessageType.Error | GstMessageType.Warning | GstMessageType.Info | GstMessageType.Eos | GstMessageType.Tag |
         GstMessageType.Buffering | GstMessageType.StateChanged | GstMessageType.Application | GstMessageType.Element |
-        GstMessageType.AsyncDone | GstMessageType.StreamStart | GstMessageType.DurationChanged | GstMessageType.Latency;
+        GstMessageType.AsyncDone | GstMessageType.StreamStart | GstMessageType.DurationChanged | GstMessageType.Latency |
+        GstMessageType.SegmentDone;
 
     /// <summary>
     /// Whether a state change is reported only when the pipeline itself made it (the default), or for every element.
@@ -360,6 +361,7 @@ public sealed unsafe class GStreamerBus : IDisposable
                     {
                         StructureName = Utf8.ToManagedOrEmpty(Gst.gst_structure_get_name(structure)),
                         Structure = Gst.TakeString(Gst.gst_structure_to_string(structure)),
+                        Details = GStreamerStructure.From(structure),
                     };
         }
     }

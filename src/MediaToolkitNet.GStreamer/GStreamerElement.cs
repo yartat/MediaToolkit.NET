@@ -122,6 +122,28 @@ public sealed unsafe class GStreamerElement : IDisposable
     }
 
     /// <summary>
+    /// Probes the buffers passing one pad and reads their bytes: the handler may let a buffer go on, drop it, or take
+    /// the probe off. The bytes cannot be changed.
+    /// </summary>
+    /// <param name="pad">The pad's name.</param>
+    /// <param name="handler">Called on the streaming thread for each buffer.</param>
+    /// <returns>The probe; dispose it to take it off.</returns>
+    /// <exception cref="MediaToolkitNetException">The element has no such pad.</exception>
+    public GStreamerProbe AddDataProbe(string pad, GStreamerDataProbeHandler handler)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(pad);
+        ArgumentNullException.ThrowIfNull(handler);
+        var probe = GStreamerProbe.Install(RequirePad(pad), handler, ex => SafeEvents.RaiseFailed(
+            Failed, this, new MediaToolkitNetException(GstConstants.BackendName, $"a probe on {Name}:{pad} threw: {ex.Message}", 0)));
+        lock (_probes)
+        {
+            _probes.Add(probe);
+        }
+
+        return probe;
+    }
+
+    /// <summary>
     /// Sends the end of the stream into one input pad, so that what follows it finishes its work while the rest of the
     /// pipeline goes on: how a recording branch is closed. Unlink the pad first.
     /// </summary>
@@ -312,15 +334,40 @@ public sealed unsafe class GStreamerElement : IDisposable
         ArgumentException.ThrowIfNullOrEmpty(property);
         EnsureAlive();
 
-        var type = PropertyType(property);
-        var fundamental = (uint)Gst.g_type_fundamental(type);
-        var copied = type == Gst.gst_caps_get_type() || type == Gst.gst_structure_get_type();
-        if (fundamental is GstSignals.TypeObject or GstSignals.TypeParam || (fundamental == GstSignals.TypeBoxed && !copied))
+        return Read(_element, Name, property);
+    }
+
+    /// <summary>A property of one of the element's pads, with the values <see cref="GetValue"/> gives.</summary>
+    /// <param name="pad">The pad's name; a request pad has to exist already.</param>
+    /// <param name="property">The pad's property.</param>
+    /// <exception cref="MediaToolkitNetException">There is no such pad or property, or it cannot be read.</exception>
+    public object? GetPadValue(string pad, string property)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(pad);
+        ArgumentException.ThrowIfNullOrEmpty(property);
+        var handle = RequirePad(pad);
+        try
         {
-            throw new MediaToolkitNetException(
-                GstConstants.BackendName,
-                $"the property {property} of {Name} holds a {Utf8.ToManagedOrEmpty(Gst.g_type_name(type))}, which GetValue does not read.",
-                0);
+            return Read(handle, $"{Name}:{pad}", property);
+        }
+        finally
+        {
+            Gst.gst_object_unref(handle);
+        }
+    }
+
+    /// <summary>The element a property holds, such as <c>video-sink</c> of <c>playbin3</c>, or null.</summary>
+    /// <remarks>The caller owns the result and disposes it.</remarks>
+    /// <exception cref="MediaToolkitNetException">There is no such property, or it does not hold an element.</exception>
+    public GStreamerElement? GetElement(string property)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(property);
+        EnsureAlive();
+
+        var type = PropertyType(property);
+        if ((uint)Gst.g_type_fundamental(type) != GstSignals.TypeObject)
+        {
+            throw Refused($"the property {property} of {Name} does not hold an element.");
         }
 
         var storage = stackalloc byte[GstSignals.ValueSize];
@@ -331,6 +378,48 @@ public sealed unsafe class GStreamerElement : IDisposable
             Span<byte> scratch = stackalloc byte[Utf8Scoped.StackThreshold];
             using var utf8 = new Utf8Scoped(property, scratch);
             Gst.g_object_get_property(_element, utf8.Pointer, storage);
+            var held = Gst.g_value_get_object(storage);
+            if (held is null)
+            {
+                return null;
+            }
+
+            if (Gst.g_type_check_instance_is_a(held, Gst.gst_element_get_type()) == 0)
+            {
+                throw Refused($"the property {property} of {Name} does not hold an element.");
+            }
+
+            // A reference of the wrapper's own, which outlives the value that carried the object here.
+            Gst.gst_object_ref(held);
+            return new GStreamerElement(held, Gst.TakeString(Gst.gst_object_get_name(held)));
+        }
+        finally
+        {
+            Gst.g_value_unset(storage);
+        }
+    }
+
+    private static object? Read(void* target, string label, string property)
+    {
+        var type = PropertyTypeOf(target, label, property);
+        var fundamental = (uint)Gst.g_type_fundamental(type);
+        var copied = type == Gst.gst_caps_get_type() || type == Gst.gst_structure_get_type() || type == Gst.g_value_array_get_type();
+        if (fundamental is GstSignals.TypeObject or GstSignals.TypeParam || (fundamental == GstSignals.TypeBoxed && !copied))
+        {
+            throw new MediaToolkitNetException(
+                GstConstants.BackendName,
+                $"the property {property} of {label} holds a {Utf8.ToManagedOrEmpty(Gst.g_type_name(type))}, which GetValue does not read.",
+                0);
+        }
+
+        var storage = stackalloc byte[GstSignals.ValueSize];
+        new Span<byte>(storage, GstSignals.ValueSize).Clear();
+        Gst.g_value_init(storage, type);
+        try
+        {
+            Span<byte> scratch = stackalloc byte[Utf8Scoped.StackThreshold];
+            using var utf8 = new Utf8Scoped(property, scratch);
+            Gst.g_object_get_property(target, utf8.Pointer, storage);
             return GstSignals.ToManaged(storage);
         }
         finally

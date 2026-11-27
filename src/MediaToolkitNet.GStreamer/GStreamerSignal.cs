@@ -7,6 +7,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using MediaToolkitNet.Abstractions;
+using MediaToolkitNet.Abstractions.Formats;
 using MediaToolkitNet.GStreamer.Native;
 using MediaToolkitNet.Interop;
 
@@ -222,7 +223,48 @@ internal static unsafe class GstSignals
 
     internal static object? ToManaged(byte* value)
     {
-        var fundamental = Gst.g_type_fundamental(*(nuint*)value);
+        var type = *(nuint*)value;
+        if (type == Gst.gst_fraction_get_type())
+        {
+            return new Rational(Gst.gst_value_get_fraction_numerator(value), Gst.gst_value_get_fraction_denominator(value));
+        }
+
+        if (type == Gst.gst_value_list_get_type())
+        {
+            var items = new object?[Gst.gst_value_list_get_size(value)];
+            for (var i = 0; i < items.Length; i++)
+            {
+                items[i] = GStreamerStructure.Convert(Gst.gst_value_list_get_value(value, (uint)i));
+            }
+
+            return items;
+        }
+
+        if (type == Gst.gst_value_array_get_type())
+        {
+            var items = new object?[Gst.gst_value_array_get_size(value)];
+            for (var i = 0; i < items.Length; i++)
+            {
+                items[i] = GStreamerStructure.Convert(Gst.gst_value_array_get_value(value, (uint)i));
+            }
+
+            return items;
+        }
+
+        if (type == Gst.g_value_array_get_type())
+        {
+            // The older GValueArray, which the level element still posts.
+            var array = (byte*)Gst.g_value_get_boxed(value);
+            var items = new object?[array is null ? 0 : *(uint*)array];
+            for (var i = 0; i < items.Length; i++)
+            {
+                items[i] = GStreamerStructure.Convert(*(byte**)(array + GstLayout.ValueArrayValues) + (i * ValueSize));
+            }
+
+            return items;
+        }
+
+        var fundamental = Gst.g_type_fundamental(type);
         return (uint)fundamental switch
         {
             TypeBoolean => Gst.g_value_get_boolean(value) != 0,
@@ -266,6 +308,18 @@ internal static unsafe class GstSignals
     internal static void Store(byte* value, nuint type, object managed)
     {
         var culture = System.Globalization.CultureInfo.InvariantCulture;
+        if (type == Gst.gst_fraction_get_type() && managed is Rational fraction)
+        {
+            Gst.gst_value_set_fraction(value, fraction.Numerator, fraction.Denominator);
+            return;
+        }
+
+        if ((uint)Gst.g_type_fundamental(type) == TypeObject && managed is GStreamerElement element)
+        {
+            Gst.g_value_set_object(value, element.Handle);
+            return;
+        }
+
         switch ((uint)Gst.g_type_fundamental(type))
         {
             case TypeBoolean:

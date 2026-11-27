@@ -129,6 +129,55 @@ public sealed unsafe class GStreamerSink : IDisposable
     }
 
     /// <summary>
+    /// Takes the next sample as the bytes it is, encoded or raw, with its times and flags: how packets of an encoder or
+    /// a parser are read.
+    /// </summary>
+    /// <param name="timeout">How long to wait for a sample; negative waits forever.</param>
+    /// <param name="handler">Receives the data, which is valid only for the call.</param>
+    /// <returns>False on a timeout or at the end of the stream.</returns>
+    public bool TryPullData(TimeSpan timeout, GStreamerDataHandler handler)
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        var sample = Gst.gst_app_sink_try_pull_sample(_element.Handle, Nanoseconds(timeout));
+        if (sample is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            var buffer = Gst.gst_sample_get_buffer(sample);
+            if (buffer is null)
+            {
+                return false;
+            }
+
+            var info = stackalloc byte[GstLayout.MapInfoSize];
+            new Span<byte>(info, GstLayout.MapInfoSize).Clear();
+            if (Gst.gst_buffer_map(buffer, info, (int)GstMapFlags.Read) == 0)
+            {
+                return false;
+            }
+
+            try
+            {
+                handler(GStreamerData.Of(buffer, info, Gst.gst_sample_get_caps(sample)));
+                return true;
+            }
+            finally
+            {
+                Gst.gst_buffer_unmap(buffer, info);
+            }
+        }
+        finally
+        {
+            Gst.gst_mini_object_unref(sample);
+        }
+    }
+
+    /// <summary>
     /// Takes the next sample, whatever it carries, and hands it to the handler
     /// for its kind.
     /// </summary>

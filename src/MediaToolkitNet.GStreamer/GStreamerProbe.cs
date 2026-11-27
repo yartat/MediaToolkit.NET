@@ -29,27 +29,40 @@ public readonly record struct GStreamerProbeInfo(GstPadProbeType Type, GstEventT
 /// </returns>
 public delegate GstPadProbeReturn GStreamerProbeHandler(GStreamerProbeInfo info);
 
+/// <summary>Handles one buffer passing a pad, with its bytes, which are valid only for the call.</summary>
+/// <param name="data">The buffer's bytes with their times and flags.</param>
+/// <returns><see cref="GstPadProbeReturn.Ok"/>, <see cref="GstPadProbeReturn.Drop"/> or <see cref="GstPadProbeReturn.Remove"/>.</returns>
+public delegate GstPadProbeReturn GStreamerDataProbeHandler(in GStreamerData data);
+
 /// <summary>A probe on a pad. Disposing it takes it off.</summary>
 [SupportedOSPlatform("linux")]
 public sealed unsafe class GStreamerProbe : IDisposable
 {
-    private readonly GStreamerProbeHandler _handler;
+    private readonly GStreamerProbeHandler? _handler;
+    private readonly GStreamerDataProbeHandler? _data;
     private readonly Action<Exception> _failed;
     private readonly Lock _gate = new();
     private void* _pad;
     private nuint _id;
     private bool _removed;
 
-    private GStreamerProbe(GStreamerProbeHandler handler, Action<Exception> failed)
+    private GStreamerProbe(GStreamerProbeHandler? handler, GStreamerDataProbeHandler? data, Action<Exception> failed)
     {
         _handler = handler;
+        _data = data;
         _failed = failed;
     }
 
     // Takes over the caller's reference to the pad.
-    internal static GStreamerProbe Install(void* pad, GstPadProbeType mask, GStreamerProbeHandler handler, Action<Exception> failed)
+    internal static GStreamerProbe Install(void* pad, GstPadProbeType mask, GStreamerProbeHandler handler, Action<Exception> failed) =>
+        Add(pad, mask, new GStreamerProbe(handler, null, failed));
+
+    internal static GStreamerProbe Install(void* pad, GStreamerDataProbeHandler handler, Action<Exception> failed) =>
+        Add(pad, GstPadProbeType.Buffer, new GStreamerProbe(null, handler, failed));
+
+    private static GStreamerProbe Add(void* pad, GstPadProbeType mask, GStreamerProbe probe)
     {
-        var probe = new GStreamerProbe(handler, failed) { _pad = pad };
+        probe._pad = pad;
         var handle = GCHandle.Alloc(probe);
 
         // An idle probe can run, and even remove itself, before this call returns; the id is then zero.
@@ -87,7 +100,7 @@ public sealed unsafe class GStreamerProbe : IDisposable
         }
     }
 
-    private GstPadProbeReturn Invoke(void* info)
+    private GstPadProbeReturn Invoke(void* pad, void* info)
     {
         lock (_gate)
         {
@@ -98,6 +111,11 @@ public sealed unsafe class GStreamerProbe : IDisposable
         }
 
         var type = (GstPadProbeType)(*(int*)info);
+        if (_data is not null)
+        {
+            return Settle(InvokeData(pad, info), type);
+        }
+
         GstEventType? kind = null;
         TimeSpan? timestamp = null;
         long size = 0;
@@ -123,7 +141,7 @@ public sealed unsafe class GStreamerProbe : IDisposable
         GstPadProbeReturn answer;
         try
         {
-            answer = _handler(new GStreamerProbeInfo(type, kind, timestamp, size));
+            answer = _handler!(new GStreamerProbeInfo(type, kind, timestamp, size));
         }
         catch (Exception ex)
         {
@@ -133,6 +151,11 @@ public sealed unsafe class GStreamerProbe : IDisposable
             answer = (type & (GstPadProbeType.Block | GstPadProbeType.Idle)) != 0 ? GstPadProbeReturn.Remove : GstPadProbeReturn.Ok;
         }
 
+        return Settle(answer, type);
+    }
+
+    private GstPadProbeReturn Settle(GstPadProbeReturn answer, GstPadProbeType type)
+    {
         if (answer == GstPadProbeReturn.Remove)
         {
             lock (_gate)
@@ -144,12 +167,48 @@ public sealed unsafe class GStreamerProbe : IDisposable
         return answer;
     }
 
+    private GstPadProbeReturn InvokeData(void* pad, void* info)
+    {
+        var buffer = Gst.gst_pad_probe_info_get_buffer(info);
+        if (buffer is null)
+        {
+            return GstPadProbeReturn.Ok;
+        }
+
+        var map = stackalloc byte[GstLayout.MapInfoSize];
+        new Span<byte>(map, GstLayout.MapInfoSize).Clear();
+        if (Gst.gst_buffer_map(buffer, map, (int)GstMapFlags.Read) == 0)
+        {
+            return GstPadProbeReturn.Ok;
+        }
+
+        var caps = Gst.gst_pad_get_current_caps(pad);
+        try
+        {
+            return _data!(GStreamerData.Of(buffer, map, caps));
+        }
+        catch (Exception ex)
+        {
+            _failed(ex);
+            return GstPadProbeReturn.Ok;
+        }
+        finally
+        {
+            if (caps is not null)
+            {
+                Gst.gst_mini_object_unref(caps);
+            }
+
+            Gst.gst_buffer_unmap(buffer, map);
+        }
+    }
+
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static int OnProbe(void* pad, void* info, void* data)
     {
         try
         {
-            return (int)((GStreamerProbe)GCHandle.FromIntPtr((nint)data).Target!).Invoke(info);
+            return (int)((GStreamerProbe)GCHandle.FromIntPtr((nint)data).Target!).Invoke(pad, info);
         }
         catch
         {

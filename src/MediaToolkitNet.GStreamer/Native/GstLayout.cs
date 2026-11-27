@@ -59,6 +59,15 @@ public static unsafe class GstLayout
     /// <summary><c>G_TYPE_NONE</c>.</summary>
     public const int TypeNone = 1 << 2;
 
+    /// <summary>Offset of <c>GParamSpec::flags</c>, after the type instance and the name.</summary>
+    public const int ParamSpecFlags = 16;
+
+    /// <summary>Offset of <c>GValueArray::values</c>; the count of them comes first.</summary>
+    public const int ValueArrayValues = 8;
+
+    /// <summary>Offsets in <c>GstStaticPadTemplate</c>: name, direction, presence and the caps' text.</summary>
+    public const int PadTemplateName = 0, PadTemplateDirection = 8, PadTemplatePresence = 12, PadTemplateCaps = 24;
+
     /// <summary>Offset of <c>GList::data</c>.</summary>
     public const int ListData = 0;
 
@@ -111,6 +120,15 @@ public static unsafe class GstLayout
 
     /// <summary>Reads <c>GST_BUFFER_DURATION</c>, in nanoseconds.</summary>
     public static ulong DurationOfBuffer(void* buffer) => *(ulong*)((byte*)buffer + BufferPts + BufferDurationDelta);
+
+    /// <summary>Reads <c>GST_BUFFER_DTS</c>, in nanoseconds.</summary>
+    public static ulong DtsOfBuffer(void* buffer) => *(ulong*)((byte*)buffer + BufferPts + sizeof(ulong));
+
+    /// <summary><c>GST_BUFFER_FLAG_HEADER</c>.</summary>
+    public const uint BufferFlagHeader = 1 << 10;
+
+    /// <summary><c>GST_BUFFER_FLAG_DELTA_UNIT</c>: not decodable on its own.</summary>
+    public const uint BufferFlagDeltaUnit = 1 << 13;
 
     /// <summary>Writes <c>GST_BUFFER_PTS</c> and <c>GST_BUFFER_DURATION</c> of a buffer nothing else holds yet.</summary>
     public static void SetBufferTimes(void* buffer, ulong pts, ulong duration)
