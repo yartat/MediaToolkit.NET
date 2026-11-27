@@ -60,7 +60,7 @@ Out of scope here, because they implement shared interfaces: `GStreamerPlayer`, 
 | 33 | Pre-event recording buffer | Done | `GStreamerPreRecordGate`; tried with VP8, opens once |
 | 34 | Source switching (`input-selector`, fallback source) | Partial | `SetActivePad`; no fallback source |
 | 35 | RTSP server (`gst-rtsp-server`) | Done | `GStreamerRtspServer`; no authentication or TLS |
-| 36 | WebRTC (`webrtcbin`, WHIP, WHEP) | No | Also needs promises and SDP objects |
+| 36 | WebRTC (`webrtcbin`, WHIP, WHEP) | Done | `GStreamerWebRtcPeer`; not tried with a browser or media server; no TURN or data channels |
 | 37 | Network statistics (SRT, RTP, RTSP) | Partial | `GetValue("stats")` and `Emit`; `multiudpsink` and `srtsrc` tried, RTP and RTSP not |
 | 38 | Device hot-plug monitoring (`GstDeviceMonitor`) | Partial | `GStreamerDeviceMonitor`; listing tried, the added and removed events not |
 | 39 | Zero-copy memory (DMABuf, GL, CUDA) | No | |
@@ -69,4 +69,4 @@ Out of scope here, because they implement shared interfaces: `GStreamerPlayer`, 
 
 ## Suggested order
 
-1. 36, if delivery to browsers is the goal.
+1. 39, if frames should stay on the GPU.

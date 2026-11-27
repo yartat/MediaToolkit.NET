@@ -288,7 +288,7 @@ public sealed unsafe class GStreamerPipeline : IDisposable
         }
 
         var wrapper = new GStreamerElement(element, Gst.TakeString(Gst.gst_object_get_name(element)));
-        _tracked.Add(wrapper);
+        Track(wrapper);
         return wrapper;
     }
 
@@ -309,7 +309,7 @@ public sealed unsafe class GStreamerPipeline : IDisposable
         }
 
         var wrapper = new GStreamerElement(element, name);
-        _tracked.Add(wrapper);
+        Track(wrapper);
         return wrapper;
     }
 
@@ -331,7 +331,7 @@ public sealed unsafe class GStreamerPipeline : IDisposable
     {
         EnsureAlive();
         var wrapper = new GStreamerElement(Gst.gst_object_ref(_pipeline), "pipeline");
-        _tracked.Add(wrapper);
+        Track(wrapper);
         return wrapper;
     }
 
@@ -347,7 +347,7 @@ public sealed unsafe class GStreamerPipeline : IDisposable
                 GstConstants.BackendName, $"the pipeline has no element named {name}.", 0);
 
         var sink = new GStreamerSink(element);
-        _tracked.Add(sink);
+        Track(sink);
         return sink;
     }
 
@@ -366,7 +366,7 @@ public sealed unsafe class GStreamerPipeline : IDisposable
         }
 
         var source = new GStreamerSource(element);
-        _tracked.Add(source);
+        Track(source);
         return source;
     }
 
@@ -404,7 +404,7 @@ public sealed unsafe class GStreamerPipeline : IDisposable
 
         // A pipeline fed by an appsrc prerolls when its first buffer arrives, and the caller pushes that after this
         // returns: waiting for it here would only run the timeout out. A refusal that is already known still shows.
-        var waited = WaitForState(_tracked.Exists(t => t is GStreamerSource) ? TimeSpan.Zero : timeout ?? TimeSpan.FromSeconds(5));
+        var waited = WaitForState(HasSource() ? TimeSpan.Zero : timeout ?? TimeSpan.FromSeconds(5));
         if (waited == GstStateChangeReturn.Failure)
         {
             throw new MediaToolkitNetException(
@@ -748,12 +748,17 @@ public sealed unsafe class GStreamerPipeline : IDisposable
 
         _disposed = true;
 
-        foreach (var tracked in _tracked)
+        IDisposable[] owned;
+        lock (_tracked)
+        {
+            owned = [.. _tracked];
+            _tracked.Clear();
+        }
+
+        foreach (var tracked in owned)
         {
             tracked.Dispose();
         }
-
-        _tracked.Clear();
 
         if (_pipeline is not null)
         {
@@ -773,6 +778,22 @@ public sealed unsafe class GStreamerPipeline : IDisposable
         timeout < TimeSpan.Zero
             ? GstConstants.ClockTimeNone
             : (ulong)(timeout.Ticks * GstConstants.NanosecondsPerTick);
+
+    private void Track(IDisposable wrapper)
+    {
+        lock (_tracked)
+        {
+            _tracked.Add(wrapper);
+        }
+    }
+
+    private bool HasSource()
+    {
+        lock (_tracked)
+        {
+            return _tracked.Exists(t => t is GStreamerSource);
+        }
+    }
 
     private void EnsureAlive() => ObjectDisposedException.ThrowIf(_disposed, this);
 }

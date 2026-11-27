@@ -383,6 +383,27 @@ Console.WriteLine(server.Url("/camera"));                   // rtsp://127.0.0.1:
 The server has **no authentication and no encryption**: whoever reaches the port can watch, which is why it listens on
 the loopback unless told otherwise. A description is run as written, so do not build one from what a user typed.
 
+`GStreamerWebRtcPeer` is one end of a **WebRTC** connection (it needs `webrtcbin` from gst-plugins-bad and the nice
+plugin, `gstreamer1.0-nice` on Debian). `ExchangeAsync` publishes to a WHIP endpoint or plays from a WHEP one:
+
+```csharp
+using var peer = new GStreamerWebRtcPeer("stun://stun.example.org:3478");
+peer.AddSender("videotestsrc is-live=true ! vp8enc deadline=1 ! rtpvp8pay ! application/x-rtp,media=video,encoding-name=VP8,payload=96");
+peer.Start();
+Uri? session = await peer.ExchangeAsync(new Uri("https://media.example.org/whip/live"), bearerToken);
+
+// Playing: ask for what you want, and take what arrives.
+using var viewer = new GStreamerWebRtcPeer();
+viewer.AddReceiver("application/x-rtp,media=video,encoding-name=VP8,payload=96,clock-rate=90000");
+viewer.StreamReceived += stream => stream.ReceiveInto("rtpvp8depay ! vp8dec ! videoconvert ! autovideosink");
+viewer.Start();
+await viewer.ExchangeAsync(new Uri("https://media.example.org/whep/live"));
+```
+
+With your own signalling use `CreateOfferAsync`, `AcceptOfferAsync`, `AcceptAnswerAsync`, the `IceCandidate` event and
+`AddIceCandidate`. WebRTC media is encrypted, but the other end is only as trustworthy as the channel the descriptions
+came over, and a token belongs on `https`.
+
 The pipeline's **bus** reports what happens inside it, and an element's **signals** can be handled, with no GLib main loop:
 
 ```csharp

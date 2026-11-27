@@ -666,7 +666,12 @@ public sealed unsafe class GStreamerElement : IDisposable
     /// There is no such action signal, the arguments do not fit it, or it returns a reference (a sample, a pad), which
     /// this call cannot hand over safely.
     /// </exception>
-    public object? Emit(string signal, params object?[] arguments)
+    public object? Emit(string signal, params object?[] arguments) => Emit(signal, arguments, discard: false);
+
+    // For a signal answering with a reference nobody here wants, such as add-transceiver: it is released at once.
+    internal void EmitDiscardingResult(string signal, params object?[] arguments) => Emit(signal, arguments, discard: true);
+
+    private object? Emit(string signal, object?[] arguments, bool discard)
     {
         ArgumentException.ThrowIfNullOrEmpty(signal);
         ArgumentNullException.ThrowIfNull(arguments);
@@ -704,7 +709,7 @@ public sealed unsafe class GStreamerElement : IDisposable
         var types = *(nuint**)(query + GstLayout.SignalQueryParameterTypes);
         var returnType = *(nuint*)(query + GstLayout.SignalQueryReturnType) & ~(nuint)1;
         var answers = returnType != GstLayout.TypeNone;
-        if (answers)
+        if (answers && !discard)
         {
             var fundamental = (uint)Gst.g_type_fundamental(returnType);
             var copied = returnType == Gst.gst_caps_get_type() || returnType == Gst.gst_structure_get_type();
@@ -747,7 +752,7 @@ public sealed unsafe class GStreamerElement : IDisposable
 
             try
             {
-                return GstSignals.ToManaged(result);
+                return discard ? null : GstSignals.ToManaged(result);
             }
             finally
             {
