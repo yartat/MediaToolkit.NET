@@ -301,7 +301,7 @@ public sealed unsafe class GStreamerBus : IDisposable
             _completionError = null;
         }
 
-        if ((type & Mask) == 0 || (type == GstMessageType.StateChanged && PipelineStateOnly && !fromPipeline))
+        if (!Wanted(type) || (type == GstMessageType.StateChanged && PipelineStateOnly && !fromPipeline))
         {
             return;
         }
@@ -325,6 +325,16 @@ public sealed unsafe class GStreamerBus : IDisposable
         {
             SafeEvents.RaiseFailed(Failed, this, new MediaToolkitNetException(GstConstants.BackendName, $"a bus message handler threw: {ex.Message}", 0));
         }
+    }
+
+    // The types from GST_MESSAGE_EXTENDED up are numbers rather than bits, so testing them against the mask as bits would
+    // let them through for whatever bits their numbers happen to share with it.
+    private bool Wanted(GstMessageType type)
+    {
+        const uint Extended = 0x80000000;
+        return ((uint)type & Extended) == 0
+            ? (type & Mask) != 0
+            : Mask == GstMessageType.Any || (type == GstMessageType.StreamCollection && (Mask & GstMessageType.StreamStart) != 0);
     }
 
     private static GStreamerMessage Parse(void* message, GstMessageType type, void* source, bool fromPipeline, string? error)
@@ -379,6 +389,8 @@ public sealed unsafe class GStreamerBus : IDisposable
                     Gst.gst_mini_object_unref(toc);
                 }
 
+            case GstMessageType.StreamCollection:
+                return result with { Streams = StreamsOf(message) };
             case GstMessageType.StreamStart:
                 uint group = 0;
                 return Gst.gst_message_parse_group_id(message, &group) != 0 ? result with { GroupId = group } : result;
@@ -393,6 +405,35 @@ public sealed unsafe class GStreamerBus : IDisposable
                         Details = GStreamerStructure.From(structure),
                     };
         }
+    }
+
+    private static List<GStreamerStream> StreamsOf(void* message)
+    {
+        var streams = new List<GStreamerStream>();
+        void* collection = null;
+        Gst.gst_message_parse_stream_collection(message, &collection);
+        if (collection is null)
+        {
+            return streams;
+        }
+
+        var count = Gst.gst_stream_collection_get_size(collection);
+        for (uint i = 0; i < count; i++)
+        {
+            var stream = Gst.gst_stream_collection_get_stream(collection, i);
+            var caps = Gst.gst_stream_get_caps(stream);
+            streams.Add(new GStreamerStream(
+                Utf8.ToManagedOrEmpty(Gst.gst_stream_get_stream_id(stream)),
+                (GstStreamType)Gst.gst_stream_get_stream_type(stream),
+                caps is null ? null : GStreamerCaps.From(caps)));
+            if (caps is not null)
+            {
+                Gst.gst_mini_object_unref(caps);
+            }
+        }
+
+        Gst.gst_object_unref(collection);
+        return streams;
     }
 
     private static GStreamerQos QosOf(void* message)

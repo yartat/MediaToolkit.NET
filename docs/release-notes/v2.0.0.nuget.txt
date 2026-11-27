@@ -23,7 +23,7 @@ AudioDeviceNotifications, camera controls on MediaFoundationVideoCapture, and Me
 MediaFoundationTranscoder (WindowsBackend now declares Probing and Transcoding).
 
 ADDED TO MediaToolkitNet.GStreamer: pipelines built by hand (GStreamerPipeline.Create, Add, AddBin and Remove, GStreamerElement.Link and Unlink),
-encoded data from appsink (GStreamerSink.TryPullData), seeking a range at a rate (GStreamerPipeline.Seek), element introspection (GStreamerElements.Describe, GetPadValue, GetElement, typed message Details, AddDataProbe), frame stepping, shared clocks and latency, latency, seeking and buffering queries, custom events and ForceKeyFrame, element ranks and plugin scanning, parsed QoS, progress and TOC messages, the debug log (GStreamerLog), mixer inputs and layers added and removed while running, property animation, input switching, a pre-record gate, pad probes (AddProbe) and changes to a playing pipeline (SyncStateWithPipeline, ReleasePad), typed GStreamerCaps and GStreamerStructure, action signals (GStreamerElement.Emit), GStreamerPipeline.EndOfStream, a message bus with a mask (pipeline.Bus), handlers for any signal
+encoded data from appsink (GStreamerSink.TryPullData), seeking a range at a rate (GStreamerPipeline.Seek), element introspection (GStreamerElements.Describe, GetPadValue, GetElement, typed message Details, AddDataProbe), frame stepping, shared clocks and latency, latency, seeking and buffering queries, custom events and ForceKeyFrame, element ranks and plugin scanning, parsed QoS, progress and TOC messages, the debug log (GStreamerLog), mixer inputs and layers added and removed while running, property animation, input switching, a pre-record gate, a device monitor (GStreamerDeviceMonitor), stream collection messages, pad probes (AddProbe) and changes to a playing pipeline (SyncStateWithPipeline, ReleasePad), typed GStreamerCaps and GStreamerStructure, action signals (GStreamerElement.Emit), GStreamerPipeline.EndOfStream, a message bus with a mask (pipeline.Bus), handlers for any signal
 (GStreamerElement.Connect), appsrc (GStreamerSource: PushVideo, PushAudio, Push, EndOfStream), typed properties
 (SetValue, GetValue), GStreamerRecorder (an IMediaRecorder; EncoderName picks a hardware encoder, SegmentDuration cuts
 the recording into files, and the output can be an HLS playlist or an srt:// stream) GStreamerAudioMixer (audiomixer: inputs with their own volume and mute), GStreamerPipeline.ToDot (the graph as Graphviz text), GStreamerCompositor (layers with place, size, alpha and order, changeable while it runs; SetPadValue sets a pad's property),
@@ -37,6 +37,8 @@ still plays by default on Linux.
 TESTED: Windows 11 with FFmpeg 9.1 (development build) and 9.0.1; Debian 13 with FFmpeg 7.1.5 and 9.1, mpv 0.42 and
 GStreamer 1.26.2 (WSL). Every new struct layout is confirmed at run time. GStreamer output was read back from outside:
 the pixels of a window from the X server, and the sound from the sound server's monitor; nvh264enc ran on an RTX 4070.
+FIXED in MediaToolkitNet.GStreamer: a trimming transcode that now and then failed with "Internal data stream error", and
+a prober that now and then lost the language and title of a subtitle track.
 
 KNOWN LIMITS
 - GStreamer changes to a playing pipeline are low level; only adding and removing a tee branch was tried.

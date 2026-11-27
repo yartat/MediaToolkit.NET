@@ -125,7 +125,7 @@ public sealed unsafe class GStreamerPipeline : IDisposable
     }
 
     /// <summary>
-    /// An empty pipeline to build by hand: <see cref="Add"/> its elements, then join them with
+    /// An empty pipeline to build by hand: <see cref="Add(string, string?)"/> its elements, then join them with
     /// <see cref="GStreamerElement.Link"/>.
     /// </summary>
     public static GStreamerPipeline Create()
@@ -173,6 +173,27 @@ public sealed unsafe class GStreamerPipeline : IDisposable
         // Sunk first, so this reference is ours whether or not the pipeline takes the element.
         Gst.gst_object_ref_sink(element);
         return Take(element, name ?? factory);
+    }
+
+    /// <summary>Makes the element that captures from or plays to a device, and puts it in the pipeline.</summary>
+    /// <param name="device">From a <see cref="GStreamerDeviceMonitor"/>.</param>
+    /// <param name="name">Its name in the pipeline; GStreamer makes one up without it.</param>
+    /// <exception cref="MediaToolkitNetException">The device makes no element, or the name is taken.</exception>
+    public GStreamerElement Add(GStreamerDevice device, string? name = null)
+    {
+        ArgumentNullException.ThrowIfNull(device);
+        EnsureAlive();
+
+        Span<byte> scratch = stackalloc byte[Utf8Scoped.StackThreshold];
+        using var utf8 = new Utf8Scoped(name, scratch);
+        var element = Gst.gst_device_create_element(device.Handle, utf8.Pointer);
+        if (element is null)
+        {
+            throw new MediaToolkitNetException(GstConstants.BackendName, $"the device {device.DisplayName} made no element.", 0);
+        }
+
+        Gst.gst_object_ref_sink(element);
+        return Take(element, name ?? device.DisplayName);
     }
 
     /// <summary>

@@ -49,6 +49,18 @@ public enum GstStateChangeReturn
 [Flags]
 public enum GstMessageType : uint
 {
+    /// <summary>A device appeared; only a device monitor posts it.</summary>
+    DeviceAdded = 0x80000001,
+
+    /// <summary>A device went away; only a device monitor posts it.</summary>
+    DeviceRemoved = 0x80000002,
+
+    /// <summary>
+    /// The streams a source has. It is a number rather than a bit, so it cannot be named in a mask: it is delivered when
+    /// the mask has <see cref="StreamStart"/>.
+    /// </summary>
+    StreamCollection = 0x80000004,
+
     /// <summary>A segment seek reached the end of its range.</summary>
     SegmentDone = 1 << 17,
 
@@ -439,4 +451,24 @@ public enum GstInterpolation
 
     /// <summary>A smooth curve that does not overshoot.</summary>
     CubicMonotonic = 3,
+}
+
+/// <summary>What a stream carries.</summary>
+[Flags]
+public enum GstStreamType
+{
+    /// <summary>Not known.</summary>
+    Unknown = 1 << 0,
+
+    /// <summary>Sound.</summary>
+    Audio = 1 << 1,
+
+    /// <summary>Pictures.</summary>
+    Video = 1 << 2,
+
+    /// <summary>A container.</summary>
+    Container = 1 << 3,
+
+    /// <summary>Text, such as subtitles.</summary>
+    Text = 1 << 4,
 }

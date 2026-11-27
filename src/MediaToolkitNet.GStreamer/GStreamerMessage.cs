@@ -34,6 +34,12 @@ public readonly record struct GStreamerProgress(GstProgressType Type, string Cod
 public sealed record GStreamerTocEntry(
     GstTocEntryType Type, TimeSpan Start, TimeSpan Stop, string? Title, IReadOnlyList<GStreamerTocEntry> Entries);
 
+/// <summary>One stream of a stream collection.</summary>
+/// <param name="Id">The stream's identifier.</param>
+/// <param name="Type">What it carries.</param>
+/// <param name="Caps">Its format, or null.</param>
+public sealed record GStreamerStream(string Id, GstStreamType Type, GStreamerCaps? Caps);
+
 /// <summary>
 /// One message from a pipeline's bus, parsed into the parts that kind of message has. A field that does not belong
 /// to the message's <see cref="Type"/> is left at its default.
@@ -88,6 +94,9 @@ public sealed record GStreamerMessage(GstMessageType Type, string? Source, bool 
 
     /// <summary>For a stream start: the group, equal for the streams that belong together.</summary>
     public uint? GroupId { get; init; }
+
+    /// <summary>For a stream collection: the streams.</summary>
+    public IReadOnlyList<GStreamerStream> Streams { get; init; } = [];
 
     /// <inheritdoc />
     public override string ToString() => Type switch

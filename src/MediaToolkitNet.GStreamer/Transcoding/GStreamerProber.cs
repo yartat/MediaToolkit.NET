@@ -48,6 +48,11 @@ public sealed unsafe class GStreamerProber : IMediaProber
     /// <inheritdoc />
     public string Backend => GstConstants.BackendName;
 
+    // GstDiscoverer now and then finishes before the tags of a stream have reached it, a subtitle track's most often,
+    // and says nothing about it: that stream then has no tags at all, where a stream normally has at least its codec's.
+    // Reading again finds them. A stream that really has none costs these extra reads.
+    private const int Attempts = 3;
+
     /// <inheritdoc />
     public MediaInfo Probe(string uri)
     {
@@ -55,6 +60,20 @@ public sealed unsafe class GStreamerProber : IMediaProber
         GstPbutils.EnsureLoaded();
         GstLayout.Require();
 
+        MediaInfo media;
+        var attempt = 1;
+        bool complete;
+        do
+        {
+            media = Discover(uri, out complete);
+        }
+        while (!complete && attempt++ < Attempts);
+
+        return media;
+    }
+
+    private static MediaInfo Discover(string uri, out bool complete)
+    {
         void* error = null;
         var discoverer = GstPbutils.gst_discoverer_new((ulong)(Timeout.Ticks * GstConstants.NanosecondsPerTick), &error);
         if (discoverer is null)
@@ -82,7 +101,7 @@ public sealed unsafe class GStreamerProber : IMediaProber
                     throw new MediaToolkitNetException(GstConstants.BackendName, $"could not read {uri}: {Gst.TakeError(error)}", result);
                 }
 
-                return Describe(uri, info);
+                return Describe(uri, info, out complete);
             }
             finally
             {
@@ -115,8 +134,9 @@ public sealed unsafe class GStreamerProber : IMediaProber
         return Gst.TakeString(uri);
     }
 
-    private static MediaInfo Describe(string uri, void* info)
+    private static MediaInfo Describe(string uri, void* info, out bool complete)
     {
+        complete = true;
         var duration = Time((long)GstPbutils.gst_discoverer_info_get_duration(info));
 
         var top = GstPbutils.gst_discoverer_info_get_stream_info(info);
@@ -151,9 +171,10 @@ public sealed unsafe class GStreamerProber : IMediaProber
             var position = 0;
             for (var node = list; node is not null; node = GstLayout.NextListNode(node))
             {
-                if (Stream(GstLayout.DataOfListNode(node), position++, containerName) is { } stream)
+                if (Stream(GstLayout.DataOfListNode(node), position++, containerName, out var tagged) is { } stream)
                 {
                     streams.Add(stream);
+                    complete &= tagged;
                 }
             }
         }
@@ -174,8 +195,9 @@ public sealed unsafe class GStreamerProber : IMediaProber
         };
     }
 
-    private static MediaStreamInfo? Stream(void* info, int position, string containerName)
+    private static MediaStreamInfo? Stream(void* info, int position, string containerName, out bool tagged)
     {
+        tagged = true;
         var kind = Utf8.ToManagedOrEmpty(GstPbutils.gst_discoverer_stream_info_get_stream_type_nick(info)) switch
         {
             "video" => MediaStreamKind.Video,
@@ -192,6 +214,7 @@ public sealed unsafe class GStreamerProber : IMediaProber
         var (codecName, codec) = CodecOf(info, containerName);
         var number = GstPbutils.gst_discoverer_stream_info_get_stream_number(info);
         var tags = StringTags(GstPbutils.gst_discoverer_stream_info_get_tags(info));
+        tagged = tags.Count > 0;
 
         var stream = new MediaStreamInfo(number > 0 ? number - 1 : position, kind.Value, codecName)
         {

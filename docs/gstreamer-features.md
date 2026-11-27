@@ -40,7 +40,7 @@ Out of scope here, because they implement shared interfaces: `GStreamerPlayer`, 
 | # | Feature | Status | Notes |
 |---|---|---|---|
 | 20 | Bus messages, application messages | Done | `GStreamerBus` |
-| 21 | Parsed QoS, progress, TOC, stream and latency messages | Partial | QoS, progress, TOC, stream-start; stream collections are not parsed; latency has nothing to parse |
+| 21 | Parsed QoS, progress, TOC, stream and latency messages | Done | QoS, progress, TOC, stream-start, stream collection; latency has nothing to parse |
 | 22 | Typed element messages (`level`, `spectrum`, motion) | Done | `GStreamerMessage.Details`; `level` was tried, no per-element wrappers |
 | 23 | GStreamer debug log into .NET | Done | `GStreamerLog.Subscribe` |
 | 24 | `appsink` raw video and audio | Done | `GStreamerSink` |
@@ -62,7 +62,7 @@ Out of scope here, because they implement shared interfaces: `GStreamerPlayer`, 
 | 35 | RTSP server (`gst-rtsp-server`) | No | Separate native library |
 | 36 | WebRTC (`webrtcbin`, WHIP, WHEP) | No | Also needs promises and SDP objects |
 | 37 | Network statistics (SRT, RTP, RTSP) | Partial | `GetValue("stats")` and `Emit`; `multiudpsink` and `srtsrc` tried, RTP and RTSP not |
-| 38 | Device hot-plug monitoring (`GstDeviceMonitor`) | No | Listing devices alone would fit the shared enumerator |
+| 38 | Device hot-plug monitoring (`GstDeviceMonitor`) | Partial | `GStreamerDeviceMonitor`; listing tried, the added and removed events not |
 | 39 | Zero-copy memory (DMABuf, GL, CUDA) | No | |
 | 40 | Editing timeline (GStreamer Editing Services) | No | Separate native library |
 | 41 | Elements written in .NET | No | |

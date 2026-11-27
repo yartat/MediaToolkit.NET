@@ -391,6 +391,63 @@ public static unsafe class Gst
     /// <summary><c>gboolean gst_element_set_locked_state(GstElement *, gboolean)</c>: a locked element does not follow its bin's state.</summary>
     public static delegate* unmanaged[Cdecl]<void*, int, int> gst_element_set_locked_state;
 
+    /// <summary><c>void gst_message_parse_stream_collection(GstMessage *, GstStreamCollection **)</c>, a reference the caller owns.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, void**, void> gst_message_parse_stream_collection;
+
+    /// <summary><c>guint gst_stream_collection_get_size(GstStreamCollection *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, uint> gst_stream_collection_get_size;
+
+    /// <summary><c>GstStream *gst_stream_collection_get_stream(GstStreamCollection *, guint)</c>, borrowed.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, uint, void*> gst_stream_collection_get_stream;
+
+    /// <summary><c>const gchar *gst_stream_get_stream_id(GstStream *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, byte*> gst_stream_get_stream_id;
+
+    /// <summary><c>GstStreamType gst_stream_get_stream_type(GstStream *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, int> gst_stream_get_stream_type;
+
+    /// <summary><c>GstCaps *gst_stream_get_caps(GstStream *)</c>, a reference the caller owns, or null.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, void*> gst_stream_get_caps;
+
+    /// <summary><c>GstDeviceMonitor *gst_device_monitor_new(void)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*> gst_device_monitor_new;
+
+    /// <summary><c>guint gst_device_monitor_add_filter(GstDeviceMonitor *, const gchar *classes, GstCaps *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, byte*, void*, uint> gst_device_monitor_add_filter;
+
+    /// <summary><c>gboolean gst_device_monitor_start(GstDeviceMonitor *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, int> gst_device_monitor_start;
+
+    /// <summary><c>void gst_device_monitor_stop(GstDeviceMonitor *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, void> gst_device_monitor_stop;
+
+    /// <summary><c>GList *gst_device_monitor_get_devices(GstDeviceMonitor *)</c>: the list and a reference to each are the caller's.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, void*> gst_device_monitor_get_devices;
+
+    /// <summary><c>GstBus *gst_device_monitor_get_bus(GstDeviceMonitor *)</c>, a reference the caller owns.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, void*> gst_device_monitor_get_bus;
+
+    /// <summary><c>gchar *gst_device_get_display_name(GstDevice *)</c>, which the caller frees.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, byte*> gst_device_get_display_name;
+
+    /// <summary><c>gchar *gst_device_get_device_class(GstDevice *)</c>, which the caller frees.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, byte*> gst_device_get_device_class;
+
+    /// <summary><c>GstCaps *gst_device_get_caps(GstDevice *)</c>, a reference the caller owns, or null.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, void*> gst_device_get_caps;
+
+    /// <summary><c>GstStructure *gst_device_get_properties(GstDevice *)</c>, which the caller frees, or null.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, void*> gst_device_get_properties;
+
+    /// <summary><c>GstElement *gst_device_create_element(GstDevice *, const gchar *name)</c>, floating.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, byte*, void*> gst_device_create_element;
+
+    /// <summary><c>void gst_message_parse_device_added(GstMessage *, GstDevice **)</c>, a reference the caller owns.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, void**, void> gst_message_parse_device_added;
+
+    /// <summary><c>void gst_message_parse_device_removed(GstMessage *, GstDevice **)</c>, a reference the caller owns.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, void**, void> gst_message_parse_device_removed;
+
     /// <summary><c>gpointer gst_object_ref_sink(gpointer)</c></summary>
     public static delegate* unmanaged[Cdecl]<void*, void*> gst_object_ref_sink;
 
@@ -1006,6 +1063,25 @@ public static unsafe class Gst
         gst_object_get_control_binding = (delegate* unmanaged[Cdecl]<void*, byte*, void*>)Core.GetExport(nameof(gst_object_get_control_binding));
         gst_object_remove_control_binding = (delegate* unmanaged[Cdecl]<void*, void*, int>)Core.GetExport(nameof(gst_object_remove_control_binding));
         gst_element_set_locked_state = (delegate* unmanaged[Cdecl]<void*, int, int>)Core.GetExport(nameof(gst_element_set_locked_state));
+        gst_message_parse_stream_collection = (delegate* unmanaged[Cdecl]<void*, void**, void>)Core.GetExport(nameof(gst_message_parse_stream_collection));
+        gst_stream_collection_get_size = (delegate* unmanaged[Cdecl]<void*, uint>)Core.GetExport(nameof(gst_stream_collection_get_size));
+        gst_stream_collection_get_stream = (delegate* unmanaged[Cdecl]<void*, uint, void*>)Core.GetExport(nameof(gst_stream_collection_get_stream));
+        gst_stream_get_stream_id = (delegate* unmanaged[Cdecl]<void*, byte*>)Core.GetExport(nameof(gst_stream_get_stream_id));
+        gst_stream_get_stream_type = (delegate* unmanaged[Cdecl]<void*, int>)Core.GetExport(nameof(gst_stream_get_stream_type));
+        gst_stream_get_caps = (delegate* unmanaged[Cdecl]<void*, void*>)Core.GetExport(nameof(gst_stream_get_caps));
+        gst_device_monitor_new = (delegate* unmanaged[Cdecl]<void*>)Core.GetExport(nameof(gst_device_monitor_new));
+        gst_device_monitor_add_filter = (delegate* unmanaged[Cdecl]<void*, byte*, void*, uint>)Core.GetExport(nameof(gst_device_monitor_add_filter));
+        gst_device_monitor_start = (delegate* unmanaged[Cdecl]<void*, int>)Core.GetExport(nameof(gst_device_monitor_start));
+        gst_device_monitor_stop = (delegate* unmanaged[Cdecl]<void*, void>)Core.GetExport(nameof(gst_device_monitor_stop));
+        gst_device_monitor_get_devices = (delegate* unmanaged[Cdecl]<void*, void*>)Core.GetExport(nameof(gst_device_monitor_get_devices));
+        gst_device_monitor_get_bus = (delegate* unmanaged[Cdecl]<void*, void*>)Core.GetExport(nameof(gst_device_monitor_get_bus));
+        gst_device_get_display_name = (delegate* unmanaged[Cdecl]<void*, byte*>)Core.GetExport(nameof(gst_device_get_display_name));
+        gst_device_get_device_class = (delegate* unmanaged[Cdecl]<void*, byte*>)Core.GetExport(nameof(gst_device_get_device_class));
+        gst_device_get_caps = (delegate* unmanaged[Cdecl]<void*, void*>)Core.GetExport(nameof(gst_device_get_caps));
+        gst_device_get_properties = (delegate* unmanaged[Cdecl]<void*, void*>)Core.GetExport(nameof(gst_device_get_properties));
+        gst_device_create_element = (delegate* unmanaged[Cdecl]<void*, byte*, void*>)Core.GetExport(nameof(gst_device_create_element));
+        gst_message_parse_device_added = (delegate* unmanaged[Cdecl]<void*, void**, void>)Core.GetExport(nameof(gst_message_parse_device_added));
+        gst_message_parse_device_removed = (delegate* unmanaged[Cdecl]<void*, void**, void>)Core.GetExport(nameof(gst_message_parse_device_removed));
         gst_object_ref_sink = (delegate* unmanaged[Cdecl]<void*, void*>)Core.GetExport(nameof(gst_object_ref_sink));
         gst_object_unref = (delegate* unmanaged[Cdecl]<void*, void>)Core.GetExport(nameof(gst_object_unref));
         gst_util_set_object_arg = (delegate* unmanaged[Cdecl]<void*, byte*, byte*, void>)Core.GetExport(nameof(gst_util_set_object_arg));

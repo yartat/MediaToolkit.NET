@@ -30,8 +30,8 @@ namespace MediaToolkitNet.GStreamer.Transcoding;
 /// <para>
 /// Stream-start, caps, segment and tag events pass throughout, so decoders,
 /// encoders and the muxer negotiate as usual. The callbacks run on GStreamer's streaming threads and
-/// touch nothing but an unmanaged flag, so nothing managed can throw across the
-/// boundary; the flag outlives every callback because it is freed only after
+/// touch nothing but two unmanaged flags, so nothing managed can throw across the
+/// boundary; the flags outlive every callback because they are freed only after
 /// the pipeline has gone to NULL.
 /// </para>
 /// </remarks>
@@ -45,6 +45,11 @@ internal sealed unsafe class PipelineGate : IDisposable
     /// <summary>True once the flush of the seek has passed.</summary>
     public bool IsOpen => Volatile.Read(ref *_open) != 0;
 
+    /// <summary>
+    /// True once a buffer has arrived, so the branch up to the gate has its format and the demuxer is done setting it up.
+    /// </summary>
+    public bool Reached => Volatile.Read(ref _open[1]) != 0;
+
     /// <summary>Installs a closed gate on the source pad of an element.</summary>
     /// <exception cref="MediaToolkitNetException">The element has no <c>src</c> pad.</exception>
     public static PipelineGate Install(GStreamerElement element)
@@ -55,7 +60,8 @@ internal sealed unsafe class PipelineGate : IDisposable
             throw new MediaToolkitNetException(GstConstants.BackendName, $"{element.Name} has no src pad to gate", 0);
         }
 
-        var open = (int*)NativeMemory.AllocZeroed(sizeof(int));
+        // Open, and reached.
+        var open = (int*)NativeMemory.AllocZeroed(2 * sizeof(int));
         try
         {
             Gst.gst_pad_add_probe(
@@ -91,8 +97,11 @@ internal sealed unsafe class PipelineGate : IDisposable
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
-    private static int OnBuffer(void* pad, void* info, void* open) =>
-        (int)(Volatile.Read(ref *(int*)open) != 0 ? GstPadProbeReturn.Ok : GstPadProbeReturn.Drop);
+    private static int OnBuffer(void* pad, void* info, void* open)
+    {
+        Volatile.Write(ref ((int*)open)[1], 1);
+        return (int)(Volatile.Read(ref *(int*)open) != 0 ? GstPadProbeReturn.Ok : GstPadProbeReturn.Drop);
+    }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static int OnEvent(void* pad, void* info, void* open)

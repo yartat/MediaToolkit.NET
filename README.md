@@ -350,6 +350,20 @@ pipeline.Play();
 gate.Open();                                               // something happened: the last 5 s come out first
 ```
 
+`GStreamerDeviceMonitor` lists the microphones, outputs and cameras GStreamer's providers know, says when one comes or
+goes, and makes the element for it; a **stream collection** message lists the streams of a source:
+
+```csharp
+using var monitor = new GStreamerDeviceMonitor("Audio/Source");
+monitor.DeviceAdded += (_, device) => Console.WriteLine($"new: {device}");
+monitor.Start();
+var microphone = pipeline.Add(monitor.GetDevices()[0], "mic");
+pipeline.Bus.MessageReceived += (_, m) =>
+{
+    foreach (var stream in m.Streams) Console.WriteLine($"{stream.Type} {stream.Caps}");
+};
+```
+
 The pipeline's **bus** reports what happens inside it, and an element's **signals** can be handled, with no GLib main loop:
 
 ```csharp
@@ -1058,8 +1072,8 @@ flushed it.
 - `FFmpegPlayer` only decodes: it has no renderer and no audio output.
 - Only the mpv client API is wrapped; the render API (embedding into a host
   OpenGL context) is not covered.
-- The GStreamer backend captures the X11 screen only: no camera or microphone, and no
-  device enumeration. Wayland-native windows are not seen.
+- Of the shared capture interfaces the GStreamer backend implements the X11 screen only. Cameras and microphones are
+  reached through `GStreamerDeviceMonitor` and a pipeline. Wayland-native windows are not seen.
 - Changing a playing GStreamer pipeline is low level: probes, state and pad release are
   yours to order. A probe can read a buffer's bytes, not change them.
 - GStreamer 1.26's `matroskamux` writes tag values that contain spaces

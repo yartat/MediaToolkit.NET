@@ -43,6 +43,10 @@ public sealed unsafe class GStreamerTranscoder : IMediaTranscoder
 
     private static readonly TimeSpan ProgressInterval = TimeSpan.FromMilliseconds(250);
     private static readonly TimeSpan SeekTimeout = TimeSpan.FromSeconds(10);
+
+    // How long a trim waits for every branch to have data before it seeks; a track with nothing to give early on, a
+    // subtitle's for one, costs this much and no more.
+    private static readonly TimeSpan BranchTimeout = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan StallTimeout = TimeSpan.FromSeconds(60);
 
     /// <inheritdoc />
@@ -244,6 +248,7 @@ public sealed unsafe class GStreamerTranscoder : IMediaTranscoder
                     // PAUSED starts the demuxers; the gates keep what they push
                     // from the muxer until the seek has flushed it.
                     ChangeState(pipeline, GstState.Paused);
+                    WaitForBranches(pipeline, gates, cancellation);
                     foreach (var (parser, pad, keyFrame) in graph.Seeks)
                     {
                         Seek(pipeline, parser, pad, keyFrame, request, cancellation);
@@ -486,6 +491,25 @@ public sealed unsafe class GStreamerTranscoder : IMediaTranscoder
         {
             throw new MediaToolkitNetException(
                 GstConstants.BackendName, $"the pipeline refused to go to {state}: {pipeline.LastError() ?? "no reason given"}", 0);
+        }
+    }
+
+    /// <summary>
+    /// Waits until data has reached every gate. A flushing seek sent while a demuxer is still pushing its first buffers
+    /// through a branch fails the formats on their way, which the demuxer reports as a stream error.
+    /// </summary>
+    private static void WaitForBranches(GStreamerPipeline pipeline, List<PipelineGate> gates, CancellationToken cancellation)
+    {
+        var deadline = Stopwatch.StartNew();
+        while (deadline.Elapsed < BranchTimeout && !gates.All(gate => gate.Reached))
+        {
+            cancellation.ThrowIfCancellationRequested();
+            if (pipeline.LastError() is { } error)
+            {
+                throw new MediaToolkitNetException(GstConstants.BackendName, error, 0);
+            }
+
+            Thread.Sleep(5);
         }
     }
 
