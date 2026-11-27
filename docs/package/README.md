@@ -266,7 +266,8 @@ job.
     with encoding support for transcoding;
   - `MediaToolkitNet.GStreamer` needs GStreamer 1.x and its plugins, and binds
     the Linux library names, so it reports itself unavailable elsewhere. Probing
-    needs gst-plugins-base (`libgstpbutils`).
+    needs gst-plugins-base (`libgstpbutils`). The RTSP server
+    needs `gst-rtsp-server`.
 - Native libraries are looked for in any directory given to
   `NativeSearchPaths.Prepend`, then beside the application, in its `native` and
   `runtimes/<rid>/native` folders, and finally where the operating system looks

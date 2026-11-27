@@ -364,6 +364,25 @@ pipeline.Bus.MessageReceived += (_, m) =>
 };
 ```
 
+`GStreamerRtspServer` serves pipelines over **RTSP** (it needs `gst-rtsp-server`, `libgstrtspserver-1.0-0` on Debian):
+
+```csharp
+using var server = new GStreamerRtspServer(port: 8554);     // this machine only; address: "0.0.0.0" opens it to the network
+server.AddStream("/camera", "( v4l2src ! videoconvert ! x264enc tune=zerolatency ! rtph264pay name=pay0 pt=96 )");
+server.AddStream("/app", "( appsrc name=frames is-live=true do-timestamp=true ! videoconvert ! x264enc ! rtph264pay name=pay0 pt=96 )",
+    media =>                                                // called for each pipeline the server builds
+    {
+        var source = media.GetSource("frames");
+        source.SetFormat(format);
+        StartPushing(source);
+    });
+server.Start();
+Console.WriteLine(server.Url("/camera"));                   // rtsp://127.0.0.1:8554/camera
+```
+
+The server has **no authentication and no encryption**: whoever reaches the port can watch, which is why it listens on
+the loopback unless told otherwise. A description is run as written, so do not build one from what a user typed.
+
 The pipeline's **bus** reports what happens inside it, and an element's **signals** can be handled, with no GLib main loop:
 
 ```csharp

@@ -59,7 +59,7 @@ Out of scope here, because they implement shared interfaces: `GStreamerPlayer`, 
 | 32 | Branches at run time: record while previewing (`tee`, `valve`) | Done | By hand with the calls of row 5; no wrapper class |
 | 33 | Pre-event recording buffer | Done | `GStreamerPreRecordGate`; tried with VP8, opens once |
 | 34 | Source switching (`input-selector`, fallback source) | Partial | `SetActivePad`; no fallback source |
-| 35 | RTSP server (`gst-rtsp-server`) | No | Separate native library |
+| 35 | RTSP server (`gst-rtsp-server`) | Done | `GStreamerRtspServer`; no authentication or TLS |
 | 36 | WebRTC (`webrtcbin`, WHIP, WHEP) | No | Also needs promises and SDP objects |
 | 37 | Network statistics (SRT, RTP, RTSP) | Partial | `GetValue("stats")` and `Emit`; `multiudpsink` and `srtsrc` tried, RTP and RTSP not |
 | 38 | Device hot-plug monitoring (`GstDeviceMonitor`) | Partial | `GStreamerDeviceMonitor`; listing tried, the added and removed events not |
@@ -69,4 +69,4 @@ Out of scope here, because they implement shared interfaces: `GStreamerPlayer`, 
 
 ## Suggested order
 
-1. 35 and 36, if network delivery is the goal.
+1. 36, if delivery to browsers is the goal.

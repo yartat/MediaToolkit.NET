@@ -448,6 +448,9 @@ public static unsafe class Gst
     /// <summary><c>void gst_message_parse_device_removed(GstMessage *, GstDevice **)</c>, a reference the caller owns.</summary>
     public static delegate* unmanaged[Cdecl]<void*, void**, void> gst_message_parse_device_removed;
 
+    /// <summary><c>gpointer g_object_ref(gpointer)</c>, for objects that are not <c>GstObject</c>s.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, void*> g_object_ref;
+
     /// <summary><c>gpointer gst_object_ref_sink(gpointer)</c></summary>
     public static delegate* unmanaged[Cdecl]<void*, void*> gst_object_ref_sink;
 
@@ -1082,6 +1085,7 @@ public static unsafe class Gst
         gst_device_create_element = (delegate* unmanaged[Cdecl]<void*, byte*, void*>)Core.GetExport(nameof(gst_device_create_element));
         gst_message_parse_device_added = (delegate* unmanaged[Cdecl]<void*, void**, void>)Core.GetExport(nameof(gst_message_parse_device_added));
         gst_message_parse_device_removed = (delegate* unmanaged[Cdecl]<void*, void**, void>)Core.GetExport(nameof(gst_message_parse_device_removed));
+        g_object_ref = (delegate* unmanaged[Cdecl]<void*, void*>)GObject.GetExport(nameof(g_object_ref));
         gst_object_ref_sink = (delegate* unmanaged[Cdecl]<void*, void*>)Core.GetExport(nameof(gst_object_ref_sink));
         gst_object_unref = (delegate* unmanaged[Cdecl]<void*, void>)Core.GetExport(nameof(gst_object_unref));
         gst_util_set_object_arg = (delegate* unmanaged[Cdecl]<void*, byte*, byte*, void>)Core.GetExport(nameof(gst_util_set_object_arg));
