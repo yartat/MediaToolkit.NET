@@ -238,6 +238,9 @@ public static unsafe class Gst
     /// <summary><c>GstEvent *gst_event_new_eos(void)</c></summary>
     public static delegate* unmanaged[Cdecl]<void*> gst_event_new_eos;
 
+    /// <summary><c>gboolean gst_element_send_event(GstElement *, GstEvent *)</c>, which takes the event.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, void*, int> gst_element_send_event;
+
     /// <summary><c>gboolean gst_pad_send_event(GstPad *, GstEvent *)</c>, which takes the event.</summary>
     public static delegate* unmanaged[Cdecl]<void*, void*, int> gst_pad_send_event;
 
@@ -667,6 +670,7 @@ public static unsafe class Gst
         gst_event_new_flush_stop = (delegate* unmanaged[Cdecl]<int, void*>)Core.GetExport(nameof(gst_event_new_flush_stop));
         gst_event_new_eos = (delegate* unmanaged[Cdecl]<void*>)Core.GetExport(nameof(gst_event_new_eos));
         gst_pad_send_event = (delegate* unmanaged[Cdecl]<void*, void*, int>)Core.GetExport(nameof(gst_pad_send_event));
+        gst_element_send_event = (delegate* unmanaged[Cdecl]<void*, void*, int>)Core.GetExport(nameof(gst_element_send_event));
         gst_pad_add_probe = (delegate* unmanaged[Cdecl]<void*, int, delegate* unmanaged[Cdecl]<void*, void*, void*, int>, void*, void*, nuint>)Core.GetExport(nameof(gst_pad_add_probe));
         gst_pad_probe_info_get_event = (delegate* unmanaged[Cdecl]<void*, void*>)Core.GetExport(nameof(gst_pad_probe_info_get_event));
         gst_tag_list_n_tags = (delegate* unmanaged[Cdecl]<void*, int>)Core.GetExport(nameof(gst_tag_list_n_tags));

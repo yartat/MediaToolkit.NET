@@ -9,7 +9,7 @@ using Xunit;
 namespace MediaToolkitNet.IntegrationTests;
 
 /// <summary>
-/// AUDIT.md MEM-5, MEM-6 and MEM-7 on the FFmpeg player. Each scenario runs in
+/// Teardown, throwing handlers and seeking on the FFmpeg player. Each scenario runs in
 /// a child process, because the failures they look for end the process.
 /// </summary>
 public class AuditPlayerTests

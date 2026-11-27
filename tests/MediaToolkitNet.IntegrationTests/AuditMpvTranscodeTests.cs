@@ -12,7 +12,7 @@ using Xunit;
 
 namespace MediaToolkitNet.IntegrationTests;
 
-/// <summary>AUDIT.md BUG-3 for mpv: an encoder option nobody recognised must not vanish.</summary>
+/// <summary>An mpv encoder option nobody recognised must not vanish.</summary>
 public class AuditMpvTranscodeTests
 {
     [MpvFact]

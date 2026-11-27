@@ -10,7 +10,7 @@ using Xunit;
 namespace MediaToolkitNet.IntegrationTests;
 
 /// <summary>
-/// AUDIT.md MEM-1. A buffer shorter than its caps describe must not be read
+/// A buffer shorter than its caps describe must not be read
 /// past its end. The crash cannot be caught, so the pipeline runs in a child
 /// process: the sample's <c>gst-run</c> command.
 /// </summary>

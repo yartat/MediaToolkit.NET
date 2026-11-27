@@ -9,7 +9,7 @@ using Xunit;
 
 namespace MediaToolkitNet.Tests;
 
-/// <summary>AUDIT.md SEC-2 and SEC-3: where native libraries may be loaded from.</summary>
+/// <summary>Where native libraries may be loaded from.</summary>
 public sealed class NativeSearchPathsTests : IDisposable
 {
     private readonly string _root = Path.Combine(Path.GetTempPath(), "mtn-search-" + Guid.NewGuid().ToString("n"));

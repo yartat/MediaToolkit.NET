@@ -17,7 +17,7 @@ using Xunit;
 
 namespace MediaToolkitNet.IntegrationTests;
 
-/// <summary>AUDIT.md BUG-2, BUG-3, BUG-4 and MEM-4.</summary>
+/// <summary>Regressions of the FFmpeg transcoder.</summary>
 public class AuditFFmpegTranscodeTests
 {
     [FFmpegFact]

@@ -289,6 +289,21 @@ public sealed unsafe class GStreamerPipeline : IDisposable
     }
 
     /// <summary>
+    /// Tells the sources to end the stream, so that what is already in the pipeline is processed and muxers finish their
+    /// files. A live pipeline never ends by itself, and stopping it without this leaves an MP4 that cannot be opened.
+    /// </summary>
+    /// <remarks>
+    /// This only asks: <see cref="WaitForCompletion"/> says when the end has reached every sink. The pipeline has to be
+    /// playing, because a paused one does not move the end through.
+    /// </remarks>
+    /// <returns>False when no element took the event.</returns>
+    public bool EndOfStream()
+    {
+        EnsureAlive();
+        return Gst.gst_element_send_event(_pipeline, Gst.gst_event_new_eos()) != 0;
+    }
+
+    /// <summary>
     /// Waits for the pipeline to finish or to fail, whichever comes first.
     /// </summary>
     /// <param name="timeout">How long to wait.</param>

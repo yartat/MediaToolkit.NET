@@ -13,7 +13,7 @@ using Xunit;
 namespace MediaToolkitNet.IntegrationTests;
 
 /// <summary>
-/// AUDIT.md SEC-1, MEM-3 and BUG-1. The media is made with the <c>ffmpeg</c>
+/// FFmpeg input policy, audio format changes and seeking. The media is made with the <c>ffmpeg</c>
 /// program, found beside the libraries the tests load or on <c>PATH</c>.
 /// </summary>
 public class AuditFFmpegTests

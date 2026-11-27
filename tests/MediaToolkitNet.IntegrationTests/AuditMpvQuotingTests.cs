@@ -9,7 +9,7 @@ using Xunit;
 
 namespace MediaToolkitNet.IntegrationTests;
 
-/// <summary>AUDIT.md BUG-12 and SEC-4.</summary>
+/// <summary>Quoting of mpv options and the scripts mpv may load.</summary>
 public class AuditMpvQuotingTests
 {
     [Fact]

@@ -194,6 +194,15 @@ that throws is reported through `Failed`. `Bus.Mask` picks the kinds delivered, 
 (`args.ReturnValue = -5` is `GST_FLOW_ERROR` for an `appsink`'s `new-sample`); objects in the values (pads, buffers) are
 pointers valid for the call only.
 
+A live pipeline never ends by itself. `EndOfStream` asks its sources to end, so muxers can finish their files; stopping
+without it leaves an MP4 that cannot be opened:
+
+```csharp
+pipeline.EndOfStream();                                    // while playing
+pipeline.WaitForCompletion(TimeSpan.FromSeconds(10));      // the end has reached every sink
+pipeline.Stop();
+```
+
 Frames go the other way through an `appsrc`, and properties can be set and read with their own types:
 
 ```csharp
@@ -715,8 +724,8 @@ The transcoding tests run each backend's output back through the FFmpeg prober
 and reader, so no backend checks its own work; the GStreamer ones need Linux as
 well as FFmpeg, and the mpv ones libmpv.
 
-The `Audit*` tests are the regression tests for the findings of the 1.0.0 audit
-(`AUDIT.md` names the test for each). Some of them look for failures that end the
+The `Audit*` tests are the regression tests for the findings of the 1.0.0 audit.
+Some of them look for failures that end the
 process: an access violation, an unhandled exception on a worker thread. Those
 run their scenario in a child process, `tests/MediaToolkitNet.CrashProbe`, and
 read its verdict, so a regression fails one test instead of killing the test host.
@@ -866,7 +875,7 @@ flushed it.
   that takes longer than that, or a device that stops answering, can still have
   them freed under it; and a capture whose loop failed reports `IsRunning` until
   `Stop` is called. `FFmpegPlayer` and `MpvPlayer` close their media from the
-  worker instead. `AUDIT.md` lists every open finding.
+  worker instead.
 - Only `FFmpegPlayer` can interrupt a read that is waiting on the network. A
   connect already in progress inside `FFmpegDemuxer.Open` cannot be interrupted;
   give it `rw_timeout` through `DemuxerOptions`.

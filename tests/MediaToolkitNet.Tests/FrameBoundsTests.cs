@@ -10,7 +10,7 @@ using Xunit;
 
 namespace MediaToolkitNet.Tests;
 
-/// <summary>AUDIT.md MEM-2: a frame must lie inside the buffer it came from.</summary>
+/// <summary>A frame must lie inside the buffer it came from.</summary>
 public class FrameBoundsTests
 {
     private const nint Start = 0x10000;

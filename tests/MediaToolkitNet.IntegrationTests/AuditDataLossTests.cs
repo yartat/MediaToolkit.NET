@@ -16,7 +16,7 @@ using Xunit;
 namespace MediaToolkitNet.IntegrationTests;
 
 /// <summary>
-/// AUDIT.md DL-1 and DL-2: a transcoder must never destroy a file it was not
+/// A transcoder must never destroy a file it was not
 /// asked to replace. Each case runs against all three backends.
 /// </summary>
 public class AuditDataLossTests
