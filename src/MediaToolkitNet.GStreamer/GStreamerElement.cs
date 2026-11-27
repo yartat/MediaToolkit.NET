@@ -186,6 +186,104 @@ public sealed unsafe class GStreamerElement : IDisposable
     }
 
     /// <summary>
+    /// Makes a numeric property follow values over stream time: a fade of <c>volume</c> on the <c>volume</c> element, for
+    /// one. It takes the place of an earlier animation of the same property.
+    /// </summary>
+    /// <param name="property">A property the element marks controllable.</param>
+    /// <param name="points">The values at their stream times, in the property's own units.</param>
+    /// <param name="interpolation">How it moves between them.</param>
+    /// <exception cref="MediaToolkitNetException">There is no such property, or it cannot be animated.</exception>
+    /// <exception cref="NotSupportedException"><c>libgstcontroller</c> is not installed.</exception>
+    public void Animate(string property, IReadOnlyList<(TimeSpan Time, double Value)> points, GstInterpolation interpolation = GstInterpolation.Linear)
+    {
+        EnsureAlive();
+        Animate(_element, Name, property, points, interpolation);
+    }
+
+    /// <summary><see cref="Animate(string, IReadOnlyList{ValueTuple{TimeSpan, double}}, GstInterpolation)"/> for a property of a pad, such as <c>alpha</c> of a <c>compositor</c> input.</summary>
+    public void AnimatePad(string pad, string property, IReadOnlyList<(TimeSpan Time, double Value)> points, GstInterpolation interpolation = GstInterpolation.Linear)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(pad);
+        var handle = RequirePad(pad);
+        try
+        {
+            Animate(handle, $"{Name}:{pad}", property, points, interpolation);
+        }
+        finally
+        {
+            Gst.gst_object_unref(handle);
+        }
+    }
+
+    /// <summary>Stops animating a property, which keeps the value it has then.</summary>
+    /// <returns>False when it was not animated.</returns>
+    public bool ClearAnimation(string property)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(property);
+        EnsureAlive();
+        return Unbind(_element, property);
+    }
+
+    /// <summary>Chooses which input a selecting element such as <c>input-selector</c> passes on.</summary>
+    /// <param name="pad">The input pad's name; it has to exist.</param>
+    /// <exception cref="MediaToolkitNetException">There is no such pad, or the element selects none.</exception>
+    public void SetActivePad(string pad)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(pad);
+        var handle = RequirePad(pad);
+        try
+        {
+            SetObject("active-pad", handle);
+        }
+        finally
+        {
+            Gst.gst_object_unref(handle);
+        }
+    }
+
+    private static void Animate(
+        void* target, string label, string property, IReadOnlyList<(TimeSpan Time, double Value)> points, GstInterpolation interpolation)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(property);
+        ArgumentNullException.ThrowIfNull(points);
+        ArgumentOutOfRangeException.ThrowIfZero(points.Count, nameof(points));
+        GstLayout.Require();
+
+        Span<byte> scratch = stackalloc byte[Utf8Scoped.StackThreshold];
+        using var utf8 = new Utf8Scoped(property, scratch);
+        var spec = Gst.g_object_class_find_property(GstLayout.ClassOf(target), utf8.Pointer);
+        if (spec is null || (*(uint*)((byte*)spec + GstLayout.ParamSpecFlags) & GstLayout.ParamControllable) == 0)
+        {
+            throw Refused($"{label} has no property named {property} that can be animated.");
+        }
+
+        Unbind(target, property);
+        var mode = interpolation switch
+        {
+            GstInterpolation.Step => "none",
+            GstInterpolation.Linear => "linear",
+            GstInterpolation.Cubic => "cubic",
+            _ => "cubic-monotonic",
+        };
+        Gst.BindControl(target, property, mode, points);
+    }
+
+    private static bool Unbind(void* target, string property)
+    {
+        Span<byte> scratch = stackalloc byte[Utf8Scoped.StackThreshold];
+        using var utf8 = new Utf8Scoped(property, scratch);
+        var binding = Gst.gst_object_get_control_binding(target, utf8.Pointer);
+        if (binding is null)
+        {
+            return false;
+        }
+
+        Gst.gst_object_remove_control_binding(target, binding);
+        Gst.gst_object_unref(binding);
+        return true;
+    }
+
+    /// <summary>
     /// Sends the end of the stream into one input pad, so that what follows it finishes its work while the rest of the
     /// pipeline goes on: how a recording branch is closed. Unlink the pad first.
     /// </summary>
@@ -234,6 +332,7 @@ public sealed unsafe class GStreamerElement : IDisposable
     public void SyncStateWithPipeline()
     {
         EnsureAlive();
+        Gst.gst_element_set_locked_state(_element, 0);
         if (Gst.gst_element_sync_state_with_parent(_element) == 0)
         {
             throw Refused($"the element {Name} could not be brought to the pipeline's state.");

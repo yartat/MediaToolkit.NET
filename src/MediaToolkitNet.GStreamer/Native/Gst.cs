@@ -388,6 +388,9 @@ public static unsafe class Gst
     /// <summary>The address of <c>gst_debug_log_default</c>, which prints the log to standard error.</summary>
     public static nint DefaultLogFunction;
 
+    /// <summary><c>gboolean gst_element_set_locked_state(GstElement *, gboolean)</c>: a locked element does not follow its bin's state.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, int, int> gst_element_set_locked_state;
+
     /// <summary><c>gpointer gst_object_ref_sink(gpointer)</c></summary>
     public static delegate* unmanaged[Cdecl]<void*, void*> gst_object_ref_sink;
 
@@ -733,6 +736,52 @@ public static unsafe class Gst
     }
 
     private static NativeModule? _video;
+    private static NativeModule? _controller;
+
+    /// <summary><c>gboolean gst_object_add_control_binding(GstObject *, GstControlBinding *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, void*, int> gst_object_add_control_binding;
+
+    /// <summary><c>GstControlBinding *gst_object_get_control_binding(GstObject *, const gchar *)</c>, a reference the caller owns, or null.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, byte*, void*> gst_object_get_control_binding;
+
+    /// <summary><c>gboolean gst_object_remove_control_binding(GstObject *, GstControlBinding *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, void*, int> gst_object_remove_control_binding;
+
+    /// <summary>
+    /// Makes a property of an element or pad follow values over stream time, with <c>libgstcontroller</c>.
+    /// </summary>
+    /// <exception cref="NotSupportedException">The library is not installed.</exception>
+    public static void BindControl(void* target, string property, string mode, IReadOnlyList<(TimeSpan Time, double Value)> points)
+    {
+        if (_controller is null && !NativeModule.TryLoad(["libgstcontroller-1.0.so.0", "libgstcontroller-1.0.so"], out _controller))
+        {
+            throw new NotSupportedException("libgstcontroller is not installed, so properties cannot be animated.");
+        }
+
+        var create = (delegate* unmanaged[Cdecl]<void*>)_controller!.GetExport("gst_interpolation_control_source_new");
+        var add = (delegate* unmanaged[Cdecl]<void*, ulong, double, int>)_controller.GetExport("gst_timed_value_control_source_set");
+        var bind = (delegate* unmanaged[Cdecl]<void*, byte*, void*, void*>)_controller.GetExport("gst_direct_control_binding_new_absolute");
+
+        var source = create();
+        gst_object_ref_sink(source);
+        try
+        {
+            SetProperty(source, "mode", mode);
+            foreach (var (time, value) in points)
+            {
+                add(source, (ulong)(time.Ticks * GstConstants.NanosecondsPerTick), value);
+            }
+
+            Span<byte> scratch = stackalloc byte[Utf8Scoped.StackThreshold];
+            using var utf8 = new Utf8Scoped(property, scratch);
+            gst_object_add_control_binding(target, bind(target, utf8.Pointer, source));
+        }
+        finally
+        {
+            gst_object_unref(source);
+        }
+    }
+
 
     /// <summary>
     /// Hands a native window (an X11 window id) to an element that implements <c>GstVideoOverlay</c>, such as
@@ -953,6 +1002,10 @@ public static unsafe class Gst
         gst_debug_category_get_name = (delegate* unmanaged[Cdecl]<void*, byte*>)Core.GetExport(nameof(gst_debug_category_get_name));
         gst_debug_message_get = (delegate* unmanaged[Cdecl]<void*, byte*>)Core.GetExport(nameof(gst_debug_message_get));
         DefaultLogFunction = (nint)Core.GetExport("gst_debug_log_default");
+        gst_object_add_control_binding = (delegate* unmanaged[Cdecl]<void*, void*, int>)Core.GetExport(nameof(gst_object_add_control_binding));
+        gst_object_get_control_binding = (delegate* unmanaged[Cdecl]<void*, byte*, void*>)Core.GetExport(nameof(gst_object_get_control_binding));
+        gst_object_remove_control_binding = (delegate* unmanaged[Cdecl]<void*, void*, int>)Core.GetExport(nameof(gst_object_remove_control_binding));
+        gst_element_set_locked_state = (delegate* unmanaged[Cdecl]<void*, int, int>)Core.GetExport(nameof(gst_element_set_locked_state));
         gst_object_ref_sink = (delegate* unmanaged[Cdecl]<void*, void*>)Core.GetExport(nameof(gst_object_ref_sink));
         gst_object_unref = (delegate* unmanaged[Cdecl]<void*, void>)Core.GetExport(nameof(gst_object_unref));
         gst_util_set_object_arg = (delegate* unmanaged[Cdecl]<void*, byte*, byte*, void>)Core.GetExport(nameof(gst_util_set_object_arg));

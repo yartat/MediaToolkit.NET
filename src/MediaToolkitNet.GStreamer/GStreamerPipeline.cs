@@ -249,6 +249,16 @@ public sealed unsafe class GStreamerPipeline : IDisposable
     // Puts a sunk element into the pipeline; the reference goes to the wrapper, or is dropped on refusal.
     private GStreamerElement Take(void* element, string label)
     {
+        // A pipeline on its way to a state sets every child to it when it gets there, from a thread of its own, which
+        // would start an element nobody has linked or configured yet. Locked, it waits for SyncStateWithPipeline.
+        int current;
+        int next;
+        Gst.gst_element_get_state(_pipeline, &current, &next, 0);
+        if (current > (int)GstState.Null || next > (int)GstState.Null)
+        {
+            Gst.gst_element_set_locked_state(element, 1);
+        }
+
         if (Gst.gst_bin_add(_pipeline, element) == 0)
         {
             Gst.gst_object_unref(element);

@@ -171,8 +171,6 @@ public unsafe class GStreamerCompositorTests
             early.Should().Throw<InvalidOperationException>("nothing is pushed before Start");
 
             compositor.Start();
-            var late = () => compositor.AddLayer(Output);
-            late.Should().Throw<InvalidOperationException>("the layers are fixed once it runs");
 
             var unknown = () => compositor.Push(7, new VideoFrame(Output, TimeSpan.Zero, (byte*)address, 320 * 4));
             unknown.Should().Throw<ArgumentOutOfRangeException>();

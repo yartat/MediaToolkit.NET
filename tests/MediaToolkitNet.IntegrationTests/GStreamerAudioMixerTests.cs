@@ -197,8 +197,6 @@ public class GStreamerAudioMixerTests
         var early = () => PushConstant(mixer, input, Mono, 0, seconds: 0.1);
         early.Should().Throw<InvalidOperationException>("nothing is pushed before Start");
         mixer.Start();
-        var late = () => mixer.AddInput(Mono);
-        late.Should().Throw<InvalidOperationException>("the inputs are fixed once it runs");
         var unknown = () => mixer.SetVolume(5, 1);
         unknown.Should().Throw<ArgumentOutOfRangeException>();
         var tooLoud = () => mixer.SetVolume(input, 11);

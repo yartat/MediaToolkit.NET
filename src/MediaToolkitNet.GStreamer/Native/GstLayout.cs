@@ -68,6 +68,9 @@ public static unsafe class GstLayout
     /// <summary>Offsets in <c>GstStaticPadTemplate</c>: name, direction, presence and the caps' text.</summary>
     public const int PadTemplateName = 0, PadTemplateDirection = 8, PadTemplatePresence = 12, PadTemplateCaps = 24;
 
+    /// <summary><c>GST_PARAM_CONTROLLABLE</c> among a property's flags.</summary>
+    public const uint ParamControllable = 1 << 9;
+
     /// <summary>Offset of <c>GList::data</c>.</summary>
     public const int ListData = 0;
 

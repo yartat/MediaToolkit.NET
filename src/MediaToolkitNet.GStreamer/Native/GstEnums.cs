@@ -424,3 +424,19 @@ public enum GstTocEntryType
     /// <summary>A chapter.</summary>
     Chapter = 3,
 }
+
+/// <summary>How an animated property moves between the points it is given.</summary>
+public enum GstInterpolation
+{
+    /// <summary>It keeps each value until the next point.</summary>
+    Step = 0,
+
+    /// <summary>A straight line from point to point.</summary>
+    Linear = 1,
+
+    /// <summary>A smooth curve, which can overshoot.</summary>
+    Cubic = 2,
+
+    /// <summary>A smooth curve that does not overshoot.</summary>
+    CubicMonotonic = 3,
+}

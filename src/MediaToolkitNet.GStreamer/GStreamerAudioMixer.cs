@@ -21,7 +21,8 @@ namespace MediaToolkitNet.GStreamer;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Inputs are added before <see cref="Start"/>; volume and mute can be changed while it runs and apply to what is pushed after.
+/// Inputs can be added and removed before or after <see cref="Start"/>; volume and mute can be changed while it runs and apply to
+/// what is pushed after. A running mixer waits for every input it has, so push a new one from the time the others have reached.
 /// Timestamps decide which blocks are added together, so push every input with the same clock. A sum above full scale clips
 /// at the top, it does not wrap around; lower the volumes to keep headroom.
 /// </para>
@@ -39,8 +40,9 @@ public sealed unsafe class GStreamerAudioMixer : IDisposable
     private static bool _inHandler;
 
     private readonly AudioFormat _output;
-    private readonly List<(AudioFormat Format, double Volume)> _inputs = [];
-    private readonly List<GStreamerSource> _sources = [];
+    // A removed input leaves its place empty, so the indices of the others stay what they were.
+    private readonly List<(AudioFormat Format, double Volume)?> _inputs = [];
+    private readonly List<GStreamerSource?> _sources = [];
     private GStreamerPipeline? _pipeline;
     private GStreamerElement? _mixer;
     private GStreamerSink? _sink;
@@ -70,27 +72,49 @@ public sealed unsafe class GStreamerAudioMixer : IDisposable
     /// <summary>True between <see cref="Start"/> and <see cref="Dispose"/>.</summary>
     public bool IsRunning => _pipeline is not null;
 
-    /// <summary>Adds an input, which must be done before <see cref="Start"/>.</summary>
+    /// <summary>Adds an input, before or while the mixer runs.</summary>
     /// <param name="input">The format of the blocks that will be pushed for this input.</param>
     /// <param name="volume">Linear volume: 1 leaves it as it is, 0 silences it, at most 10.</param>
     /// <returns>The input's index, which the other calls take.</returns>
-    /// <exception cref="InvalidOperationException">The mixer has started.</exception>
     public int AddInput(AudioFormat input, double volume = 1.0)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        if (_pipeline is not null)
-        {
-            throw new InvalidOperationException("The inputs are fixed once the mixer has started.");
-        }
-
         if (input.SampleRate <= 0 || input.Channels <= 0)
         {
             throw new ArgumentException("No valid audio format was supplied.", nameof(input));
         }
 
         CheckVolume(volume);
+        var index = _inputs.Count;
+        if (_pipeline is { } running)
+        {
+            Attach(running, index, input, volume);
+        }
+        else
+        {
+            _sources.Add(null);
+        }
+
         _inputs.Add((input, volume));
-        return _inputs.Count - 1;
+        return index;
+    }
+
+    /// <summary>Takes an input away; the others keep their indices.</summary>
+    /// <exception cref="ArgumentOutOfRangeException">There is no such input.</exception>
+    public void RemoveInput(int input)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        Check(input);
+        if (_pipeline is { } running)
+        {
+            var source = _sources[input]!;
+            _sources[input] = null;
+            GStreamerInputs.Detach(
+                running, _mixer!, $"sink_{input}", source.Element,
+                running.FindElement($"convert{input}")!, running.FindElement($"resample{input}")!, running.FindElement($"caps{input}")!);
+        }
+
+        _inputs[input] = null;
     }
 
     /// <summary>Builds the pipeline and starts it.</summary>
@@ -103,7 +127,7 @@ public sealed unsafe class GStreamerAudioMixer : IDisposable
             throw new InvalidOperationException("The mixer has started already.");
         }
 
-        if (_inputs.Count == 0)
+        if (_inputs.All(i => i is null))
         {
             throw new InvalidOperationException("Add at least one input before Start.");
         }
@@ -120,9 +144,12 @@ public sealed unsafe class GStreamerAudioMixer : IDisposable
 
             for (var i = 0; i < _inputs.Count; i++)
             {
-                var source = pipeline.GetSource($"in{i}");
-                source.SetFormat(_inputs[i].Format);
-                _sources.Add(source);
+                if (_inputs[i] is { } input)
+                {
+                    var source = pipeline.GetSource($"in{i}");
+                    source.SetFormat(input.Format);
+                    _sources[i] = source;
+                }
             }
 
             _delivering = true;
@@ -132,7 +159,11 @@ public sealed unsafe class GStreamerAudioMixer : IDisposable
         {
             _delivering = false;
             pipeline.Dispose();
-            _sources.Clear();
+            for (var i = 0; i < _sources.Count; i++)
+            {
+                _sources[i] = null;
+            }
+
             _mixer = null;
             _sink = null;
             throw;
@@ -164,9 +195,12 @@ public sealed unsafe class GStreamerAudioMixer : IDisposable
     /// <summary>Ends every input, which ends the mix after what is already in the pipeline.</summary>
     public void EndOfStream()
     {
-        for (var i = 0; i < _sources.Count; i++)
+        for (var i = 0; i < _inputs.Count; i++)
         {
-            EndOfStream(i);
+            if (_inputs[i] is not null)
+            {
+                EndOfStream(i);
+            }
         }
     }
 
@@ -204,14 +238,22 @@ public sealed unsafe class GStreamerAudioMixer : IDisposable
         var description = new StringBuilder("audiomixer name=mix");
         for (var i = 0; i < _inputs.Count; i++)
         {
-            description.Append(CultureInfo.InvariantCulture, $" sink_{i}::volume={_inputs[i].Volume:0.######}");
+            if (_inputs[i] is { } input)
+            {
+                description.Append(CultureInfo.InvariantCulture, $" sink_{i}::volume={input.Volume:0.######}");
+            }
         }
 
         description.Append(" ! ").Append(format).Append(" ! appsink name=out emit-signals=true sync=false max-buffers=64");
         for (var i = 0; i < _inputs.Count; i++)
         {
-            description.Append(CultureInfo.InvariantCulture, $"  appsrc name=in{i} ! audioconvert ! audioresample ! ").Append(format)
-                .Append(CultureInfo.InvariantCulture, $" ! mix.sink_{i}");
+            if (_inputs[i] is not null)
+            {
+                // Named, so that the input can be taken out again.
+                description.Append(CultureInfo.InvariantCulture,
+                        $"  appsrc name=in{i} ! audioconvert name=convert{i} ! audioresample name=resample{i} ! capsfilter name=caps{i} caps=\"")
+                    .Append(format).Append(CultureInfo.InvariantCulture, $"\" ! mix.sink_{i}");
+            }
         }
 
         return description.ToString();
@@ -225,18 +267,48 @@ public sealed unsafe class GStreamerAudioMixer : IDisposable
             throw new InvalidOperationException("Call Start first.");
         }
 
-        ArgumentOutOfRangeException.ThrowIfNegative(input);
-        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(input, _sources.Count);
-        return _sources[input];
+        Check(input);
+        return _sources[input]!;
     }
 
     private void SetPad(int input, string property, object value)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         var mixer = _mixer ?? throw new InvalidOperationException("Call Start first.");
-        ArgumentOutOfRangeException.ThrowIfNegative(input);
-        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(input, _inputs.Count);
+        Check(input);
         mixer.SetPadValue($"sink_{input}", property, value);
+    }
+
+    private void Check(int input)
+    {
+        if (input < 0 || input >= _inputs.Count || _inputs[input] is null)
+        {
+            throw new ArgumentOutOfRangeException(nameof(input), input, "There is no such input.");
+        }
+    }
+
+    private void Attach(GStreamerPipeline pipeline, int index, AudioFormat format, double volume)
+    {
+        var element = pipeline.Add("appsrc", $"in{index}");
+        var convert = pipeline.Add("audioconvert", $"convert{index}");
+        var resample = pipeline.Add("audioresample", $"resample{index}");
+        var caps = pipeline.Add("capsfilter", $"caps{index}");
+        caps.Set("caps", GstMediaFormat.CapsOf(_output));
+        var source = pipeline.GetSource($"in{index}");
+        source.SetFormat(format);
+
+        var pad = $"sink_{index}";
+        element.Link(convert);
+        convert.Link(resample);
+        resample.Link(caps);
+        caps.Link(_mixer!, "src", pad);
+        _mixer!.SetPadValue(pad, "volume", volume);
+        foreach (var added in new[] { caps, resample, convert, element })
+        {
+            added.SyncStateWithPipeline();
+        }
+
+        _sources.Add(source);
     }
 
     private void Deliver()

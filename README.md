@@ -335,6 +335,21 @@ pipeline.Bus.MessageReceived += (_, m) =>
 using var log = GStreamerLog.Subscribe("*:2,decodebin:5", line => Console.WriteLine($"{line.Category}: {line.Message}"));
 ```
 
+Inputs of the mixer and layers of the compositor can come and go while they run (`AddInput` / `RemoveInput`,
+`AddLayer` / `RemoveLayer`). Properties can be **animated** over stream time, an `input-selector` switched, and a branch
+**held back** so that a recording begins before the thing that triggered it:
+
+```csharp
+fader.Animate("volume", [(TimeSpan.Zero, 1.0), (TimeSpan.FromSeconds(2), 0.0)]);
+mix.AnimatePad("sink_1", "alpha", [(TimeSpan.Zero, 0.0), (TimeSpan.FromSeconds(1), 1.0)]);
+selector.SetActivePad("sink_1");
+
+// ... ! x264enc key-int-max=30 ! queue name=pre ! ... a sink with async=false
+using var gate = new GStreamerPreRecordGate(pipeline.FindElement("pre")!, TimeSpan.FromSeconds(5));
+pipeline.Play();
+gate.Open();                                               // something happened: the last 5 s come out first
+```
+
 The pipeline's **bus** reports what happens inside it, and an element's **signals** can be handled, with no GLib main loop:
 
 ```csharp

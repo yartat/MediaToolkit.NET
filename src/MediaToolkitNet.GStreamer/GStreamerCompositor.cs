@@ -21,8 +21,9 @@ namespace MediaToolkitNet.GStreamer;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Layers are added before <see cref="Start"/>; their places, sizes, alphas and orders can be changed while it runs, and apply to the
-/// frames pushed after. A layer's frames are scaled to its size by the compositor, so a layer need not be pushed at that size.
+/// Layers can be added and removed before or after <see cref="Start"/>; their places, sizes, alphas and orders can be changed
+/// while it runs, and apply to the frames pushed after. A running compositor waits for every layer it has, so push a new one
+/// from the time the others have reached. A layer's frames are scaled to its size by the compositor, so a layer need not be pushed at that size.
 /// Timestamps decide which frames are laid together: push every layer with the same clock.
 /// </para>
 /// <para>
@@ -37,8 +38,9 @@ public sealed unsafe class GStreamerCompositor : IDisposable
     private static bool _inHandler;
 
     private readonly VideoFormat _output;
-    private readonly List<Layer> _layers = [];
-    private readonly List<GStreamerSource> _sources = [];
+    // A removed layer leaves its place empty, so the indices of the others stay what they were.
+    private readonly List<Layer?> _layers = [];
+    private readonly List<GStreamerSource?> _sources = [];
     private readonly Lock _gate = new();
     private GStreamerPipeline? _pipeline;
     private GStreamerElement? _mixer;
@@ -68,7 +70,7 @@ public sealed unsafe class GStreamerCompositor : IDisposable
     /// <summary>True between <see cref="Start"/> and <see cref="Dispose"/>.</summary>
     public bool IsRunning => _pipeline is not null;
 
-    /// <summary>Adds a layer, which must be done before <see cref="Start"/>.</summary>
+    /// <summary>Adds a layer, before or while the compositor runs.</summary>
     /// <param name="input">The format of the frames that will be pushed for this layer.</param>
     /// <param name="x">Where the layer's left edge is in the output.</param>
     /// <param name="y">Where its top edge is.</param>
@@ -76,14 +78,8 @@ public sealed unsafe class GStreamerCompositor : IDisposable
     /// <param name="height">The height it is scaled to; the input's when not given.</param>
     /// <param name="alpha">0 for fully transparent to 1 for opaque.</param>
     /// <returns>The layer's index, which the other calls take. A later layer is above an earlier one unless the z-order says otherwise.</returns>
-    /// <exception cref="InvalidOperationException">The compositor has started.</exception>
     public int AddLayer(VideoFormat input, int x = 0, int y = 0, int? width = null, int? height = null, double alpha = 1.0)
     {
-        if (_pipeline is not null)
-        {
-            throw new InvalidOperationException("The layers are fixed once the compositor has started.");
-        }
-
         ObjectDisposedException.ThrowIf(_disposed, this);
         if (!input.IsValid)
         {
@@ -92,8 +88,35 @@ public sealed unsafe class GStreamerCompositor : IDisposable
 
         ArgumentOutOfRangeException.ThrowIfLessThan(alpha, 0.0);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(alpha, 1.0);
-        _layers.Add(new Layer(input, x, y, width ?? input.Width, height ?? input.Height, alpha, _layers.Count));
-        return _layers.Count - 1;
+        var index = _layers.Count;
+        var layer = new Layer(input, x, y, width ?? input.Width, height ?? input.Height, alpha, index);
+        if (_pipeline is { } running)
+        {
+            Attach(running, index, layer);
+        }
+        else
+        {
+            _sources.Add(null);
+        }
+
+        _layers.Add(layer);
+        return index;
+    }
+
+    /// <summary>Takes a layer away; the others keep their indices.</summary>
+    /// <exception cref="ArgumentOutOfRangeException">There is no such layer.</exception>
+    public void RemoveLayer(int layer)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        Check(layer);
+        if (_pipeline is { } running)
+        {
+            var source = _sources[layer]!;
+            _sources[layer] = null;
+            GStreamerInputs.Detach(running, _mixer!, $"sink_{layer}", source.Element);
+        }
+
+        _layers[layer] = null;
     }
 
     /// <summary>Builds the pipeline and starts it.</summary>
@@ -106,7 +129,7 @@ public sealed unsafe class GStreamerCompositor : IDisposable
             throw new InvalidOperationException("The compositor has started already.");
         }
 
-        if (_layers.Count == 0)
+        if (_layers.All(l => l is null))
         {
             throw new InvalidOperationException("Add at least one layer before Start.");
         }
@@ -123,9 +146,12 @@ public sealed unsafe class GStreamerCompositor : IDisposable
 
             for (var i = 0; i < _layers.Count; i++)
             {
-                var source = pipeline.GetSource($"in{i}");
-                source.SetFormat(_layers[i].Input);
-                _sources.Add(source);
+                if (_layers[i] is { } layer)
+                {
+                    var source = pipeline.GetSource($"in{i}");
+                    source.SetFormat(layer.Input);
+                    _sources[i] = source;
+                }
             }
 
             _delivering = true;
@@ -135,7 +161,11 @@ public sealed unsafe class GStreamerCompositor : IDisposable
         {
             _delivering = false;
             pipeline.Dispose();
-            _sources.Clear();
+            for (var i = 0; i < _sources.Count; i++)
+            {
+                _sources[i] = null;
+            }
+
             _mixer = null;
             _sink = null;
             throw;
@@ -157,9 +187,8 @@ public sealed unsafe class GStreamerCompositor : IDisposable
             throw new InvalidOperationException("Call Start before pushing frames.");
         }
 
-        ArgumentOutOfRangeException.ThrowIfNegative(layer);
-        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(layer, _sources.Count);
-        return _sources[layer].PushVideo(frame);
+        Check(layer);
+        return _sources[layer]!.PushVideo(frame);
     }
 
     /// <summary>Moves a layer; it applies to the frames pushed after.</summary>
@@ -196,17 +225,19 @@ public sealed unsafe class GStreamerCompositor : IDisposable
             throw new InvalidOperationException("Call Start first.");
         }
 
-        ArgumentOutOfRangeException.ThrowIfNegative(layer);
-        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(layer, _sources.Count);
-        _sources[layer].EndOfStream();
+        Check(layer);
+        _sources[layer]!.EndOfStream();
     }
 
     /// <summary>Ends every layer, which ends the picture after what is already in the pipeline.</summary>
     public void EndOfStream()
     {
-        for (var i = 0; i < _sources.Count; i++)
+        for (var i = 0; i < _layers.Count; i++)
         {
-            EndOfStream(i);
+            if (_layers[i] is not null)
+            {
+                EndOfStream(i);
+            }
         }
     }
 
@@ -238,7 +269,11 @@ public sealed unsafe class GStreamerCompositor : IDisposable
         var mixer = new StringBuilder("compositor name=mix background=black");
         for (var i = 0; i < _layers.Count; i++)
         {
-            var l = _layers[i];
+            if (_layers[i] is not { } l)
+            {
+                continue;
+            }
+
             mixer.Append(CultureInfo.InvariantCulture, $" sink_{i}::xpos={l.X} sink_{i}::ypos={l.Y} sink_{i}::width={l.Width} sink_{i}::height={l.Height}")
                 .Append($" sink_{i}::alpha={Number(l.Alpha)} sink_{i}::zorder={l.ZOrder}");
         }
@@ -249,7 +284,10 @@ public sealed unsafe class GStreamerCompositor : IDisposable
             .Append("appsink name=out emit-signals=true sync=false max-buffers=16");
         for (var i = 0; i < _layers.Count; i++)
         {
-            description.Append(CultureInfo.InvariantCulture, $"  appsrc name=in{i} ! mix.sink_{i}");
+            if (_layers[i] is not null)
+            {
+                description.Append(CultureInfo.InvariantCulture, $"  appsrc name=in{i} ! mix.sink_{i}");
+            }
         }
 
         return description.ToString();
@@ -259,9 +297,34 @@ public sealed unsafe class GStreamerCompositor : IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         var mixer = _mixer ?? throw new InvalidOperationException("Call Start first.");
-        ArgumentOutOfRangeException.ThrowIfNegative(layer);
-        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(layer, _layers.Count);
+        Check(layer);
         mixer.SetPadValue($"sink_{layer}", property, value);
+    }
+
+    private void Check(int layer)
+    {
+        if (layer < 0 || layer >= _layers.Count || _layers[layer] is null)
+        {
+            throw new ArgumentOutOfRangeException(nameof(layer), layer, "There is no such layer.");
+        }
+    }
+
+    private void Attach(GStreamerPipeline pipeline, int index, Layer layer)
+    {
+        var element = pipeline.Add("appsrc", $"in{index}");
+        var source = pipeline.GetSource($"in{index}");
+        source.SetFormat(layer.Input);
+
+        var pad = $"sink_{index}";
+        element.Link(_mixer!, "src", pad);
+        _mixer!.SetPadValue(pad, "xpos", layer.X);
+        _mixer.SetPadValue(pad, "ypos", layer.Y);
+        _mixer.SetPadValue(pad, "width", layer.Width);
+        _mixer.SetPadValue(pad, "height", layer.Height);
+        _mixer.SetPadValue(pad, "alpha", layer.Alpha);
+        _mixer.SetPadValue(pad, "zorder", (uint)layer.ZOrder);
+        element.SyncStateWithPipeline();
+        _sources.Add(source);
     }
 
     private void Deliver()

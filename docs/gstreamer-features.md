@@ -54,11 +54,11 @@ Out of scope here, because they implement shared interfaces: `GStreamerPlayer`, 
 |---|---|---|---|
 | 28 | Video compositor | Done | `GStreamerCompositor` |
 | 29 | Audio mixer | Done | `GStreamerAudioMixer` |
-| 30 | Add or remove mixer inputs and layers while running | No | Fixed before `Start` |
-| 31 | Property animation: fades, transitions (`GstController`) | No | |
+| 30 | Add or remove mixer inputs and layers while running | Done | `AddInput`/`RemoveInput`, `AddLayer`/`RemoveLayer` |
+| 31 | Property animation: fades, transitions (`GstController`) | Done | `Animate`, `AnimatePad`, `ClearAnimation` |
 | 32 | Branches at run time: record while previewing (`tee`, `valve`) | Done | By hand with the calls of row 5; no wrapper class |
-| 33 | Pre-event recording buffer | No | |
-| 34 | Source switching (`input-selector`, fallback source) | No | |
+| 33 | Pre-event recording buffer | Done | `GStreamerPreRecordGate`; tried with VP8, opens once |
+| 34 | Source switching (`input-selector`, fallback source) | Partial | `SetActivePad`; no fallback source |
 | 35 | RTSP server (`gst-rtsp-server`) | No | Separate native library |
 | 36 | WebRTC (`webrtcbin`, WHIP, WHEP) | No | Also needs promises and SDP objects |
 | 37 | Network statistics (SRT, RTP, RTSP) | Partial | `GetValue("stats")` and `Emit`; `multiudpsink` and `srtsrc` tried, RTP and RTSP not |
