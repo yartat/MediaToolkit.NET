@@ -144,6 +144,48 @@ public sealed unsafe class GStreamerElement : IDisposable
     }
 
     /// <summary>
+    /// Sends an event of the application's own through the pipeline, starting at this element. A probe on a pad it
+    /// passes sees the fields in <see cref="GStreamerProbeInfo.Details"/>.
+    /// </summary>
+    /// <param name="data">What the event carries.</param>
+    /// <param name="type">One of the custom kinds, which says which way it goes.</param>
+    /// <returns>False when no element said it handled it; the event may have travelled all the same.</returns>
+    /// <exception cref="ArgumentException">The type is not a custom one.</exception>
+    public bool SendEvent(GStreamerStructure data, GstEventType type = GstEventType.CustomDownstream)
+    {
+        ArgumentNullException.ThrowIfNull(data);
+        if (type is not (GstEventType.CustomUpstream or GstEventType.CustomDownstream
+            or GstEventType.CustomDownstreamOutOfBand or GstEventType.CustomBoth))
+        {
+            throw new ArgumentException($"{type} is not a custom event.", nameof(type));
+        }
+
+        EnsureAlive();
+        return Send(data.ToString(), type);
+    }
+
+    /// <summary>
+    /// Asks the encoder at or before this element to make the next frame a key frame, with its headers, as for a viewer
+    /// who has just joined a stream.
+    /// </summary>
+    /// <returns>False when nothing took the request.</returns>
+    public bool ForceKeyFrame()
+    {
+        EnsureAlive();
+
+        // What gst_video_event_new_upstream_force_key_unit builds; no running time means as soon as possible.
+        return Send(
+            "GstForceKeyUnit, running-time=(guint64)18446744073709551615, all-headers=(boolean)true, count=(uint)0",
+            GstEventType.CustomUpstream);
+    }
+
+    private bool Send(string structure, GstEventType type)
+    {
+        var native = GStreamerStructure.Create(structure);
+        return Gst.gst_element_send_event(_element, Gst.gst_event_new_custom((int)type, native)) != 0;
+    }
+
+    /// <summary>
     /// Sends the end of the stream into one input pad, so that what follows it finishes its work while the rest of the
     /// pipeline goes on: how a recording branch is closed. Unlink the pad first.
     /// </summary>

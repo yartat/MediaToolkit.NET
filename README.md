@@ -304,6 +304,21 @@ decoder.AddDataProbe("src", (in GStreamerData data) =>     // the bytes of every
 });
 ```
 
+A paused pipeline can be **stepped** frame by frame, and two pipelines can share a clock so that their running times
+agree. Latency, the seekable range and buffering can be asked for, and events of your own sent:
+
+```csharp
+pipeline.Pause();
+pipeline.Step();                                           // the next frame
+second.SynchronizeWith(first);                             // before second starts, with first already playing
+pipeline.SetLatency(TimeSpan.FromMilliseconds(200));
+var range = pipeline.QuerySeeking();                       // also QueryLatency, QueryBuffering
+encoder.ForceKeyFrame();                                   // for a viewer who has just joined
+element.SendEvent(GStreamerStructure.Parse("mark, id=(int)7"));  // probes see it in GStreamerProbeInfo.Details
+```
+
+The live flag of a latency answer is set by any sink that keeps to the clock, so it does not say that the source is live.
+
 The pipeline's **bus** reports what happens inside it, and an element's **signals** can be handled, with no GLib main loop:
 
 ```csharp

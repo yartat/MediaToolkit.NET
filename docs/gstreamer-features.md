@@ -17,10 +17,10 @@ Out of scope here, because they implement shared interfaces: `GStreamerPlayer`, 
 | 5 | Add, remove or replace elements while playing (pad blocking) | Done | `AddProbe`, `SyncStateWithPipeline`, `Remove`, `ReleasePad`; only a `tee` branch was tried |
 | 6 | Send EOS to a whole pipeline | Done | `GStreamerPipeline.EndOfStream`, added after that commit and tested in WSL |
 | 7 | Seek with a rate and flags: trick play, reverse, segments, loops | Done | `Seek(start, stop, rate, flags)`; trick-mode flags not tried |
-| 8 | Frame stepping | No | |
-| 9 | Clock, base time, latency, synchronised pipelines | No | |
-| 10 | Queries beyond duration and position (latency, seekable range, buffering) | No | |
-| 11 | Custom events, force a key frame | No | |
+| 8 | Frame stepping | Done | `Step` |
+| 9 | Clock, base time, latency, synchronised pipelines | Done | `ClockTime`, `BaseTime`, `RunningTime`, `SynchronizeWith`, `SetLatency`; no network clock |
+| 10 | Queries beyond duration and position (latency, seekable range, buffering) | Done | `QueryLatency`, `QuerySeeking`, `QueryBuffering` |
+| 11 | Custom events, force a key frame | Done | `SendEvent`, `ForceKeyFrame`; key frames tried with `vp8enc` |
 
 ## Elements, properties, introspection
 

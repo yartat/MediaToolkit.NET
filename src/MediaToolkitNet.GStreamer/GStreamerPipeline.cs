@@ -10,6 +10,26 @@ using MediaToolkitNet.Interop;
 
 namespace MediaToolkitNet.GStreamer;
 
+/// <summary>How late the data of a pipeline is.</summary>
+/// <param name="IsLive">
+/// GStreamer's live flag of the answer. A playing sink that keeps to the clock (<c>sync=true</c>) sets it whatever its
+/// source is, so it does not tell whether the source captures in real time.
+/// </param>
+/// <param name="Minimum">The least the sinks have to wait.</param>
+/// <param name="Maximum">The most that can be waited before data is lost, or null for no limit.</param>
+public readonly record struct GStreamerLatency(bool IsLive, TimeSpan Minimum, TimeSpan? Maximum);
+
+/// <summary>Where a stream can seek.</summary>
+/// <param name="CanSeek">Whether it can at all.</param>
+/// <param name="Start">The first position.</param>
+/// <param name="End">The last, or null when it is not known.</param>
+public readonly record struct GStreamerSeekRange(bool CanSeek, TimeSpan Start, TimeSpan? End);
+
+/// <summary>The state of the buffering elements.</summary>
+/// <param name="IsBuffering">True while they are filling and playback should wait.</param>
+/// <param name="Percent">How full, 0 to 100.</param>
+public readonly record struct GStreamerBuffering(bool IsBuffering, int Percent);
+
 /// <summary>
 /// A GStreamer pipeline, built from a <c>gst-launch</c> description.
 /// </summary>
@@ -464,6 +484,196 @@ public sealed unsafe class GStreamerPipeline : IDisposable
             stop is { } end ? end.Ticks * GstConstants.NanosecondsPerTick : -1);
         return Gst.gst_element_send_event(_pipeline, seek) != 0;
     }
+
+    /// <summary>
+    /// Moves a paused pipeline forward by frames: each step shows the frame after those stepped over.
+    /// </summary>
+    /// <param name="frames">How many buffers to advance; one video frame each.</param>
+    /// <returns>False when no element took the step. Wait with <see cref="WaitForState"/> for it to be done.</returns>
+    public bool Step(ulong frames = 1)
+    {
+        ArgumentOutOfRangeException.ThrowIfZero(frames);
+        EnsureAlive();
+        var step = Gst.gst_event_new_step((int)GstFormat.Buffers, frames, 1.0, 1, 0);
+        return Gst.gst_element_send_event(_pipeline, step) != 0;
+    }
+
+    /// <summary>The time of the pipeline's clock, or null before it has chosen one, which it does on the way to playing.</summary>
+    public TimeSpan? ClockTime
+    {
+        get
+        {
+            EnsureAlive();
+            var clock = Gst.gst_element_get_clock(_pipeline);
+            if (clock is null)
+            {
+                return null;
+            }
+
+            try
+            {
+                return Time(Gst.gst_clock_get_time(clock));
+            }
+            finally
+            {
+                Gst.gst_object_unref(clock);
+            }
+        }
+    }
+
+    /// <summary>The clock time at which the pipeline's running time was zero.</summary>
+    public TimeSpan BaseTime
+    {
+        get
+        {
+            EnsureAlive();
+            return Time(Gst.gst_element_get_base_time(_pipeline)) ?? TimeSpan.Zero;
+        }
+    }
+
+    /// <summary>How long the pipeline has been playing by its clock, or null when it is not playing.</summary>
+    public TimeSpan? RunningTime => State == GstState.Playing && ClockTime is { } now ? now - BaseTime : null;
+
+    /// <summary>
+    /// Makes this pipeline run on the clock and base time of another that is already playing, so that equal running
+    /// times mean the same moment in both. Call it before this pipeline starts.
+    /// </summary>
+    /// <param name="other">The pipeline to follow.</param>
+    /// <exception cref="InvalidOperationException">The other pipeline has no clock yet.</exception>
+    public void SynchronizeWith(GStreamerPipeline other)
+    {
+        ArgumentNullException.ThrowIfNull(other);
+        EnsureAlive();
+        other.EnsureAlive();
+
+        var clock = Gst.gst_element_get_clock(other._pipeline);
+        if (clock is null)
+        {
+            throw new InvalidOperationException("The other pipeline has no clock yet; start it first.");
+        }
+
+        try
+        {
+            Gst.gst_pipeline_use_clock(_pipeline, clock);
+
+            // Without a start time of its own the pipeline keeps the base time it is given.
+            Gst.gst_element_set_start_time(_pipeline, GstConstants.ClockTimeNone);
+            Gst.gst_element_set_base_time(_pipeline, Gst.gst_element_get_base_time(other._pipeline));
+        }
+        finally
+        {
+            Gst.gst_object_unref(clock);
+        }
+    }
+
+    /// <summary>
+    /// Fixes how long after their time the sinks of a live pipeline render, or with null lets the pipeline work it out
+    /// from its elements, which is the default.
+    /// </summary>
+    /// <param name="latency">The latency; one shorter than the elements need makes buffers arrive late.</param>
+    public void SetLatency(TimeSpan? latency)
+    {
+        if (latency is { } value)
+        {
+            ArgumentOutOfRangeException.ThrowIfLessThan(value, TimeSpan.Zero);
+        }
+
+        EnsureAlive();
+        Gst.gst_pipeline_set_latency(
+            _pipeline, latency is { } set ? (ulong)(set.Ticks * GstConstants.NanosecondsPerTick) : GstConstants.ClockTimeNone);
+    }
+
+    /// <summary>Works the latency out again, which a <see cref="GstMessageType.Latency"/> message asks for.</summary>
+    /// <returns>False when it could not be done.</returns>
+    public bool RecalculateLatency()
+    {
+        EnsureAlive();
+        return Gst.gst_bin_recalculate_latency(_pipeline) != 0;
+    }
+
+    /// <summary>
+    /// The latency the elements report, or null when the pipeline cannot say. Ask once it is playing: before that the
+    /// figures of a live source are not there yet.
+    /// </summary>
+    public GStreamerLatency? QueryLatency()
+    {
+        EnsureAlive();
+        var query = Gst.gst_query_new_latency();
+        try
+        {
+            if (Gst.gst_element_query(_pipeline, query) == 0)
+            {
+                return null;
+            }
+
+            var live = 0;
+            ulong minimum = 0;
+            ulong maximum = 0;
+            Gst.gst_query_parse_latency(query, &live, &minimum, &maximum);
+            return new GStreamerLatency(live != 0, Time(minimum) ?? TimeSpan.Zero, Time(maximum));
+        }
+        finally
+        {
+            Gst.gst_mini_object_unref(query);
+        }
+    }
+
+    /// <summary>Whether and where the stream can seek in time, or null when the pipeline cannot say.</summary>
+    public GStreamerSeekRange? QuerySeeking()
+    {
+        EnsureAlive();
+        var query = Gst.gst_query_new_seeking((int)GstFormat.Time);
+        try
+        {
+            if (Gst.gst_element_query(_pipeline, query) == 0)
+            {
+                return null;
+            }
+
+            var format = 0;
+            var seekable = 0;
+            long start = 0;
+            long end = 0;
+            Gst.gst_query_parse_seeking(query, &format, &seekable, &start, &end);
+            return new GStreamerSeekRange(
+                seekable != 0,
+                start < 0 ? TimeSpan.Zero : new TimeSpan(start / GstConstants.NanosecondsPerTick),
+                end < 0 ? null : new TimeSpan(end / GstConstants.NanosecondsPerTick));
+        }
+        finally
+        {
+            Gst.gst_mini_object_unref(query);
+        }
+    }
+
+    /// <summary>
+    /// How full the pipeline's buffers are, or null when nothing answers. Sources answer too, so a pipeline without a
+    /// buffering element says it is not buffering.
+    /// </summary>
+    public GStreamerBuffering? QueryBuffering()
+    {
+        EnsureAlive();
+        var query = Gst.gst_query_new_buffering((int)GstFormat.Percent);
+        try
+        {
+            if (Gst.gst_element_query(_pipeline, query) == 0)
+            {
+                return null;
+            }
+
+            var busy = 0;
+            var percent = 0;
+            Gst.gst_query_parse_buffering_percent(query, &busy, &percent);
+            return new GStreamerBuffering(busy != 0, percent);
+        }
+        finally
+        {
+            Gst.gst_mini_object_unref(query);
+        }
+    }
+
+    private static TimeSpan? Time(ulong nanoseconds) =>
+        nanoseconds == GstConstants.ClockTimeNone ? null : new TimeSpan((long)(nanoseconds / GstConstants.NanosecondsPerTick));
 
     /// <summary>
     /// Tells the sources to end the stream, so that what is already in the pipeline is processed and muxers finish their

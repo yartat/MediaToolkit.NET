@@ -15,7 +15,11 @@ namespace MediaToolkitNet.GStreamer;
 /// <param name="Event">The kind of the event, or <see langword="null"/> when it is not one.</param>
 /// <param name="Timestamp">The buffer's presentation time, or <see langword="null"/> when there is none.</param>
 /// <param name="Size">The buffer's size in bytes; zero for anything else.</param>
-public readonly record struct GStreamerProbeInfo(GstPadProbeType Type, GstEventType? Event, TimeSpan? Timestamp, long Size);
+public readonly record struct GStreamerProbeInfo(GstPadProbeType Type, GstEventType? Event, TimeSpan? Timestamp, long Size)
+{
+    /// <summary>For a custom event: what it carries.</summary>
+    public GStreamerStructure? Details { get; init; }
+}
 
 /// <summary>
 /// Handles what passes a probed pad, on the thread that carries it, usually a streaming thread, which waits for the
@@ -117,6 +121,7 @@ public sealed unsafe class GStreamerProbe : IDisposable
         }
 
         GstEventType? kind = null;
+        GStreamerStructure? details = null;
         TimeSpan? timestamp = null;
         long size = 0;
         if ((type & GstPadProbeType.Buffer) != 0)
@@ -135,13 +140,19 @@ public sealed unsafe class GStreamerProbe : IDisposable
             if (passing is not null)
             {
                 kind = GstLayout.TypeOfEvent(passing);
+                if (kind is GstEventType.CustomUpstream or GstEventType.CustomDownstream
+                    or GstEventType.CustomDownstreamOutOfBand or GstEventType.CustomBoth)
+                {
+                    var carried = Gst.gst_event_get_structure(passing);
+                    details = carried is null ? null : GStreamerStructure.From(carried);
+                }
             }
         }
 
         GstPadProbeReturn answer;
         try
         {
-            answer = _handler!(new GStreamerProbeInfo(type, kind, timestamp, size));
+            answer = _handler!(new GStreamerProbeInfo(type, kind, timestamp, size) { Details = details });
         }
         catch (Exception ex)
         {

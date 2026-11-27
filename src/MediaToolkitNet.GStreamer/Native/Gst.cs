@@ -271,6 +271,60 @@ public static unsafe class Gst
     /// <summary><c>GParamSpec **g_object_class_list_properties(GObjectClass *, guint *)</c>; the array is the caller's, the specs are not.</summary>
     public static delegate* unmanaged[Cdecl]<void*, uint*, void**> g_object_class_list_properties;
 
+    /// <summary><c>GstEvent *gst_event_new_step(GstFormat, guint64 amount, gdouble rate, gboolean flush, gboolean intermediate)</c></summary>
+    public static delegate* unmanaged[Cdecl]<int, ulong, double, int, int, void*> gst_event_new_step;
+
+    /// <summary><c>GstEvent *gst_event_new_custom(GstEventType, GstStructure *)</c>, which takes the structure.</summary>
+    public static delegate* unmanaged[Cdecl]<int, void*, void*> gst_event_new_custom;
+
+    /// <summary><c>const GstStructure *gst_event_get_structure(GstEvent *)</c>, borrowed.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, void*> gst_event_get_structure;
+
+    /// <summary><c>GstClock *gst_element_get_clock(GstElement *)</c>, a reference the caller owns, or null.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, void*> gst_element_get_clock;
+
+    /// <summary><c>GstClockTime gst_clock_get_time(GstClock *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, ulong> gst_clock_get_time;
+
+    /// <summary><c>GstClockTime gst_element_get_base_time(GstElement *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, ulong> gst_element_get_base_time;
+
+    /// <summary><c>void gst_element_set_base_time(GstElement *, GstClockTime)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, ulong, void> gst_element_set_base_time;
+
+    /// <summary><c>void gst_element_set_start_time(GstElement *, GstClockTime)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, ulong, void> gst_element_set_start_time;
+
+    /// <summary><c>void gst_pipeline_use_clock(GstPipeline *, GstClock *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, void*, void> gst_pipeline_use_clock;
+
+    /// <summary><c>void gst_pipeline_set_latency(GstPipeline *, GstClockTime)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, ulong, void> gst_pipeline_set_latency;
+
+    /// <summary><c>gboolean gst_bin_recalculate_latency(GstBin *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, int> gst_bin_recalculate_latency;
+
+    /// <summary><c>gboolean gst_element_query(GstElement *, GstQuery *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, void*, int> gst_element_query;
+
+    /// <summary><c>GstQuery *gst_query_new_latency(void)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*> gst_query_new_latency;
+
+    /// <summary><c>GstQuery *gst_query_new_seeking(GstFormat)</c></summary>
+    public static delegate* unmanaged[Cdecl]<int, void*> gst_query_new_seeking;
+
+    /// <summary><c>GstQuery *gst_query_new_buffering(GstFormat)</c></summary>
+    public static delegate* unmanaged[Cdecl]<int, void*> gst_query_new_buffering;
+
+    /// <summary><c>void gst_query_parse_latency(GstQuery *, gboolean *live, GstClockTime *min, GstClockTime *max)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, int*, ulong*, ulong*, void> gst_query_parse_latency;
+
+    /// <summary><c>void gst_query_parse_seeking(GstQuery *, GstFormat *, gboolean *seekable, gint64 *start, gint64 *end)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, int*, int*, long*, long*, void> gst_query_parse_seeking;
+
+    /// <summary><c>void gst_query_parse_buffering_percent(GstQuery *, gboolean *busy, gint *percent)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, int*, int*, void> gst_query_parse_buffering_percent;
+
     /// <summary><c>gpointer gst_object_ref_sink(gpointer)</c></summary>
     public static delegate* unmanaged[Cdecl]<void*, void*> gst_object_ref_sink;
 
@@ -797,6 +851,24 @@ public static unsafe class Gst
         gst_element_factory_find = (delegate* unmanaged[Cdecl]<byte*, void*>)Core.GetExport(nameof(gst_element_factory_find));
         gst_element_factory_get_static_pad_templates = (delegate* unmanaged[Cdecl]<void*, void*>)Core.GetExport(nameof(gst_element_factory_get_static_pad_templates));
         g_object_class_list_properties = (delegate* unmanaged[Cdecl]<void*, uint*, void**>)GObject.GetExport(nameof(g_object_class_list_properties));
+        gst_event_new_step = (delegate* unmanaged[Cdecl]<int, ulong, double, int, int, void*>)Core.GetExport(nameof(gst_event_new_step));
+        gst_event_new_custom = (delegate* unmanaged[Cdecl]<int, void*, void*>)Core.GetExport(nameof(gst_event_new_custom));
+        gst_event_get_structure = (delegate* unmanaged[Cdecl]<void*, void*>)Core.GetExport(nameof(gst_event_get_structure));
+        gst_element_get_clock = (delegate* unmanaged[Cdecl]<void*, void*>)Core.GetExport(nameof(gst_element_get_clock));
+        gst_clock_get_time = (delegate* unmanaged[Cdecl]<void*, ulong>)Core.GetExport(nameof(gst_clock_get_time));
+        gst_element_get_base_time = (delegate* unmanaged[Cdecl]<void*, ulong>)Core.GetExport(nameof(gst_element_get_base_time));
+        gst_element_set_base_time = (delegate* unmanaged[Cdecl]<void*, ulong, void>)Core.GetExport(nameof(gst_element_set_base_time));
+        gst_element_set_start_time = (delegate* unmanaged[Cdecl]<void*, ulong, void>)Core.GetExport(nameof(gst_element_set_start_time));
+        gst_pipeline_use_clock = (delegate* unmanaged[Cdecl]<void*, void*, void>)Core.GetExport(nameof(gst_pipeline_use_clock));
+        gst_pipeline_set_latency = (delegate* unmanaged[Cdecl]<void*, ulong, void>)Core.GetExport(nameof(gst_pipeline_set_latency));
+        gst_bin_recalculate_latency = (delegate* unmanaged[Cdecl]<void*, int>)Core.GetExport(nameof(gst_bin_recalculate_latency));
+        gst_element_query = (delegate* unmanaged[Cdecl]<void*, void*, int>)Core.GetExport(nameof(gst_element_query));
+        gst_query_new_latency = (delegate* unmanaged[Cdecl]<void*>)Core.GetExport(nameof(gst_query_new_latency));
+        gst_query_new_seeking = (delegate* unmanaged[Cdecl]<int, void*>)Core.GetExport(nameof(gst_query_new_seeking));
+        gst_query_new_buffering = (delegate* unmanaged[Cdecl]<int, void*>)Core.GetExport(nameof(gst_query_new_buffering));
+        gst_query_parse_latency = (delegate* unmanaged[Cdecl]<void*, int*, ulong*, ulong*, void>)Core.GetExport(nameof(gst_query_parse_latency));
+        gst_query_parse_seeking = (delegate* unmanaged[Cdecl]<void*, int*, int*, long*, long*, void>)Core.GetExport(nameof(gst_query_parse_seeking));
+        gst_query_parse_buffering_percent = (delegate* unmanaged[Cdecl]<void*, int*, int*, void>)Core.GetExport(nameof(gst_query_parse_buffering_percent));
         gst_object_ref_sink = (delegate* unmanaged[Cdecl]<void*, void*>)Core.GetExport(nameof(gst_object_ref_sink));
         gst_object_unref = (delegate* unmanaged[Cdecl]<void*, void>)Core.GetExport(nameof(gst_object_unref));
         gst_util_set_object_arg = (delegate* unmanaged[Cdecl]<void*, byte*, byte*, void>)Core.GetExport(nameof(gst_util_set_object_arg));

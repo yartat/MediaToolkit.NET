@@ -110,6 +110,12 @@ public enum GstMessageType : uint
 /// <summary>GstFormat.</summary>
 public enum GstFormat
 {
+    /// <summary>A percentage of the whole.</summary>
+    Percent = 5,
+
+    /// <summary>A count of buffers, which for video is frames.</summary>
+    Buffers = 4,
+
     /// <summary>GST_FORMAT_UNDEFINED.</summary>
     Undefined = 0,
 
@@ -270,6 +276,18 @@ public enum GstSeekType
 /// </summary>
 public enum GstEventType
 {
+    /// <summary>An application's own event, travelling upstream.</summary>
+    CustomUpstream = (270 << 8) | 1,
+
+    /// <summary>An application's own event, travelling downstream in order with the data.</summary>
+    CustomDownstream = (280 << 8) | 2 | 4,
+
+    /// <summary>An application's own event, travelling downstream past queued data.</summary>
+    CustomDownstreamOutOfBand = (290 << 8) | 2,
+
+    /// <summary>An application's own event, travelling either way.</summary>
+    CustomBoth = (320 << 8) | 1 | 2 | 4,
+
     /// <summary>GST_EVENT_FLUSH_START.</summary>
     FlushStart = 2563,
 
