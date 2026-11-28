@@ -529,6 +529,18 @@ using var hls = new GStreamerRecorder("site/live.m3u8") { SegmentDuration = Time
 using var srt = new GStreamerRecorder("srt://0.0.0.0:9000?mode=listener") { DrainTime = TimeSpan.FromSeconds(1) };
 ```
 
+One recording can go to several places at once: `AddOutput` adds a file, a playlist or an SRT stream beside the first, and
+the frames are encoded once and split with a `tee`:
+
+```csharp
+using var recorder = new GStreamerRecorder("archive.mp4");
+recorder.AddOutput("site/live.m3u8");                         // the same encoding, as HLS
+recorder.AddOutput("srt://0.0.0.0:9000?mode=listener");       // and to whoever is connected
+```
+
+An added SRT output does not wait for a receiver (what is sent with nobody connected is lost), so that it cannot hold the files
+back. The queues in front of the outputs are unlimited, so frames pushed faster than a paced output sends them stay in memory.
+
 SRT in live mode drops what it cannot deliver in time, so `Stop` keeps the connection open for `DrainTime` after the last
 frame; closing at once lost the last three of fifty frames. The sink waits for a receiver, so a listener with none
 connected holds `Stop` until its 60 s timeout.
@@ -611,6 +623,42 @@ sample tries it.
 ## Windows features
 
 `MediaToolkitNet.Windows` has Windows-only classes next to the shared capture and recording ones.
+
+**Player** (`MediaFoundationPlayer`) is an `IMediaPlayer` on the Media Foundation Media Engine. Windows plays the sound on the
+default device and the picture comes back as BGRA frames; there is no audio-frame event (the engine hands no sound out) and
+nothing is drawn into a window. What opens is what the codecs installed in Windows decode.
+
+```csharp
+using var player = new MediaFoundationPlayer { Volume = 0.5 };
+player.VideoFrameDecoded += (in VideoFrame frame) => Show(frame);   // on the player's thread, valid for the call only
+player.StateChanged += (_, e) => Console.WriteLine(e.Current);
+player.Open("movie.mp4");
+player.Play();                                                       // from the end it starts over
+```
+
+`MediaToolkitNetBackends.CreatePlayer` still prefers mpv; ask for this one directly or through `WindowsBackend`.
+`mf-play <file>` in the sample tries it.
+
+**Low latency and exclusive mode.** `WasapiRenderer` and `WasapiCapture` take a `WasapiMode`: `Shared` (the default),
+`LowLatencyShared` (the short periods of `IAudioClient3`, in the device's mix format) or `Exclusive` (the device alone, with
+nothing mixed or converted). In the two new modes the format asked for is used as it is or refused; `PeriodFrames` says what the
+device really runs at. `BufferDuration` is the period wanted: zero is the shortest.
+
+```csharp
+var mix = WasapiDeviceEnumerator.GetMixFormat(null, DataFlow.Render);
+var periods = WasapiDeviceEnumerator.GetEnginePeriods(null, DataFlow.Render);   // Minimum == Default: nothing shorter here
+using var low = new WasapiRenderer(new AudioCaptureSettings(null, mix, TimeSpan.Zero), WasapiMode.LowLatencyShared);
+
+var format = new AudioFormat(48000, 2, SampleFormat.S16);
+if (WasapiDeviceEnumerator.SupportsExclusive(null, DataFlow.Capture, format))
+{
+    using var microphone = new WasapiCapture(new AudioCaptureSettings(null, format, TimeSpan.Zero), mode: WasapiMode.Exclusive);
+}
+```
+
+How short a period is depends on the driver, and a driver may offer short periods on one endpoint and not on another.
+Loopback exists in shared mode only. `wasapi-modes` in the sample shows what the default endpoints offer and plays a tone in
+each mode.
 
 **Desktop Duplication** (`DesktopCapture`) captures a monitor from the GPU through DXGI, as BGRA frames, without GDI:
 

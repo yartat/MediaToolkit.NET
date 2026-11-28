@@ -40,7 +40,8 @@ public sealed class WindowsBackend : MediaBackendBase
         BackendCapabilities.VideoCapture |
         BackendCapabilities.Recording |
         BackendCapabilities.Probing |
-        BackendCapabilities.Transcoding;
+        BackendCapabilities.Transcoding |
+        BackendCapabilities.Playback;
 
     /// <inheritdoc />
     public override bool IsAvailable => MfApi.TryStartup();
@@ -89,6 +90,13 @@ public sealed class WindowsBackend : MediaBackendBase
     {
         EnsureAvailable();
         return new WasapiRenderer(settings);
+    }
+
+    /// <inheritdoc />
+    public override Abstractions.Playback.IMediaPlayer CreatePlayer()
+    {
+        EnsureAvailable();
+        return new MediaFoundationPlayer();
     }
 
     /// <inheritdoc />

@@ -62,8 +62,11 @@ public static class MediaToolkitNetBackends
         Registered
             // GStreamer's recorder and player take what the platform backend, mpv and FFmpeg do not, never their place:
             // FFmpeg writes subtitles and every codec the library names, and mpv renders playback itself; they were the
-            // defaults on Linux before GStreamer could do either.
-            .OrderBy(backend => capability is BackendCapabilities.Recording or BackendCapabilities.Playback && backend.Name == "gstreamer" ? 1 : 0)
+            // defaults on Linux before GStreamer could do either. The Windows player likewise comes after mpv and FFmpeg: it opens
+            // only what Windows has codecs for and gives out no audio frames, and mpv was the default on Windows before it.
+            .OrderBy(backend =>
+                (capability is BackendCapabilities.Recording or BackendCapabilities.Playback && backend.Name == "gstreamer")
+                || (capability == BackendCapabilities.Playback && backend.Name == "windows") ? 1 : 0)
             .FirstOrDefault(backend => (backend.Capabilities & capability) == capability && backend.IsAvailable);
 
     /// <summary>Creates a player using the best backend available.</summary>

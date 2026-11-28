@@ -54,8 +54,16 @@ public sealed unsafe class WasapiCapture : IAudioCapture
     /// <param name="loopback">
     /// When true the device is a render endpoint captured in loopback mode.
     /// </param>
-    public WasapiCapture(AudioCaptureSettings settings, bool loopback = false)
+    /// <param name="mode">How to share the endpoint; the other parameters are as for shared mode.</param>
+    public WasapiCapture(AudioCaptureSettings settings, bool loopback = false, WasapiMode mode = WasapiMode.Shared)
     {
+        if (loopback && mode != WasapiMode.Shared)
+        {
+            throw new ArgumentException("loopback capture exists in shared mode only", nameof(mode));
+        }
+
+        Mode = mode;
+
         _loopback = loopback;
 
         // As in the renderer, COM is initialised but never torn back down here.
@@ -71,7 +79,17 @@ public sealed unsafe class WasapiCapture : IAudioCapture
                 "IMMDevice::Activate(IAudioClient)");
             _client = new ComPtr(client);
 
-            Format = Configure(settings);
+            if (mode == WasapiMode.Exclusive)
+            {
+                PeriodFrames = WasapiStreams.InitializeExclusive(
+                    _device.Pointer, ref _client, settings.Format, settings.BufferDuration, _dataReady.SafeWaitHandle.DangerousGetHandle());
+                Format = settings.Format;
+                _blockAlign = Format.Channels * Format.SampleFormat.BytesPerSample();
+            }
+            else
+            {
+                Format = Configure(settings);
+            }
 
             HResult.ThrowIfFailed(
                 Wasapi.GetService(_client.Pointer, WinGuids.IAudioCaptureClient, out var capture),
@@ -187,6 +205,12 @@ public sealed unsafe class WasapiCapture : IAudioCapture
     /// <inheritdoc />
     public AudioFormat Format { get; private set; }
 
+    /// <summary>How the stream shares its endpoint.</summary>
+    public WasapiMode Mode { get; }
+
+    /// <summary>How many sample frames the device delivers at a time; zero for a process loopback.</summary>
+    public uint PeriodFrames { get; private set; }
+
     /// <summary>True when this instance captures the output of a render endpoint.</summary>
     public bool Loopback => _loopback;
 
@@ -219,6 +243,15 @@ public sealed unsafe class WasapiCapture : IAudioCapture
                 flags = Wasapi.StreamFlagsLoopback;
             }
 
+            if (Mode == WasapiMode.LowLatencyShared)
+            {
+                PeriodFrames = WasapiStreams.InitializeLowLatency(
+                    _client.Pointer, mixFormat, settings.BufferDuration, _dataReady.SafeWaitHandle.DangerousGetHandle());
+                _blockAlign = mixFormat->BlockAlign;
+                return Wasapi.ReadFormat(mixFormat);
+            }
+
+            PeriodFrames = WasapiStreams.SharedPeriod(_client.Pointer, (int)mixFormat->SamplesPerSec);
             HResult.ThrowIfFailed(
                 Wasapi.Initialize(_client.Pointer, AudioShareMode.Shared, flags, duration.Ticks, 0, mixFormat),
                 "IAudioClient::Initialize");
@@ -259,6 +292,9 @@ public sealed unsafe class WasapiCapture : IAudioCapture
             {
                 IsBackground = true,
                 Name = "MediaToolkitNet.WASAPI capture",
+
+                // A few milliseconds of period leave no room to wait behind ordinary threads.
+                Priority = Mode == WasapiMode.Shared ? ThreadPriority.Normal : ThreadPriority.Highest,
             };
             _worker.Start();
         }
@@ -306,13 +342,25 @@ public sealed unsafe class WasapiCapture : IAudioCapture
             while (!token.IsCancellationRequested)
             {
                 // Loopback streams get no events, so they are polled instead.
+                var signalled = false;
                 if (_loopback)
                 {
                     Thread.Sleep(5);
                 }
                 else
                 {
-                    _dataReady.WaitOne(100);
+                    signalled = _dataReady.WaitOne(100);
+                }
+
+                // An exclusive stream has no packet sizes: each event hands over one buffer.
+                if (Mode == WasapiMode.Exclusive)
+                {
+                    if (signalled && !token.IsCancellationRequested)
+                    {
+                        ReadPacket(ref position);
+                    }
+
+                    continue;
                 }
 
                 while (!token.IsCancellationRequested)
@@ -326,22 +374,7 @@ public sealed unsafe class WasapiCapture : IAudioCapture
                         break;
                     }
 
-                    HResult.ThrowIfFailed(
-                        Wasapi.GetCaptureBuffer(_capture.Pointer, out var data, out var frames, out var flags, out _, out _),
-                        "IAudioCaptureClient::GetBuffer");
-
-                    try
-                    {
-                        if (frames > 0)
-                        {
-                            Deliver(data, (int)frames, flags, position);
-                            position += Format.DurationOf(frames);
-                        }
-                    }
-                    finally
-                    {
-                        Wasapi.ReleaseCaptureBuffer(_capture.Pointer, frames);
-                    }
+                    ReadPacket(ref position);
                 }
             }
         }
@@ -356,6 +389,26 @@ public sealed unsafe class WasapiCapture : IAudioCapture
             {
                 Ole32.Uninitialize();
             }
+        }
+    }
+
+    private void ReadPacket(ref TimeSpan position)
+    {
+        HResult.ThrowIfFailed(
+            Wasapi.GetCaptureBuffer(_capture.Pointer, out var data, out var frames, out var flags, out _, out _),
+            "IAudioCaptureClient::GetBuffer");
+
+        try
+        {
+            if (frames > 0)
+            {
+                Deliver(data, (int)frames, flags, position);
+                position += Format.DurationOf(frames);
+            }
+        }
+        finally
+        {
+            Wasapi.ReleaseCaptureBuffer(_capture.Pointer, frames);
         }
     }
 

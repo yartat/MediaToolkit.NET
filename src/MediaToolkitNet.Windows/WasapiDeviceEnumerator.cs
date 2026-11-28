@@ -5,6 +5,7 @@
 
 using System.Runtime.Versioning;
 using MediaToolkitNet.Abstractions.Devices;
+using MediaToolkitNet.Abstractions.Formats;
 using MediaToolkitNet.Interop.Com;
 using MediaToolkitNet.Windows.Native;
 
@@ -85,6 +86,62 @@ public sealed unsafe class WasapiDeviceEnumerator : IMediaDeviceEnumerator
         }
 
         return new ComPtr(result);
+    }
+
+    /// <summary>The format the Windows audio engine mixes in for an endpoint.</summary>
+    /// <param name="device">The endpoint, or <see langword="null"/> for the default one.</param>
+    /// <param name="flow">Render or capture.</param>
+    public static AudioFormat GetMixFormat(MediaDevice? device, DataFlow flow)
+    {
+        Ole32.Initialize();
+        using var endpoint = OpenDevice(device, flow);
+        HResult.ThrowIfFailed(Wasapi.Activate(endpoint.Pointer, WinGuids.IAudioClient, out var raw), "IMMDevice::Activate(IAudioClient)");
+        using var client = new ComPtr(raw);
+        HResult.ThrowIfFailed(Wasapi.GetMixFormat(client.Pointer, out var mix), "IAudioClient::GetMixFormat");
+        try
+        {
+            return Wasapi.ReadFormat(mix);
+        }
+        finally
+        {
+            Ole32.CoTaskMemFree(mix);
+        }
+    }
+
+    /// <summary>
+    /// The periods <see cref="WasapiMode.LowLatencyShared"/> can use on an endpoint. Needs Windows 10.
+    /// </summary>
+    /// <param name="device">The endpoint, or <see langword="null"/> for the default one.</param>
+    /// <param name="flow">Render or capture.</param>
+    public static AudioEnginePeriods GetEnginePeriods(MediaDevice? device, DataFlow flow)
+    {
+        Ole32.Initialize();
+        using var endpoint = OpenDevice(device, flow);
+        HResult.ThrowIfFailed(Wasapi.Activate(endpoint.Pointer, WinGuids.IAudioClient, out var raw), "IMMDevice::Activate(IAudioClient)");
+        using var client = new ComPtr(raw);
+        HResult.ThrowIfFailed(Wasapi.GetMixFormat(client.Pointer, out var mix), "IAudioClient::GetMixFormat");
+        try
+        {
+            return WasapiStreams.EnginePeriods(client.Pointer, mix);
+        }
+        finally
+        {
+            Ole32.CoTaskMemFree(mix);
+        }
+    }
+
+    /// <summary>Whether an endpoint takes a format in exclusive mode, as it is and without conversion.</summary>
+    /// <param name="device">The endpoint, or <see langword="null"/> for the default one.</param>
+    /// <param name="flow">Render or capture.</param>
+    /// <param name="format">The format asked about.</param>
+    /// <remarks>This is the driver's answer; opening the stream may still refuse a format it said yes to.</remarks>
+    public static bool SupportsExclusive(MediaDevice? device, DataFlow flow, AudioFormat format)
+    {
+        Ole32.Initialize();
+        using var endpoint = OpenDevice(device, flow);
+        HResult.ThrowIfFailed(Wasapi.Activate(endpoint.Pointer, WinGuids.IAudioClient, out var raw), "IMMDevice::Activate(IAudioClient)");
+        using var client = new ComPtr(raw);
+        return WasapiStreams.TryExclusiveFormat(client.Pointer, format, out _);
     }
 
     private static void Collect(void* enumerator, DataFlow flow, MediaDeviceKind kind, List<MediaDevice> result)

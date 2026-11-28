@@ -4,6 +4,8 @@
 #endregion
 
 using System.Diagnostics;
+using MediaToolkitNet.Windows;
+using MediaToolkitNet.Windows.Native;
 using MediaToolkitNet;
 using MediaToolkitNet.Abstractions;
 using MediaToolkitNet.Abstractions.Capture;
@@ -42,13 +44,18 @@ static int Usage()
           gst-elements [text]          list the GStreamer element factories (Linux only)
           gst-dot <pipeline> <file.dot> [seconds]  run a pipeline for a while and write its graph (Linux only)
           gst-run <pipeline> [seconds] run a gst-launch pipeline (Linux only)
+          wasapi-modes [seconds]       mix formats, shared periods and exclusive support of the default endpoints; records for a few
+                                       seconds in each mode and plays a quiet tone in each (Windows only)
+          mf-play <file|URL> [seconds] play with the Media Foundation Media Engine: Windows plays the sound, the frames are counted (Windows only)
           gst-play <file|URL> [seconds] [--video-sink ximagesink] [--audio-sink pulsesink] [--window <X11 id>]
                                play with GStreamer's playbin3: count the frames it hands back, or render them (Linux only)
           gst-mix <file.flac|.m4a> [seconds]  mix two tones with GStreamer, a quiet one over a louder one, and record the mix (Linux only)
           gst-compose <file> [seconds] compose a square moving over a background with GStreamer and record the picture (Linux only)
           gst-screen [seconds] [--window <X11 id>] [--region x,y,w,h]
                                capture the X screen, a region or a window with ximagesrc and count the frames (Linux only)
-          gst-rec <file> [seconds] [encoder]  record a test picture and tone with GStreamer; an encoder such as nvh264enc names the element
+          gst-rec <file> [seconds] [encoder] [--also <output>]...
+                               record a test picture and tone with GStreamer; an encoder such as nvh264enc names the element, and --also
+                               writes the same encoding to another file, an .m3u8 playlist or srt:// as well
         """);
     Console.Write(TranscodeCommand.Usage);
     Console.Write(ReadCommand.Usage);
@@ -87,11 +94,13 @@ static int Run(string[] args)
             "gst-elements" => ListGStreamerElements(args.Length > 1 ? args[1] : null),
             "gst-dot" => DumpGStreamerGraph(Argument(args, 1, "pipeline"), Argument(args, 2, "output file path"), Seconds(args, 3, 1)),
             "gst-run" => RunGStreamerPipeline(Argument(args, 1, "pipeline"), Seconds(args, 2, 10)),
+            "wasapi-modes" => WasapiModes(Seconds(args, 1, 2)),
+            "mf-play" => PlayWithMediaFoundation(Argument(args, 1, "file or URL"), Seconds(args, 2, 10)),
             "gst-play" => PlayWithGStreamer(Argument(args, 1, "file or URL"), Seconds(args, 2, 10), args),
             "gst-mix" => MixWithGStreamer(Argument(args, 1, "output file path"), Seconds(args, 2, 3)),
             "gst-compose" => ComposeWithGStreamer(Argument(args, 1, "output file path"), Seconds(args, 2, 3)),
             "gst-screen" => CaptureScreenWithGStreamer(Seconds(args, 1, 3), args),
-            "gst-rec" => RecordWithGStreamer(Argument(args, 1, "output file path"), Seconds(args, 2, 3), args.Length > 3 ? args[3] : null),
+            "gst-rec" => RecordWithGStreamer(Argument(args, 1, "output file path"), Seconds(args, 2, 3), args),
             "rec-audio-file" => RecordAudioToFile(Seconds(args, 1, 3), Argument(args, 2, "output file path")),
             "rec-file" => RecordToFile(Seconds(args, 1, 3), Argument(args, 2, "output file path"),
                 args.Length > 3 ? Enum.Parse<MediaCodec>(args[3], ignoreCase: true) : MediaCodec.H264),
@@ -941,6 +950,136 @@ static int CaptureScreenWithGStreamer(int seconds, string[] args)
     return frames > 0 ? 0 : 1;
 }
 
+static int WasapiModes(int seconds)
+{
+    if (!OperatingSystem.IsWindows())
+    {
+        Console.Error.WriteLine("WASAPI is Windows only.");
+        return 2;
+    }
+
+    foreach (var flow in new[] { DataFlow.Render, DataFlow.Capture })
+    {
+        var mix = WasapiDeviceEnumerator.GetMixFormat(null, flow);
+        var periods = WasapiDeviceEnumerator.GetEnginePeriods(null, flow);
+        Console.WriteLine($"default {flow.ToString().ToLowerInvariant()} endpoint");
+        Console.WriteLine($"  mix format: {mix.SampleRate} Hz, {mix.Channels} ch, {mix.SampleFormat}");
+        Console.WriteLine($"  shared periods (frames): default {periods.Default}, minimum {periods.Minimum}, maximum {periods.Maximum}, step {periods.Fundamental}");
+
+        var exclusive = (from rate in new[] { 44100, 48000, 96000, 192000 }
+                         from sample in new[] { SampleFormat.S16, SampleFormat.S32, SampleFormat.F32 }
+                         from channels in new[] { 1, 2 }
+                         let format = new AudioFormat(rate, channels, sample)
+                         where OperatingSystem.IsWindows() && WasapiDeviceEnumerator.SupportsExclusive(null, flow, format)
+                         select format).ToList();
+        Console.WriteLine($"  exclusive: {(exclusive.Count == 0 ? "none" : string.Join("; ", exclusive.Select(f => $"{f.SampleRate}/{f.Channels}/{f.SampleFormat}")))}");
+
+        foreach (var mode in new[] { WasapiMode.Shared, WasapiMode.LowLatencyShared, WasapiMode.Exclusive })
+        {
+            if (mode == WasapiMode.Exclusive && exclusive.Count == 0)
+            {
+                continue;
+            }
+
+            // For exclusive mode the rate and channels of the mix format where the device has them, so that the tones compare.
+            var format = mode == WasapiMode.Exclusive
+                ? exclusive.OrderBy(f => f.SampleRate == mix.SampleRate && f.Channels == mix.Channels ? 0 : 1).First()
+                : mix;
+            var settings = new AudioCaptureSettings(null, format, TimeSpan.Zero);
+            try
+            {
+                if (flow == DataFlow.Render)
+                {
+                    using var renderer = new WasapiRenderer(settings, mode);
+                    // A quiet 440 Hz tone: what an exclusive stream plays cannot be captured back, only heard.
+                    var width = renderer.Format.SampleFormat.BytesPerSample();
+                    var channels = renderer.Format.Channels;
+                    var tone = new byte[renderer.Format.SampleRate * seconds * channels * width];
+                    for (var at = 0; at < tone.Length; at += width)
+                    {
+                        var value = 0.05 * Math.Sin(2 * Math.PI * 440 * (at / width / channels) / renderer.Format.SampleRate);
+                        var bytes = renderer.Format.SampleFormat switch
+                        {
+                            SampleFormat.F32 => BitConverter.GetBytes((float)value),
+                            SampleFormat.S32 => BitConverter.GetBytes((int)(value * int.MaxValue)),
+                            _ => BitConverter.GetBytes((short)(value * short.MaxValue)),
+                        };
+                        bytes.CopyTo(tone, at);
+                    }
+
+                    Thread.Sleep(1000);   // so that the tones of the modes are heard apart
+                    var clock = System.Diagnostics.Stopwatch.StartNew();
+                    renderer.Start();
+                    for (var offset = 0; offset < tone.Length;)
+                    {
+                        offset += renderer.Write(tone.AsSpan(offset));
+                    }
+
+                    renderer.Drain();
+                    renderer.Stop();
+                    Console.WriteLine($"  {mode}: {renderer.Format.SampleRate} Hz, {renderer.Format.Channels} ch, {renderer.Format.SampleFormat}, period {renderer.PeriodFrames}, buffer {renderer.BufferFrames}; {seconds} s of tone played in {clock.Elapsed.TotalSeconds:0.00} s");
+                }
+                else
+                {
+                    using var capture = new WasapiCapture(settings, mode: mode);
+                    long samples = 0;
+                    var packets = 0;
+                    capture.FrameCaptured += (in AudioFrame frame) =>
+                    {
+                        samples += frame.SampleCount;
+                        packets++;
+                    };
+                    capture.Start();
+                    Thread.Sleep(TimeSpan.FromSeconds(seconds));
+                    capture.Stop();
+                    Console.WriteLine($"  {mode}: period {capture.PeriodFrames}; {samples} frames in {packets} packets over {seconds} s");
+                }
+            }
+            catch (MediaToolkitNetException ex)
+            {
+                Console.WriteLine($"  {mode}: {ex.Message}");
+            }
+        }
+    }
+
+    return 0;
+}
+
+static int PlayWithMediaFoundation(string source, int seconds)
+{
+    if (!OperatingSystem.IsWindows())
+    {
+        Console.Error.WriteLine("The Media Foundation player is Windows only.");
+        return 2;
+    }
+
+    using var player = new MediaToolkitNet.Windows.MediaFoundationPlayer();
+    long frames = 0;
+    var last = TimeSpan.Zero;
+    var ended = new ManualResetEventSlim();
+    player.VideoFrameDecoded += (in VideoFrame frame) =>
+    {
+        frames++;
+        last = frame.Timestamp;
+    };
+    player.StateChanged += (_, e) =>
+    {
+        Console.WriteLine($"state: {e.Previous} -> {e.Current}");
+        if (e.Current is PlaybackState.Ended or PlaybackState.Faulted)
+        {
+            ended.Set();
+        }
+    };
+    player.Failed += (_, e) => Console.Error.WriteLine($"failed: {e.Message}");
+
+    player.Open(source);
+    Console.WriteLine($"duration {player.Duration.TotalSeconds:0.00} s, seekable {player.CanSeek}");
+    player.Play();
+    ended.Wait(TimeSpan.FromSeconds(seconds));
+    Console.WriteLine($"{frames} video frames (last at {last.TotalSeconds:0.00} s), position {player.Position.TotalSeconds:0.00} s");
+    return player.Position > TimeSpan.Zero ? 0 : 1;
+}
+
 static int PlayWithGStreamer(string source, int seconds, string[] args)
 {
     string? Option(string name) => Array.IndexOf(args, name) is var at and >= 0 && at + 1 < args.Length ? args[at + 1] : null;
@@ -985,8 +1124,9 @@ static int PlayWithGStreamer(string source, int seconds, string[] args)
     return frames + samples > 0 || player.VideoSink is not null || player.AudioSink is not null ? 0 : 1;
 }
 
-static unsafe int RecordWithGStreamer(string output, int seconds, string? encoder)
+static unsafe int RecordWithGStreamer(string output, int seconds, string[] args)
 {
+    var encoder = args.Length > 3 && !args[3].StartsWith("--", StringComparison.Ordinal) ? args[3] : null;
     if (!OperatingSystem.IsLinux())
     {
         Console.Error.WriteLine("The GStreamer backend binds the Linux library names; run this on Linux.");
@@ -996,6 +1136,14 @@ static unsafe int RecordWithGStreamer(string output, int seconds, string? encode
     var video = new VideoFormat(320, 240, PixelFormat.Bgra32, new Rational(25, 1));
     var audio = new AudioFormat(48000, 2, SampleFormat.S16);
     using var recorder = new MediaToolkitNet.GStreamer.GStreamerRecorder(output);
+    for (var i = 0; i < args.Length - 1; i++)
+    {
+        if (args[i] == "--also")
+        {
+            recorder.AddOutput(args[i + 1]);
+        }
+    }
+
     var v = recorder.AddVideoStream(new VideoEncodingSettings(video, MediaCodec.H264, 1_000_000, 25) { EncoderName = encoder });
     var a = recorder.AddAudioStream(new AudioEncodingSettings(audio, MediaCodec.Aac));
     foreach (var warning in recorder.Warnings)
@@ -1041,7 +1189,7 @@ static unsafe int RecordWithGStreamer(string output, int seconds, string? encode
     }
 
     recorder.Stop();
-    Console.WriteLine($"wrote {output}, {recorder.Elapsed.TotalSeconds:0.0} s");
+    Console.WriteLine($"wrote {string.Join(", ", recorder.Outputs)}, {recorder.Elapsed.TotalSeconds:0.0} s");
     return 0;
 }
 
