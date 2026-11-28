@@ -63,10 +63,10 @@ Out of scope here, because they implement shared interfaces: `GStreamerPlayer`, 
 | 36 | WebRTC (`webrtcbin`, WHIP, WHEP) | Done | `GStreamerWebRtcPeer`; not tried with a browser or media server; no TURN or data channels |
 | 37 | Network statistics (SRT, RTP, RTSP) | Partial | `GetValue("stats")` and `Emit`; `multiudpsink` and `srtsrc` tried, RTP and RTSP not |
 | 38 | Device hot-plug monitoring (`GstDeviceMonitor`) | Partial | `GStreamerDeviceMonitor`; listing tried, the added and removed events not |
-| 39 | Zero-copy memory (DMABuf, GL, CUDA) | No | |
+| 39 | Zero-copy memory (DMABuf, GL, CUDA) | Partial | `PushNoCopy`, `PushDmaBuf`, `DmaBufFd`; DMABuf tried with `memfd` only; no GL or CUDA |
 | 40 | Editing timeline (GStreamer Editing Services) | No | Separate native library |
 | 41 | Elements written in .NET | No | |
 
 ## Suggested order
 
-1. 39, if frames should stay on the GPU.
+1. 40 and 41, if editing or .NET elements are wanted.

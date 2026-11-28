@@ -38,10 +38,19 @@ public readonly unsafe ref struct GStreamerData
         Time(GstLayout.DurationOfBuffer(buffer)),
         Gst.gst_buffer_has_flags(buffer, GstLayout.BufferFlagDeltaUnit) == 0,
         Gst.gst_buffer_has_flags(buffer, GstLayout.BufferFlagHeader) != 0,
-        caps);
+        caps)
+    {
+        DmaBufFd = GstMemory.DescriptorOf(buffer),
+    };
 
     private static TimeSpan? Time(ulong nanoseconds) =>
         nanoseconds == GstConstants.ClockTimeNone ? null : new TimeSpan((long)nanoseconds / GstConstants.NanosecondsPerTick);
+
+    /// <summary>
+    /// The file descriptor of the memory when the buffer is a DMABuf, to hand to something that takes one without reading
+    /// <see cref="Bytes"/>; it is GStreamer's, valid for the call only, so duplicate it to keep it. Null for other memory.
+    /// </summary>
+    public int? DmaBufFd { get; private init; }
 
     /// <summary>The sample's bytes.</summary>
     public ReadOnlySpan<byte> Bytes { get; }

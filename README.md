@@ -423,6 +423,21 @@ With your own signalling use `CreateOfferAsync`, `AcceptOfferAsync`, `AcceptAnsw
 `AddIceCandidate`. WebRTC media is encrypted, but the other end is only as trustworthy as the channel the descriptions
 came over, and a token belongs on `https`.
 
+Buffers need not be **copied**. `PushNoCopy` hands the pipeline your own memory and says when you may have it back, and
+a DMABuf travels as its file descriptor:
+
+```csharp
+source.PushNoCopy(pointer, size, timestamp, released: () => pool.Return(pointer));
+source.PushDmaBuf(dup(cameraFd), size, timestamp);          // GStreamer closes what it is given
+sink.TryPullData(timeout, (in GStreamerData data) =>
+{
+    if (data.DmaBufFd is { } fd) Import(fd);                // duplicate it to keep it past the call
+});
+```
+
+A sink keeps its last buffer (`enable-last-sample`), and `appsink` its first, until it stops, so not every buffer comes
+back while the pipeline runs. OpenGL and CUDA memory are not exposed.
+
 The pipeline's **bus** reports what happens inside it, and an element's **signals** can be handled, with no GLib main loop:
 
 ```csharp

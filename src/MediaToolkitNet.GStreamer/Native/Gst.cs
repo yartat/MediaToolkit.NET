@@ -454,6 +454,24 @@ public static unsafe class Gst
     /// <summary><c>GstCaps *gst_pad_query_caps(GstPad *, GstCaps *filter)</c>, a reference the caller owns.</summary>
     public static delegate* unmanaged[Cdecl]<void*, void*, void*> gst_pad_query_caps;
 
+    /// <summary><c>GstBuffer *gst_buffer_new_wrapped_full(GstMemoryFlags, gpointer data, gsize maxsize, gsize offset, gsize size, gpointer user_data, GDestroyNotify)</c></summary>
+    public static delegate* unmanaged[Cdecl]<int, void*, nuint, nuint, nuint, void*, void*, void*> gst_buffer_new_wrapped_full;
+
+    /// <summary><c>GstBuffer *gst_buffer_new(void)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*> gst_buffer_new;
+
+    /// <summary><c>void gst_buffer_append_memory(GstBuffer *, GstMemory *)</c>, which takes the memory.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, void*, void> gst_buffer_append_memory;
+
+    /// <summary><c>guint gst_buffer_n_memory(GstBuffer *)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, uint> gst_buffer_n_memory;
+
+    /// <summary><c>GstMemory *gst_buffer_peek_memory(GstBuffer *, guint)</c>, borrowed.</summary>
+    public static delegate* unmanaged[Cdecl]<void*, uint, void*> gst_buffer_peek_memory;
+
+    /// <summary><c>void gst_mini_object_weak_ref(GstMiniObject *, GstMiniObjectNotify, gpointer)</c></summary>
+    public static delegate* unmanaged[Cdecl]<void*, delegate* unmanaged[Cdecl]<void*, void*, void>, void*, void> gst_mini_object_weak_ref;
+
     /// <summary><c>gpointer gst_object_ref_sink(gpointer)</c></summary>
     public static delegate* unmanaged[Cdecl]<void*, void*> gst_object_ref_sink;
 
@@ -1090,6 +1108,12 @@ public static unsafe class Gst
         gst_message_parse_device_removed = (delegate* unmanaged[Cdecl]<void*, void**, void>)Core.GetExport(nameof(gst_message_parse_device_removed));
         g_object_ref = (delegate* unmanaged[Cdecl]<void*, void*>)GObject.GetExport(nameof(g_object_ref));
         gst_pad_query_caps = (delegate* unmanaged[Cdecl]<void*, void*, void*>)Core.GetExport(nameof(gst_pad_query_caps));
+        gst_buffer_new_wrapped_full = (delegate* unmanaged[Cdecl]<int, void*, nuint, nuint, nuint, void*, void*, void*>)Core.GetExport(nameof(gst_buffer_new_wrapped_full));
+        gst_buffer_new = (delegate* unmanaged[Cdecl]<void*>)Core.GetExport(nameof(gst_buffer_new));
+        gst_buffer_append_memory = (delegate* unmanaged[Cdecl]<void*, void*, void>)Core.GetExport(nameof(gst_buffer_append_memory));
+        gst_buffer_n_memory = (delegate* unmanaged[Cdecl]<void*, uint>)Core.GetExport(nameof(gst_buffer_n_memory));
+        gst_buffer_peek_memory = (delegate* unmanaged[Cdecl]<void*, uint, void*>)Core.GetExport(nameof(gst_buffer_peek_memory));
+        gst_mini_object_weak_ref = (delegate* unmanaged[Cdecl]<void*, delegate* unmanaged[Cdecl]<void*, void*, void>, void*, void>)Core.GetExport(nameof(gst_mini_object_weak_ref));
         gst_object_ref_sink = (delegate* unmanaged[Cdecl]<void*, void*>)Core.GetExport(nameof(gst_object_ref_sink));
         gst_object_unref = (delegate* unmanaged[Cdecl]<void*, void>)Core.GetExport(nameof(gst_object_unref));
         gst_util_set_object_arg = (delegate* unmanaged[Cdecl]<void*, byte*, byte*, void>)Core.GetExport(nameof(gst_util_set_object_arg));

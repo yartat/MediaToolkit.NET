@@ -252,6 +252,75 @@ public sealed unsafe class GStreamerSource : IDisposable
         return Submit(buffer, timestamp, duration);
     }
 
+    /// <summary>
+    /// Pushes the caller's own memory without copying it. It must stay as it is, and in place, until
+    /// <paramref name="released"/> says that nothing in the pipeline uses it any more.
+    /// </summary>
+    /// <param name="data">The bytes, laid out as the caps say: raw video with GStreamer's strides.</param>
+    /// <param name="size">How many.</param>
+    /// <param name="timestamp">The presentation time of the buffer.</param>
+    /// <param name="duration">How long it lasts, or null when that is not known.</param>
+    /// <param name="released">
+    /// Called once, on whatever thread lets go last, whether the buffer was played, refused or thrown away. Without it
+    /// the memory has to outlive the pipeline. A sink keeps the last buffer it had until the next one or until it
+    /// stops, unless its <c>enable-last-sample</c> is false; <c>appsink</c> also keeps the first one, its preroll, until it stops. Plan for
+    /// some buffers to come back only when the pipeline does.
+    /// </param>
+    /// <returns>False when the pipeline takes no more data.</returns>
+    public bool PushNoCopy(nint data, int size, TimeSpan timestamp, TimeSpan? duration = null, Action? released = null)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull((void*)data, nameof(data));
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(size);
+        return Submit(GstMemory.Wrap((void*)data, size, Reported(released)), timestamp, duration);
+    }
+
+    /// <summary>
+    /// Pushes the memory behind a file descriptor as a DMABuf, for an element that can use it without reading it into
+    /// the application's memory.
+    /// </summary>
+    /// <param name="fd">
+    /// The descriptor. GStreamer takes it over and closes it; give it a duplicate to keep using the original.
+    /// </param>
+    /// <param name="size">The size of the memory.</param>
+    /// <param name="timestamp">The presentation time of the buffer.</param>
+    /// <param name="duration">How long it lasts, or null when that is not known.</param>
+    /// <param name="released">Called once when nothing in the pipeline uses the memory any more, just before it is closed.</param>
+    /// <returns>False when the pipeline takes no more data.</returns>
+    /// <exception cref="NotSupportedException"><c>libgstallocators</c> is not installed.</exception>
+    public bool PushDmaBuf(int fd, int size, TimeSpan timestamp, TimeSpan? duration = null, Action? released = null)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentOutOfRangeException.ThrowIfNegative(fd);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(size);
+        var buffer = GstMemory.DmaBuf(fd, size, Reported(released));
+        return buffer is not null
+            ? Submit(buffer, timestamp, duration)
+            : throw new MediaToolkitNetException(GstConstants.BackendName, $"the descriptor {fd} could not be wrapped.", 0);
+    }
+
+    // What the caller's action throws is reported, since it runs where nothing could catch it.
+    private Action? Reported(Action? released)
+    {
+        if (released is null)
+        {
+            return null;
+        }
+
+        var element = _element;
+        return () =>
+        {
+            try
+            {
+                released();
+            }
+            catch (Exception ex)
+            {
+                element.ReportFailure($"releasing a buffer threw: {ex.Message}");
+            }
+        };
+    }
+
     /// <summary>Tells the pipeline no more data is coming. Everything pushed before is still delivered.</summary>
     public void EndOfStream()
     {

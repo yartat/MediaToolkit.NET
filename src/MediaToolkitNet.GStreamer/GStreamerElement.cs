@@ -843,6 +843,9 @@ public sealed unsafe class GStreamerElement : IDisposable
         }
     }
 
+    internal void ReportFailure(string message) =>
+        SafeEvents.RaiseFailed(Failed, this, new MediaToolkitNetException(GstConstants.BackendName, message, 0));
+
     /// <summary>A static pad of the element, as a reference the caller owns, or null.</summary>
     internal void* GetStaticPad(string name)
     {
