@@ -56,6 +56,12 @@ public sealed class GStreamerWebRtcStream
     public string Pad { get; }
 
     /// <summary>
+    /// What it is: the first structure names the <c>media</c> (<c>video</c>, <c>audio</c>) and the
+    /// <c>encoding-name</c> (<c>VP8</c>, <c>H264</c>, <c>OPUS</c>), which says the depayloader and decoder it needs.
+    /// </summary>
+    public GStreamerCaps? Caps => _peer.Bin.PadCaps(Pad);
+
+    /// <summary>
     /// Takes the stream into a part of a pipeline, built from a description that starts with the depayloader, such as
     /// <c>rtpvp8depay ! vp8dec ! appsink name=picture async=false</c>.
     /// </summary>

@@ -380,6 +380,15 @@ server.Start();
 Console.WriteLine(server.Url("/camera"));                   // rtsp://127.0.0.1:8554/camera
 ```
 
+Clients take a stream over UDP or inside the RTSP connection over TCP, as they choose; `transports:` limits what a path
+offers. H.264, H.265, VP8, VP9, Opus and AAC have been served, each with its own payloader (`rtph264pay`,
+`rtph265pay`, `rtpvp8pay`, `rtpvp9pay`, `rtpopuspay`, `rtpmp4gpay`), picture as `pay0` and sound as `pay1`. FFmpeg 7.1
+does not read the VP9 stream (its depacketizer is experimental); `rtspsrc` does.
+
+```csharp
+server.AddStream("/lan", description, transports: GStreamerRtspTransports.Tcp);
+```
+
 The server has **no authentication and no encryption**: whoever reaches the port can watch, which is why it listens on
 the loopback unless told otherwise. A description is run as written, so do not build one from what a user typed.
 
@@ -398,6 +407,16 @@ viewer.AddReceiver("application/x-rtp,media=video,encoding-name=VP8,payload=96,c
 viewer.StreamReceived += stream => stream.ReceiveInto("rtpvp8depay ! vp8dec ! videoconvert ! autovideosink");
 viewer.Start();
 await viewer.ExchangeAsync(new Uri("https://media.example.org/whep/live"));
+```
+
+H.264, VP8, VP9 and Opus have crossed a connection. With several streams, `stream.Caps` says which one has arrived,
+and so which depayloader it needs:
+
+```csharp
+peer.StreamReceived += stream => stream.ReceiveInto(
+    stream.Caps!.Structures[0].Get<string>("encoding-name") == "OPUS"
+        ? "rtpopusdepay ! opusdec ! audioconvert ! autoaudiosink"
+        : "rtpvp8depay ! vp8dec ! videoconvert ! autovideosink");
 ```
 
 With your own signalling use `CreateOfferAsync`, `AcceptOfferAsync`, `AcceptAnswerAsync`, the `IceCandidate` event and

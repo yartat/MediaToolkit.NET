@@ -12,6 +12,17 @@ using MediaToolkitNet.Interop;
 
 namespace MediaToolkitNet.GStreamer;
 
+/// <summary>How a client may be sent a stream's media; the values are <c>GstRTSPLowerTrans</c>'s.</summary>
+[Flags]
+public enum GStreamerRtspTransports
+{
+    /// <summary>RTP in UDP packets: the usual way, with the least delay; a packet that is lost stays lost.</summary>
+    Udp = 1,
+
+    /// <summary>RTP inside the RTSP connection: nothing is lost and one port is enough, at the cost of delay.</summary>
+    Tcp = 4,
+}
+
 /// <summary>
 /// The pipeline an RTSP server has just built for a stream, before it runs: where the application gets at the elements
 /// of the description, an <c>appsrc</c> to feed for one.
@@ -195,8 +206,22 @@ public sealed unsafe class GStreamerRtspServer : IDisposable
     /// </param>
     /// <param name="configure">Called with each media as it is built, before it runs.</param>
     /// <param name="shared">Whether all clients watch one pipeline, rather than each having its own.</param>
-    public void AddStream(string path, string description, Action<GStreamerRtspMedia>? configure = null, bool shared = true)
+    /// <param name="transports">
+    /// How clients may receive it; both by default, and the client chooses. Over UDP the media goes to and from ports of
+    /// their own, which a firewall has to let through.
+    /// </param>
+    public void AddStream(
+        string path,
+        string description,
+        Action<GStreamerRtspMedia>? configure = null,
+        bool shared = true,
+        GStreamerRtspTransports transports = GStreamerRtspTransports.Udp | GStreamerRtspTransports.Tcp)
     {
+        if (transports == 0 || (transports & ~(GStreamerRtspTransports.Udp | GStreamerRtspTransports.Tcp)) != 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(transports), transports, "Name UDP, TCP or both.");
+        }
+
         CheckPath(path);
         ArgumentException.ThrowIfNullOrWhiteSpace(description);
         ObjectDisposedException.ThrowIf(_server is null, this);
@@ -208,6 +233,7 @@ public sealed unsafe class GStreamerRtspServer : IDisposable
         using var pathUtf8 = new Utf8Scoped(path, pathScratch);
         GstRtspServer.SetLaunch(factory, descriptionUtf8.Pointer);
         GstRtspServer.SetShared(factory, shared ? 1 : 0);
+        GstRtspServer.SetProtocols(factory, (int)transports);
 
         if (configure is not null)
         {

@@ -806,6 +806,43 @@ public sealed unsafe class GStreamerElement : IDisposable
 
     private static MediaToolkitNetException Refused(string message) => new(GstConstants.BackendName, message, 0);
 
+    // The caps a pad has settled on or, before that, those it can only have; null when it has no such pad.
+    internal GStreamerCaps? PadCaps(string pad)
+    {
+        var handle = GetStaticPad(pad);
+        if (handle is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            var caps = Gst.gst_pad_get_current_caps(handle);
+            if (caps is null)
+            {
+                caps = Gst.gst_pad_query_caps(handle, null);
+            }
+
+            if (caps is null)
+            {
+                return null;
+            }
+
+            try
+            {
+                return GStreamerCaps.From(caps);
+            }
+            finally
+            {
+                Gst.gst_mini_object_unref(caps);
+            }
+        }
+        finally
+        {
+            Gst.gst_object_unref(handle);
+        }
+    }
+
     /// <summary>A static pad of the element, as a reference the caller owns, or null.</summary>
     internal void* GetStaticPad(string name)
     {

@@ -29,6 +29,7 @@ internal static unsafe class GstRtspServer
     public static delegate* unmanaged[Cdecl]<void*> FactoryNew;
     public static delegate* unmanaged[Cdecl]<void*, byte*, void> SetLaunch;
     public static delegate* unmanaged[Cdecl]<void*, int, void> SetShared;
+    public static delegate* unmanaged[Cdecl]<void*, int, void> SetProtocols;
     public static delegate* unmanaged[Cdecl]<void*, void*> MediaGetElement;
     public static delegate* unmanaged[Cdecl]<void*, byte*, void*, void> AddFactory;
     public static delegate* unmanaged[Cdecl]<void*, byte*, void> RemoveFactory;
@@ -86,6 +87,7 @@ internal static unsafe class GstRtspServer
             FactoryNew = (delegate* unmanaged[Cdecl]<void*>)server.GetExport("gst_rtsp_media_factory_new");
             SetLaunch = (delegate* unmanaged[Cdecl]<void*, byte*, void>)server.GetExport("gst_rtsp_media_factory_set_launch");
             SetShared = (delegate* unmanaged[Cdecl]<void*, int, void>)server.GetExport("gst_rtsp_media_factory_set_shared");
+            SetProtocols = (delegate* unmanaged[Cdecl]<void*, int, void>)server.GetExport("gst_rtsp_media_factory_set_protocols");
             MediaGetElement = (delegate* unmanaged[Cdecl]<void*, void*>)server.GetExport("gst_rtsp_media_get_element");
             AddFactory = (delegate* unmanaged[Cdecl]<void*, byte*, void*, void>)server.GetExport("gst_rtsp_mount_points_add_factory");
             RemoveFactory = (delegate* unmanaged[Cdecl]<void*, byte*, void>)server.GetExport("gst_rtsp_mount_points_remove_factory");
