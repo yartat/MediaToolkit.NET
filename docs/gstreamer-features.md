@@ -65,8 +65,8 @@ Out of scope here, because they implement shared interfaces: `GStreamerPlayer`, 
 | 38 | Device hot-plug monitoring (`GstDeviceMonitor`) | Partial | `GStreamerDeviceMonitor`; listing tried, the added and removed events not |
 | 39 | Zero-copy memory (DMABuf, GL, CUDA) | Partial | `PushNoCopy`, `PushDmaBuf`, `DmaBufFd`; DMABuf tried with `memfd` only; no GL or CUDA |
 | 40 | Editing timeline (GStreamer Editing Services) | No | Separate native library |
-| 41 | Elements written in .NET | No | |
+| 41 | Elements written in .NET | Partial | `GStreamerTransform`: in-place transforms only; no sources, sinks, properties or format changes |
 
 ## Suggested order
 
-1. 40 and 41, if editing or .NET elements are wanted.
+1. 40, if editing is wanted.

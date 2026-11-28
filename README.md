@@ -438,6 +438,26 @@ sink.TryPullData(timeout, (in GStreamerData data) =>
 A sink keeps its last buffer (`enable-last-sample`), and `appsink` its first, until it stops, so not every buffer comes
 back while the pipeline runs. OpenGL and CUDA memory are not exposed.
 
+An **element can be written in .NET**: a transform that changes buffers where they are, or drops them. Registered once,
+it is used by name like any other, in a parsed description too:
+
+```csharp
+sealed class Invert : GStreamerTransform
+{
+    public override bool Process(Span<byte> data, TimeSpan? timestamp)
+    {
+        for (var i = 0; i < data.Length; i++) data[i] = (byte)(255 - data[i]);
+        return true;                                        // false drops the buffer
+    }
+}
+
+GStreamerTransform.Register("invert", "video/x-raw,format=BGRA", () => new Invert(), onError: Console.WriteLine);
+using var pipeline = GStreamerPipeline.Parse("videotestsrc ! video/x-raw,format=BGRA ! invert ! videoconvert ! autovideosink");
+```
+
+`Process` runs on the streaming thread, which waits for it. The format going out is the format coming in, and a buffer
+keeps its size; sources, sinks, converters and elements with properties of their own cannot be written yet.
+
 The pipeline's **bus** reports what happens inside it, and an element's **signals** can be handled, with no GLib main loop:
 
 ```csharp
